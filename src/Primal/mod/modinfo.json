@@ -1,0 +1,10 @@
+{
+	"id": "rokas.primal",
+	"name": "Primal",
+	"version": "0.1.0",
+	"authors": "Rokas",
+	"description": "Alternate versions of vanilla, Downpour, and Watcher slugcats with custom abilities (gimmicks), reached via a toggle on the character select screen.",
+	"requirements": [ "slime-cubed.slugbase" ],
+	"requirements_names": [ "SlugBase" ],
+	"tags": [ "Custom Slugcat" ]
+}

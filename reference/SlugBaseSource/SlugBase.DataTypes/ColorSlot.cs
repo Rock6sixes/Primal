@@ -1,0 +1,101 @@
+using System;
+using System.Linq;
+using UnityEngine;
+
+namespace SlugBase.DataTypes;
+
+/// <summary>
+/// Represents a color that may be configured by the user.
+/// </summary>
+public class ColorSlot
+{
+	/// <summary>
+	/// The index of this color slot in <see cref="M:PlayerGraphics.ColoredBodyPartList(SlugcatStats.Name)" />.
+	/// </summary>
+	public int Index { get; }
+
+	/// <summary>
+	/// This color's name for use with <see cref="T:SlugBase.DataTypes.PlayerColor" />.
+	/// </summary>
+	public string Name { get; }
+
+	/// <summary>
+	/// The default color.
+	/// </summary>
+	public Color Default { get; set; }
+
+	/// <summary>
+	/// The preset colors to use in multiplayer.
+	/// </summary>
+	public Color[] Variants { get; set; }
+
+	/// <summary>
+	/// Create an empty <see cref="T:SlugBase.DataTypes.ColorSlot" />.
+	/// </summary>
+	/// <param name="index">The index for use with <see cref="M:PlayerGraphics.ColoredBodyPartList(SlugcatStats.Name)" />.</param>
+	/// <param name="name">The name of the body part this colors.</param>
+	public ColorSlot(int index, string name)
+	{
+		Index = index;
+		Name = name;
+		Variants = Array.Empty<Color>();
+	}
+
+	/// <summary>
+	/// Create a <see cref="T:SlugBase.DataTypes.ColorSlot" /> from JSON.
+	/// </summary>
+	/// <param name="index">The index for use with <see cref="M:PlayerGraphics.ColoredBodyPartList(SlugcatStats.Name)" />.</param>
+	/// <param name="json">The JSON to load.</param>
+	public ColorSlot(int index, JsonAny json)
+		: this(index, json.AsObject().GetString("name"))
+	{
+		JsonObject jsonObject = json.AsObject();
+		Default = JsonUtils.ToColor(jsonObject.Get("story"));
+		JsonList? jsonList = jsonObject.TryGet("arena")?.AsList();
+		if (jsonList.HasValue)
+		{
+			JsonList valueOrDefault = jsonList.GetValueOrDefault();
+			if (true)
+			{
+				Variants = valueOrDefault.Select(JsonUtils.ToColor).ToArray();
+			}
+		}
+	}
+
+	/// <summary>
+	/// Gets a color variant from <see cref="P:SlugBase.DataTypes.ColorSlot.Variants" /> by index.
+	/// </summary>
+	/// <param name="slugcatCharacter">The index.</param>
+	/// <returns>The color for <paramref name="slugcatCharacter" /> from <see cref="P:SlugBase.DataTypes.ColorSlot.Variants" />, or <see cref="P:SlugBase.DataTypes.ColorSlot.Default" /> if the index was out of range.</returns>
+	public Color GetColor(int slugcatCharacter)
+	{
+		if (slugcatCharacter < 0 || slugcatCharacter >= Variants.Length)
+		{
+			return Default;
+		}
+		return Variants[slugcatCharacter];
+	}
+
+	/// <summary>
+	/// Gets the color of this slot for a given player.
+	/// </summary>
+	/// <param name="graphics">The player graphics to get the color from.</param>
+	/// <returns>The color of this body part after modifications are applied.</returns>
+	public Color GetColor(PlayerGraphics graphics)
+	{
+		int playerNumber = graphics.player.playerState.playerNumber;
+		if (ModManager.CoopAvailable && graphics.useJollyColor && playerNumber >= 0 && playerNumber < PlayerGraphics.jollyColors.Length && Index >= 0 && Index < PlayerGraphics.jollyColors[playerNumber].Length)
+		{
+			return PlayerGraphics.JollyColor(playerNumber, Index);
+		}
+		if (PlayerGraphics.CustomColorsEnabled() && Index >= 0 && Index < PlayerGraphics.customColors.Count)
+		{
+			return PlayerGraphics.CustomColorSafety(Index);
+		}
+		if ((ExtEnum<Name>)(object)graphics.CharacterForColor != (ExtEnum<Name>)(object)graphics.player.SlugCatClass)
+		{
+			return GetColor(((ExtEnumBase)graphics.CharacterForColor).Index);
+		}
+		return Default;
+	}
+}
