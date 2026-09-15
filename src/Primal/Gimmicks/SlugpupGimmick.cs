@@ -77,20 +77,12 @@ namespace Primal.Gimmicks
             }
 
             Player self = __instance;
-            RainWorldGame game = self.abstractCreature?.world?.game;
-            RainWorld rainWorld = game?.rainWorld;
-            if (self.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld))
+            if (!GimmickGate.IsActiveFor(self, ID, out string characterID))
             {
                 return;
             }
 
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
-            {
-                return;
-            }
-
-            if (SlugpupEndingMarker.HasEnded(game, characterID))
+            if (SlugpupEndingMarker.HasEnded(GimmickGate.GameFor(self), characterID))
             {
                 // Beat the game with this setting on -- permanently stopped for this character on
                 // this save file. See SlugpupEndingHook's doc comment.
@@ -207,21 +199,14 @@ namespace Primal.Gimmicks
         // it. See this class's doc comment above for why that timing matters.
         private static void Postfix(Player player)
         {
-            Player self = player;
-            RainWorld rainWorld = self?.abstractCreature?.world?.game?.rainWorld;
-            if (self?.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld) || self.isNPC)
-            {
-                return;
-            }
-
             // 2026-09-15: SlugCatClass is no longer flipped by this gimmick at all (see
             // SlugpupGimmick's own doc comment above for why) -- the real identity always comes
-            // from playerState, and the fact that NPCStats is being constructed at all already
-            // proves isSlugpup was true for this player (either genuinely, or because
-            // SlugpupGimmick's own Postfix forced it), so there's nothing left to double-check
-            // via SlugCatClass here.
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, SlugpupGimmick.ID))
+            // from playerState (which is what GimmickGate reads), and the fact that NPCStats is
+            // being constructed at all already proves isSlugpup was true for this player (either
+            // genuinely, or because SlugpupGimmick's own Postfix forced it), so there's nothing
+            // left to double-check via SlugCatClass here.
+            Player self = player;
+            if (self == null || self.isNPC || !GimmickGate.IsActiveFor(self, SlugpupGimmick.ID, out string characterID))
             {
                 return;
             }
@@ -258,14 +243,8 @@ namespace Primal.Gimmicks
         private static void Postfix(Player __instance)
         {
             Player self = __instance;
-            RainWorld rainWorld = self?.abstractCreature?.world?.game?.rainWorld;
-            if (self?.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld) || self.isNPC || !self.isSlugpup)
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, SlugpupGimmick.ID))
+            if (self == null || self.isNPC || !self.isSlugpup
+                || !GimmickGate.IsActiveFor(self, SlugpupGimmick.ID, out string characterID))
             {
                 return;
             }
@@ -383,19 +362,8 @@ namespace Primal.Gimmicks
         private static void Postfix(Player __instance, ref Color __result)
         {
             Player self = __instance;
-            RainWorld rainWorld = self?.abstractCreature?.world?.game?.rainWorld;
-            if (self?.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld) || self.isNPC)
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, SlugpupGimmick.ID))
-            {
-                return;
-            }
-
-            if (!self.isSlugpup)
+            if (self == null || self.isNPC || !self.isSlugpup
+                || !GimmickGate.IsActiveFor(self, SlugpupGimmick.ID))
             {
                 return;
             }
@@ -512,40 +480,50 @@ namespace Primal.Gimmicks
     {
         private const string SaveMarkerKey = "PRIMAL_SLUGPUP_ENDED";
 
+        // Per-character marker strings, built once and reused. HasEnded below is called from
+        // SlugpupGimmick's Postfix on Player.isSlugpup's GETTER -- a property vanilla reads 53
+        // separate times in Player.cs alone, many of them per tick -- so it must not allocate.
+        // Before 2026-09-15 it built the marker string fresh on every call AND then did a linear
+        // List<string>.Contains over unrecognizedSaveStrings (a list the Kill List gimmick can put
+        // 55 more entries into), i.e. a full scan dozens of times per frame. Now: one dictionary
+        // lookup here, one cached HashSet lookup in PrimalSaveMarkers, no allocation either side.
+        private static readonly Dictionary<string, string> _markers = new Dictionary<string, string>();
+
         private static string Marker(string characterID)
         {
-            return SaveMarkerKey + "<dpB>" + characterID;
+            if (!_markers.TryGetValue(characterID, out string marker))
+            {
+                marker = PrimalSaveMarkers.Marker(SaveMarkerKey, characterID);
+                _markers[characterID] = marker;
+            }
+            return marker;
         }
 
         public static bool HasEnded(RainWorldGame game, string characterID)
         {
-            if (game == null || characterID == null || !game.IsStorySession)
-            {
-                return false;
-            }
-
-            List<string> markers = game.GetStorySession?.saveState?.deathPersistentSaveData?.unrecognizedSaveStrings;
-            return markers != null && markers.Contains(Marker(characterID));
+            DeathPersistentSaveData saveData = SaveDataFor(game);
+            return saveData != null && characterID != null && PrimalSaveMarkers.Has(saveData, Marker(characterID));
         }
 
         // Returns true if this call is what actually recorded the marker (false if it was already
         // present, or if it couldn't be written) -- so callers can log only on the real transition.
         public static bool RecordEnded(RainWorldGame game, string characterID)
         {
-            List<string> markers = game?.GetStorySession?.saveState?.deathPersistentSaveData?.unrecognizedSaveStrings;
-            if (markers == null || characterID == null)
+            DeathPersistentSaveData saveData = SaveDataFor(game);
+            if (saveData == null || characterID == null)
             {
                 return false;
             }
+            return PrimalSaveMarkers.Add(saveData, Marker(characterID));
+        }
 
-            string marker = Marker(characterID);
-            if (markers.Contains(marker))
+        private static DeathPersistentSaveData SaveDataFor(RainWorldGame game)
+        {
+            if (game == null || !game.IsStorySession)
             {
-                return false;
+                return null;
             }
-
-            markers.Add(marker);
-            return true;
+            return game.GetStorySession?.saveState?.deathPersistentSaveData;
         }
     }
 

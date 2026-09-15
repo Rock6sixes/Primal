@@ -85,16 +85,24 @@ was tried twice and rejected both times for good reasons (see History).
 
 ## Current architecture (as of this doc)
 
-- `PrimalSlot.ReservedSlot = 666666` — the one save slot number this mod treats specially. Chosen
-  because Rain World only ever uses `saveSlot` to build a filename string, never as an index, so an
-  arbitrarily large number is safe, and nothing else will plausibly generate it.
-- `PrimalSlot.IsActive(RainWorld)` — `rainWorld.options.saveSlot == ReservedSlot`. This is the single
-  gate every gimmick patch checks before doing anything.
+- `PrimalSlot.ReservedSlot = 666666` — the **first** of a range of save slot numbers this mod
+  reserves: one per real vanilla slot, so real slot N's Primal counterpart is `ReservedSlot + N`
+  (`PrimalSlotFor`/`RealSlotFor`). Chosen because Rain World only ever uses `saveSlot` to build a
+  filename string, never as an index, so arbitrarily large numbers are safe, and nothing else will
+  plausibly generate anything in this range.
+- `PrimalSlot.IsActive(RainWorld)` — `rainWorld.options.saveSlot >= ReservedSlot`, i.e. a **range**
+  check, not equality against one fixed slot (it was equality until the 2026-09-13 multiple-Primal-
+  slots change; see PrimalSlot.cs's own header). This is the single gate every gimmick patch checks
+  before doing anything.
 - A gimmick is: one Harmony patch class + a stable string ID. It reads
   `player.playerState.slugcatCharacter.value` (the player's **real, unfaked** vanilla identity) and
-  `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior.
-- `GimmickRegistry` lists the known gimmicks (currently: `Misery`, `Slugpup`, `OneSpear` (shown in
-  the UI as "Master Spear"), `TimeLimit`, `NoSpears`, `Chains`).
+  `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior. In
+  practice every patch does that through **`GimmickGate`** (see below) rather than open-coding it.
+- `GimmickRegistry` lists the known gimmicks — currently 13: `Misery`, `Slugpup`, `OneSpear` (shown
+  in the UI as "Master Spear"), `TimeLimit`, `NoSpears`, `Chains`, `NoYeeks`, `NoCicadas`,
+  `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`, `CreatureKillList` (shown as "Kill
+  List"). Each `GimmickDef` takes its ID from the owning patch class's own `ID` const rather than
+  re-typing the string, so the two can't drift apart silently.
   `GimmickAssignments` is the runtime enabled/disabled lookup (Remix-configured override, falling
   back to a hardcoded default from `GimmickDefaults`). `PrimalOptions` builds the Remix menu
   screen as a **permanent character grid with a detail panel appended below it** — see "Config menu
@@ -105,7 +113,17 @@ was tried twice and rejected both times for good reasons (see History).
 - `GimmickDef` (see `Gimmicks/GimmickDef.cs`) optionally carries `BindSettings`/`BuildSettingsUI` —
   a gimmick can expose its own settings sub-view (e.g. TimeLimit's minutes + per-cycle/per-run
   toggle) beyond the plain enabled/disabled flag. See that file's own doc comments and the section
-  below for the pattern; `Misery` and `Slugpup` currently have none (both null).
+  below for the pattern. Gimmicks with no settings at all (both null, so the screen shows a plain
+  "no settings" message instead): `Misery`, `NoYeeks`, `NoCicadas`, `NoMauling`, `NoPassages`,
+  `CreatureKillList`.
+- **Shared helpers (added 2026-09-15, in the refactor pass — see "Shared helpers and the 2026-09-15
+  refactor, in detail" below).** Four small classes every gimmick now leans on instead of
+  re-implementing the same thing per file:
+  `GimmickGate` (the player → real character → IsActive → IsEnabled gate, in one place),
+  `PrimalSaveMarkers` (this mod's `unrecognizedSaveStrings` marker format + a cached lookup),
+  `PrimalMenuAccess` (the one reflected `KarmaLadderScreen.saveState` handle the menu-side patches
+  share), and `ThreatReader` (the threat lookup both threat gimmicks read, memoized per frame).
+  `PrimalSettings` holds the one mod-wide (not per-character) setting, the slot-switch key.
 - `PrimalSlotOptionsMenuHooks.cs` adds the 4th button to the vanilla Options menu and makes it
   drive the exact same `Menu.OptionsMenu.SetCurrentlySelectedOfSeries("SaveSlot", ...)` /
   `GetCurrentlySelectedOfSeries` / `ProgressionBusy` / `HandleSaveSlotChangeFailed` machinery
@@ -146,11 +164,36 @@ was tried twice and rejected both times for good reasons (see History).
   Slot Tab-switch, in detail** below.
 - `Gimmicks/GimmickDef.cs` — data class: ID + display name + description, plus optional
   `BindSettings`/`BuildSettingsUI` hooks for gimmicks with their own settings sub-view (see below).
-- `Gimmicks/GimmickRegistry.cs` — the list of all gimmicks (`GimmickRegistry.All`).
+- `Gimmicks/GimmickRegistry.cs` — the list of all gimmicks (`GimmickRegistry.All`). Each entry's ID
+  comes from the owning patch class's own `ID` const (`MiseryEffect.ID`, `ChainsGimmick.ID`, ...)
+  rather than a re-typed string literal, so a typo can't silently unwire a gimmick.
 - `Gimmicks/GimmickAssignments.cs` — runtime "is gimmick G enabled on character C" lookup
   (Remix-bound `Configurable<bool>`, falling back to a hardcoded default). Unchanged by the UI
   overhaul — `PrimalOptions` still calls `Register` for every (character, gimmick) pair
-  exactly as before; only how those pairs are *displayed* changed.
+  exactly as before; only how those pairs are *displayed* changed. **2026-09-15:** the composite
+  dictionary key is now an allocation-free `AssignmentKey` struct instead of `characterID + "|" +
+  gimmickID` (which allocated a string on every call of a method the doc claimed didn't allocate,
+  from the mod's hottest paths), and `GetConfigurable` was added so `PrimalOptions` can stop
+  keeping a second parallel dictionary of the same objects under a duplicate key format.
+- `Gimmicks/GimmickGate.cs` (new, 2026-09-15) — the shared "should this gimmick do anything for
+  this player right now" gate: resolve the live `RainWorld` off the player, `PrimalSlot.IsActive`,
+  read the real character ID, `GimmickAssignments.IsEnabled`. Replaces ~21 copy-pasted copies of
+  that block and unifies the two different ways patches used to reach `RainWorld` onto the robust
+  one (`abstractCreature.world.game`, valid mid-construction, with `room.game` as fallback). Also
+  has `IsEnabledForCharacter` for the menu-side patches, which have no `Player` to read.
+- `Gimmicks/PrimalSaveMarkers.cs` (new, 2026-09-15) — this mod's `DeathPersistentSaveData
+  .unrecognizedSaveStrings` marker convention (the `<dpB>` delimiter) and a per-save-data cached
+  lookup, shared by OneSpear, the Kill List, and the Slugpup ending flag. The cache is what makes
+  the Slugpup flag safe to check from `Player.isSlugpup`'s getter; see the refactor section below.
+- `Gimmicks/PrimalMenuAccess.cs` (new, 2026-09-15) — the single reflected
+  `Menu.KarmaLadderScreen.saveState` handle (and the character ID derived from it) that
+  `NoPassagesGimmick` and both Kill List menu hooks used to each cache separately.
+- `Gimmicks/ThreatReader.cs` (new, 2026-09-15) — the threat lookup and the "threat level 1"
+  threshold, extracted out of `ThreatSlowdownGimmick` (where `ThreatPanicGimmick` reached across to
+  call them) and memoized per `Time.frameCount`, since both gimmicks Postfix the same method and
+  Monk has both by default — so the whole reflection chain was running twice per tick.
+- `Gimmicks/PrimalSettings.cs` (new, 2026-09-15) — mod-wide (not per-character) settings. Currently
+  just the slot-switch key, previously a hardcoded `KeyCode.Tab` in `PrimalSlotTabSwitchHook`.
 - `Gimmicks/GimmickDefaults.cs` — the mod's out-of-the-box gimmick assignments (currently: Gourmand
   gets Misery + Slugpup; Spearmaster gets OneSpear + TimeLimit + NoSpears; Artificer gets Chains).
   Called from `RainWorldHooks`, not `Plugin`.
@@ -3433,6 +3476,88 @@ ending (`standardVoidSea: true`) on a Slugpup-assigned character and confirm the
 affected by that specific ending, per the user's own true/false distinction; (8) beat the game a
 second time on an already-ended character (if reachable) and confirm nothing breaks.
 
+## Shared helpers and the 2026-09-15 refactor, in detail
+
+**Why this happened.** The user asked for a full review of the codebase ("review all of the code
+for potential improvements, micro and macro refactorings or even potential architectural changes")
+and then for every proposal to be implemented in one pass, explicitly accepting that none of it can
+be built or tested here: *"im already 15 commits deep without testing. we'll just have to test
+everything at the same time, bit by bit, to bring it back probably, so a large rewrite is fine."*
+So this is a large, deliberately-untested change touching almost every file — treat the whole thing
+as suspect until a build and a play session say otherwise, and see Outstanding items for the
+testing order that isolates each piece.
+
+**The two real defects it fixed** (both shipping-affecting, both invisible from inside this
+container):
+
+1. **A hard dependency on SlugBase that the mod hasn't used since early 2026-09.** `Plugin.cs`
+   carried `[BepInDependency("slime-cubed.slugbase")]` and `mod/modinfo.json` listed it under
+   `requirements`. A bare `BepInDependency` defaults to `HardDependency`, so **BepInEx refused to
+   load Primal at all unless SlugBase was also installed** — for zero functionality: nothing in the
+   assembly references SlugBase in any form (only doc comments *saying* there are no SlugBase
+   characters), and `Primal.csproj` doesn't even reference it. Pure leftover from the two abandoned
+   custom-character designs in History below. Both declarations removed.
+2. **`modinfo.json` described the abandoned design** — "Alternate versions of vanilla, Downpour, and
+   Watcher slugcats with custom abilities (gimmicks), reached via a toggle on the character select
+   screen", tagged `"Custom Slugcat"`. That is the design that was rejected twice, and it's the text
+   players actually read in the mod manager. Rewritten to describe the reserved-slot design, tagged
+   `"Gameplay"`.
+
+**The three per-frame hot paths it fixed.** All three were introduced innocently and only became
+expensive in combination with something added later:
+
+1. **The Slugpup ending flag was being re-scanned from `Player.isSlugpup`'s getter.** The 2026-09-15
+   "ends on beating the game" feature added a `SlugpupEndingMarker.HasEnded` call to
+   `SlugpupGimmick`'s Postfix — which hangs off `isSlugpup`'s *getter*, a property vanilla reads
+   **53 separate times in `Player.cs` alone**, many per tick. `HasEnded` built a marker string
+   (allocation) and then did a linear `List<string>.Contains` over `unrecognizedSaveStrings` — a
+   list the Kill List gimmick can add 55 more entries to. Gourmand with both gimmicks late in a save
+   was doing a ~56-entry scan dozens of times per frame. Now: per-character marker strings are built
+   once and cached, and membership goes through `PrimalSaveMarkers`' per-save-data `HashSet`. O(1),
+   no allocation.
+2. **`ChainsHuntedModeHook` checked the cheapest gate last.** It Postfixes
+   `ArtificialIntelligence.Update` — every AI-driven creature, every realized room, every tick, so
+   dozens of calls per tick in a busy room. `PrimalSlot.IsActive` sat *inside* the per-player loop,
+   after resolving the room and iterating the whole player list. Hoisted to a single comparison at
+   the top of the Postfix, so off-slot (and off-gimmick) it short-circuits immediately.
+3. **Both threat gimmicks ran the same reflection chain independently, twice per tick.**
+   `ThreatSlowdown` and `ThreatPanic` both Postfix `Player.checkInput`, and each called
+   `GetCurrentThreat` (3–5 nested `FieldInfo.GetValue` calls, each boxing) for the same *global*
+   number. Monk has both assigned by default. Now both read `ThreatReader.ThreatFraction`, memoized
+   per `Time.frameCount` — one lookup per frame no matter how many gimmicks or players ask.
+
+**The macro refactor: `GimmickGate`.** Every gimmick needed the same four steps in the same order
+(resolve `RainWorld` → `PrimalSlot.IsActive` → real character ID → `GimmickAssignments.IsEnabled`),
+and that block was copy-pasted into roughly twenty patch bodies. `MiseryEffect.IsActiveFor` had
+already factored it out perfectly — but its name made it look Misery-specific, so nothing else
+reused it. It's now `GimmickGate`, and `MiseryEffect.IsActiveFor` is a thin alias over it.
+
+That consolidation also fixed a real inconsistency: **eight** gimmicks reached `RainWorld` through
+`player.room.game.rainWorld` while **three** (Chains, OneSpear, Slugpup) used
+`player.abstractCreature.world.game.rainWorld`. The second is strictly more robust — `Player.room`
+is null while the `Player` is still being constructed, which is exactly why Slugpup and OneSpear
+*had* to use it (both hook methods that run mid-constructor) — and the eight room-based ones would
+have silently no-opped rather than degraded if their patched method ever fired with no room.
+`GimmickGate.GameFor` tries the abstract-creature path first and falls back to `room`, so every
+caller gets the robust behavior without having to know any of this.
+
+**Everything else.** Three separate bespoke implementations of the save-marker pattern collapsed
+into `PrimalSaveMarkers` (which also turned the Kill List dialog's 55 separate linear scans into 55
+`HashSet` lookups); three separate cached `AccessTools.Field(KarmaLadderScreen, "saveState")`
+handles collapsed into `PrimalMenuAccess`; `GimmickRegistry` now takes each ID from the owning
+class's own `ID` const instead of re-typing the literal (a typo there used to be a silent, no-error
+way to unwire a gimmick — all 13 were verified to match before the change); `PrimalOptions` dropped
+its duplicate `_enabledConfigs` dictionary and `EnabledKey` helper in favour of
+`GimmickAssignments.GetConfigurable`; and the slot-switch key became configurable
+(`PrimalSettings`), shown as an `OpKeyBinder` in the Remix screen's title row.
+
+**Watch out for, when this is finally tested:** the `PrimalSaveMarkers` cache is keyed per
+`DeathPersistentSaveData` instance and validated by comparing the cached entry count against the
+live list's `Count` on every read, so loading a different save or anything else mutating the list
+self-heals. The one mutation it can't see is one that replaces an entry *without* changing the
+list's length — nothing does that to this list in practice, but if kill-list progress or a spear-pull
+count ever reads as stale, that's the first place to look.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
@@ -3464,6 +3589,36 @@ file). When in doubt, prefer the smaller patch that rides on an existing vanilla
 larger one that reimplements it.
 
 ## Outstanding items
+
+### Status at a glance (2026-09-15)
+
+Everything below the table is the long-form history for each item; the table is the "what do I test
+next" summary. **Nothing since the Chains core mechanic has been confirmed in-game** — roughly 16
+commits of unbuilt, untested work, by explicit user decision ("we'll just have to test everything
+at the same time, bit by bit, to bring it back probably").
+
+| Area | State | First thing to check |
+| --- | --- | --- |
+| **Whole-codebase refactor (2026-09-15)** | Unbuilt | Does it compile at all? It touches ~20 files. Then: does any gimmick still fire? |
+| SlugBase dependency removed | Unbuilt | Mod loads with SlugBase *uninstalled* |
+| Primal character names + "not implemented" labels | Unbuilt | All 10 names on the character-select screen |
+| Blacked-out portraits (6 characters) | Unbuilt | Survivor/Monk/Hunter vs Rivulet/Saint — different shaders, may diverge |
+| Slugpup rewrite (isSlugpup, not SlugCatClass) | Unbuilt | Gourmand looks fat *and* pup-sized |
+| Slugpup "ends on beating the game" | Unbuilt | Also fires for a non-Gourmand character's own alt ending |
+| Kill List gimmick | Unbuilt | Kill → shelter → button on cycle-end screen |
+| Threat Slowdown / Threat Panic | Unbuilt | Monk, with threat rising |
+| Chains gimmick | **Core confirmed in-game**; settings import unbuilt | The ported banlist/preset settings |
+| Primal Slot tab-switch | **Confirmed in-game** through round 3 | Rounds 4–5 (character preservation, multiple Primal slots) |
+| Config menu (grid + detail panel) | **Confirmed in-game** 2026-09-13 | The new slot-switch key binder in the title row |
+
+**Suggested testing order for the refactor specifically**, since it's the change most likely to
+break everything at once and the hardest to bisect: (1) does it build; (2) does the mod load with
+SlugBase uninstalled; (3) does the Remix screen still open and still show/save assignments (that
+exercises `GimmickAssignments`' new key struct, `PrimalOptions`' dropped dictionary, and the new key
+binder); (4) does any one simple gimmick still fire — Misery on Gourmand is the cheapest check, and
+it exercises `GimmickGate` end to end; (5) then the save-marker features (OneSpear's pull count,
+Kill List progress, Slugpup's ending flag), which all now share `PrimalSaveMarkers`; (6) then the
+per-frame ones (Chains, both threat gimmicks) for behavior *and* frame rate.
 
 *(Status as of this doc's last update: the user confirmed BOTH previously-outstanding drill-down
 bugs are resolved — the character grid overflow fix (5x2 layout) and the Gotcha #4

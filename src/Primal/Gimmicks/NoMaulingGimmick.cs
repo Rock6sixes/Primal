@@ -36,20 +36,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            Player self = __instance;
-            if (self?.playerState == null)
-            {
-                return;
-            }
-
-            RainWorld rainWorld = self.room?.game?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            if (!GimmickGate.IsActiveFor(__instance, ID))
             {
                 return;
             }

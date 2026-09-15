@@ -66,14 +66,7 @@ namespace Primal.Gimmicks
     {
         public static void ApplyIfEnabled(Player player, string caller)
         {
-            RainWorld rainWorld = player?.abstractCreature?.world?.game?.rainWorld;
-            if (player?.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            string characterID = player.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, OneSpearGimmick.ID))
+            if (!GimmickGate.IsActiveFor(player, OneSpearGimmick.ID, out string characterID))
             {
                 return;
             }
@@ -125,23 +118,18 @@ namespace Primal.Gimmicks
         // migrating for a mod still in active development with no real save files at stake.
         private const string SaveMarkerKey = "ALTCHAR_ONESPEAR";
 
+        // Marker formatting and the scan below both go through PrimalSaveMarkers as of 2026-09-15
+        // -- the "<dpB>" delimiter convention this gimmick originally invented is now shared with
+        // the Kill List and Slugpup gimmicks, documented in one place there rather than re-derived
+        // per feature.
         private static string UseMarker(string characterID, int useIndex)
         {
-            return SaveMarkerKey + "<dpB>" + characterID + "<dpB>" + useIndex;
+            return PrimalSaveMarkers.Marker(SaveMarkerKey, characterID, useIndex.ToString());
         }
 
-        private static int CountUsesSoFar(List<string> unrecognizedSaveStrings, string characterID)
+        private static int CountUsesSoFar(DeathPersistentSaveData saveData, string characterID)
         {
-            string prefix = SaveMarkerKey + "<dpB>" + characterID + "<dpB>";
-            int count = 0;
-            foreach (string entry in unrecognizedSaveStrings)
-            {
-                if (entry != null && entry.StartsWith(prefix))
-                {
-                    count++;
-                }
-            }
-            return count;
+            return PrimalSaveMarkers.CountWithPrefix(saveData, PrimalSaveMarkers.Prefix(SaveMarkerKey, characterID));
         }
 
         // setSpearProgress clamps its argument into [0, 1] internally; we only ever care about
@@ -177,25 +165,24 @@ namespace Primal.Gimmicks
 
             PlayerGraphics pGraphics = __instance?.pGraphics;
             Player player = pGraphics != null ? PlayerGraphicsPlayerField.GetValue(pGraphics) as Player : null;
-            if (player?.playerState == null || player.room?.game == null || !player.room.game.IsStorySession)
+            if (!GimmickGate.IsActiveFor(player, ID, out string characterID))
             {
                 return;
             }
 
-            if (!PrimalSlot.IsActive(player.room.game.rainWorld))
+            // Story-mode only: the pull count lives in DeathPersistentSaveData, which Arena and
+            // Sandbox don't have.
+            RainWorldGame game = GimmickGate.GameFor(player);
+            DeathPersistentSaveData saveData = game != null && game.IsStorySession
+                ? game.GetStorySession?.saveState?.deathPersistentSaveData
+                : null;
+            if (saveData == null)
             {
                 return;
             }
 
-            string characterID = player.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
-            {
-                return;
-            }
-
-            DeathPersistentSaveData saveData = player.room.game.GetStorySession.saveState.deathPersistentSaveData;
             int limit = OneSpearSettings.GetLimit(characterID);
-            int usesSoFar = CountUsesSoFar(saveData.unrecognizedSaveStrings, characterID);
+            int usesSoFar = CountUsesSoFar(saveData, characterID);
 
             if (usesSoFar >= limit)
             {
@@ -207,7 +194,7 @@ namespace Primal.Gimmicks
             // A pull is still available: let this completion through untouched (it'll finish
             // this tick and Player.Update() will spawn the spear), and permanently record that
             // it happened, indexed so CountUsesSoFar can tell how many have been spent so far.
-            saveData.unrecognizedSaveStrings.Add(UseMarker(characterID, usesSoFar));
+            PrimalSaveMarkers.Add(saveData, UseMarker(characterID, usesSoFar));
             Plugin.Log?.LogInfo($"[OneSpear] {characterID}: pull #{usesSoFar + 1}/{limit} used");
         }
     }

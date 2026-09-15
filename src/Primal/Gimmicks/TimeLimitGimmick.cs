@@ -54,26 +54,23 @@ namespace Primal.Gimmicks
         private static void Postfix(Player __instance)
         {
             Player self = __instance;
-            if (self?.playerState == null)
+            if (!GimmickGate.IsActiveFor(self, ID, out string characterID))
             {
                 return;
             }
 
-            RainWorld rainWorld = self.room?.game?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            // The gate above can resolve its RainWorld through the abstract creature rather than
+            // the realized room (see GimmickGate), so don't assume a room exists just because the
+            // gate passed -- both tick sources below need one.
+            RainWorldGame game = GimmickGate.GameFor(self);
+            if (game == null)
             {
                 return;
             }
 
             int limitTicks = TimeLimitSettings.GetMinutes(characterID) * 60 * TicksPerSecond;
             bool perCycle = TimeLimitSettings.GetPerCycle(characterID);
-            int currentTicks = perCycle ? (self.room.world?.rainCycle?.timer ?? 0) : self.room.game.clock;
+            int currentTicks = perCycle ? (self.room?.world?.rainCycle?.timer ?? 0) : game.clock;
 
             if (currentTicks < limitTicks)
             {

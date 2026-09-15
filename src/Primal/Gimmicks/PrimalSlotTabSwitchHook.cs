@@ -239,7 +239,11 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            if (!Input.GetKeyDown(KeyCode.Tab))
+            // Configurable as of 2026-09-15 (PrimalSettings.SlotSwitchKey, shown on this mod's own
+            // Remix screen) -- it was a hardcoded KeyCode.Tab before that, the one player-facing
+            // behavior in the mod with no way to change it if another mod wanted the same key.
+            // Falls back to Tab if the Configurable hasn't been bound yet.
+            if (!Input.GetKeyDown(PrimalSettings.SlotSwitchKey))
             {
                 return;
             }

@@ -100,22 +100,14 @@ namespace Primal.Gimmicks
             }
 
             Player player = killer?.realizedCreature as Player;
-            if (player?.playerState == null || player.room?.game == null || !player.room.game.IsStorySession)
-            {
-                // Not killed by a player, or killed outside a real story-mode save (Arena/Sandbox
-                // has no DeathPersistentSaveData to persist into, and PrimalSlot's whole design is
-                // story-mode-only anyway).
-                return;
-            }
-
-            RainWorld rainWorld = player.room.game.rainWorld;
-            if (!PrimalSlot.IsActive(rainWorld))
+            if (!GimmickGate.IsActiveFor(player, ID, out string characterID))
             {
                 return;
             }
 
-            string characterID = player.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            // Story-mode only: Arena/Sandbox has no DeathPersistentSaveData to eventually persist
+            // into, and PrimalSlot's whole design is story-mode-only anyway.
+            if (GimmickGate.GameFor(player)?.IsStorySession != true)
             {
                 return;
             }
@@ -152,17 +144,8 @@ namespace Primal.Gimmicks
             {
                 return;
             }
-            if (player.playerState == null || player.room?.game == null)
-            {
-                return;
-            }
-            if (!PrimalSlot.IsActive(player.room.game.rainWorld))
-            {
-                return;
-            }
 
-            string characterID = player.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID))
+            if (!GimmickGate.IsActiveFor(player, CreatureKillListGimmick.ID))
             {
                 return;
             }
@@ -173,7 +156,13 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            KillListTracker.RecordHandler(creature, player.abstractCreature, player.room.game.clock);
+            RainWorldGame game = GimmickGate.GameFor(player);
+            if (game == null)
+            {
+                return;
+            }
+
+            KillListTracker.RecordHandler(creature, player.abstractCreature, game.clock);
         }
     }
 
@@ -434,7 +423,7 @@ namespace Primal.Gimmicks
 
         private static string Marker(string characterID, string creatureID)
         {
-            return SaveMarkerKey + "<dpB>" + characterID + "<dpB>" + creatureID;
+            return PrimalSaveMarkers.Marker(SaveMarkerKey, characterID, creatureID);
         }
 
         public static void RecordPendingKill(string characterID, string creatureID)
@@ -473,21 +462,14 @@ namespace Primal.Gimmicks
             }
         }
 
+        /// <summary>Whether this character has permanently banked a kill of this species. Goes
+        /// through PrimalSaveMarkers' cached lookup rather than walking
+        /// unrecognizedSaveStrings -- this is called once per roster entry (55 of them) every time
+        /// the Kill List dialog opens, which used to be 55 separate linear scans of a list this
+        /// same gimmick can put 55 entries into.</summary>
         public static bool IsKilled(DeathPersistentSaveData saveData, string characterID, string creatureID)
         {
-            if (saveData?.unrecognizedSaveStrings == null)
-            {
-                return false;
-            }
-            string marker = Marker(characterID, creatureID);
-            foreach (string entry in saveData.unrecognizedSaveStrings)
-            {
-                if (entry == marker)
-                {
-                    return true;
-                }
-            }
-            return false;
+            return PrimalSaveMarkers.Has(saveData, Marker(characterID, creatureID));
         }
 
         /// <summary>Records the kill if it isn't already recorded. Returns true only the first
@@ -497,12 +479,7 @@ namespace Primal.Gimmicks
         /// directly.</summary>
         private static bool RecordKill(DeathPersistentSaveData saveData, string characterID, string creatureID)
         {
-            if (saveData == null || IsKilled(saveData, characterID, creatureID))
-            {
-                return false;
-            }
-            saveData.unrecognizedSaveStrings.Add(Marker(characterID, creatureID));
-            return true;
+            return PrimalSaveMarkers.Add(saveData, Marker(characterID, creatureID));
         }
     }
 
@@ -546,24 +523,11 @@ namespace Primal.Gimmicks
     {
         internal const string SignalText = "PRIMAL_KILLLIST";
 
-        private static readonly FieldInfo SaveStateField =
-            AccessTools.Field(typeof(Menu.KarmaLadderScreen), "saveState");
-
         private static void Postfix(Menu.SleepAndDeathScreen __instance)
         {
             RainWorld rainWorld = __instance.manager?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            if (!(SaveStateField?.GetValue(__instance) is SaveState saveState))
-            {
-                return;
-            }
-
-            string characterID = saveState.saveStateNumber?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID))
+            string characterID = PrimalMenuAccess.GetCharacterID(__instance);
+            if (!GimmickGate.IsEnabledForCharacter(rainWorld, characterID, CreatureKillListGimmick.ID))
             {
                 return;
             }
@@ -584,9 +548,6 @@ namespace Primal.Gimmicks
     [HarmonyPatch(typeof(Menu.SleepAndDeathScreen), nameof(Menu.SleepAndDeathScreen.Singal))]
     internal static class KillListSignalHook
     {
-        private static readonly FieldInfo SaveStateField =
-            AccessTools.Field(typeof(Menu.KarmaLadderScreen), "saveState");
-
         private static void Postfix(Menu.SleepAndDeathScreen __instance, Menu.MenuObject sender, string message)
         {
             if (message != KillListButtonHook.SignalText)
@@ -594,12 +555,8 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            if (!(SaveStateField?.GetValue(__instance) is SaveState saveState))
-            {
-                return;
-            }
-
-            string characterID = saveState.saveStateNumber?.value;
+            SaveState saveState = PrimalMenuAccess.GetSaveState(__instance);
+            string characterID = saveState?.saveStateNumber?.value;
             if (characterID == null)
             {
                 return;

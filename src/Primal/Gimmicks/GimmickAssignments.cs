@@ -1,10 +1,12 @@
+using System;
 using System.Collections.Generic;
 
 namespace Primal.Gimmicks
 {
     /// <summary>
     /// Runtime source of truth for "is gimmick G enabled on character C". Every gimmick's
-    /// Harmony patch calls IsEnabled() to decide whether to do anything for a given player.
+    /// Harmony patch calls IsEnabled() (usually via GimmickGate) to decide whether to do anything
+    /// for a given player.
     ///
     /// There are two layers, cheapest first:
     ///  1. A Remix-configured Configurable&lt;bool&gt;, if PrimalOptions has built one for
@@ -13,16 +15,59 @@ namespace Primal.Gimmicks
     ///  2. The mod's own hardcoded default (SetDefault), used before Remix has bound anything
     ///     (e.g. if the options screen is never opened) and as the Configurable's initial value.
     ///
-    /// Register()/SetDefault() are called once at load (PrimalOptions.Initialize and
-    /// this class's static constructor, respectively); IsEnabled() is called every frame per
+    /// Register()/SetDefault() are called once at load (PrimalOptions.EnsureConfigBound and
+    /// this class's own GimmickDefaults pass, respectively); IsEnabled() is called every frame per
     /// player by the gimmick patches, so it deliberately does no allocation.
+    ///
+    /// **That last sentence used to be false.** Until 2026-09-15 the composite dictionary key was
+    /// built as `characterID + "|" + gimmickID`, i.e. a fresh string allocation on every single
+    /// call -- from a method the doc right above it claimed allocated nothing, called dozens of
+    /// times per frame across every active gimmick (the Slugpup gimmick alone hangs off
+    /// Player.isSlugpup's getter, which vanilla reads 53 times in Player.cs). Replaced with the
+    /// AssignmentKey struct below: same single-lookup flat dictionary, no allocation, no
+    /// dependency on ValueTuple being available in the target framework.
     /// </summary>
     internal static class GimmickAssignments
     {
-        private static readonly Dictionary<string, bool> _defaults = new Dictionary<string, bool>();
-        private static readonly Dictionary<string, Configurable<bool>> _overrides = new Dictionary<string, Configurable<bool>>();
+        /// <summary>A (characterID, gimmickID) pair used as a dictionary key without allocating.
+        /// Hand-written rather than a ValueTuple purely to avoid depending on System.ValueTuple
+        /// being present in whichever net48 reference assemblies this ends up building against
+        /// (this project builds against Mono's on Linux -- see Primal.csproj's
+        /// FrameworkPathOverride).</summary>
+        private readonly struct AssignmentKey : IEquatable<AssignmentKey>
+        {
+            private readonly string _characterID;
+            private readonly string _gimmickID;
 
-        private static string Key(string characterID, string gimmickID) => characterID + "|" + gimmickID;
+            public AssignmentKey(string characterID, string gimmickID)
+            {
+                _characterID = characterID;
+                _gimmickID = gimmickID;
+            }
+
+            public bool Equals(AssignmentKey other)
+            {
+                return string.Equals(_characterID, other._characterID, StringComparison.Ordinal)
+                    && string.Equals(_gimmickID, other._gimmickID, StringComparison.Ordinal);
+            }
+
+            public override bool Equals(object obj)
+            {
+                return obj is AssignmentKey other && Equals(other);
+            }
+
+            public override int GetHashCode()
+            {
+                unchecked
+                {
+                    int hash = _characterID != null ? _characterID.GetHashCode() : 0;
+                    return (hash * 397) ^ (_gimmickID != null ? _gimmickID.GetHashCode() : 0);
+                }
+            }
+        }
+
+        private static readonly Dictionary<AssignmentKey, bool> _defaults = new Dictionary<AssignmentKey, bool>();
+        private static readonly Dictionary<AssignmentKey, Configurable<bool>> _overrides = new Dictionary<AssignmentKey, Configurable<bool>>();
 
         /// <summary>Sets the mod-defined default for whether a gimmick is enabled on a
         /// character absent any Remix configuration. Call during startup, before any
@@ -30,19 +75,29 @@ namespace Primal.Gimmicks
         /// initial value).</summary>
         public static void SetDefault(string characterID, string gimmickID, bool enabled)
         {
-            _defaults[Key(characterID, gimmickID)] = enabled;
+            _defaults[new AssignmentKey(characterID, gimmickID)] = enabled;
         }
 
         public static bool GetDefault(string characterID, string gimmickID)
         {
-            return _defaults.TryGetValue(Key(characterID, gimmickID), out bool value) && value;
+            return _defaults.TryGetValue(new AssignmentKey(characterID, gimmickID), out bool value) && value;
         }
 
         /// <summary>Called by PrimalOptions once it has bound a Remix checkbox for this
         /// pair, so IsEnabled() can start reading the live, user-editable value.</summary>
         public static void Register(string characterID, string gimmickID, Configurable<bool> configurable)
         {
-            _overrides[Key(characterID, gimmickID)] = configurable;
+            _overrides[new AssignmentKey(characterID, gimmickID)] = configurable;
+        }
+
+        /// <summary>The live Configurable behind this pair, if one has been bound. Lets
+        /// PrimalOptions read and flip assignments through this class rather than keeping its own
+        /// parallel dictionary of the same objects under a second key format.</summary>
+        public static Configurable<bool> GetConfigurable(string characterID, string gimmickID)
+        {
+            return _overrides.TryGetValue(new AssignmentKey(characterID, gimmickID), out Configurable<bool> configurable)
+                ? configurable
+                : null;
         }
 
         /// <summary>Whether the given gimmick is currently enabled for the given character.
@@ -53,7 +108,7 @@ namespace Primal.Gimmicks
             {
                 return false;
             }
-            string key = Key(characterID, gimmickID);
+            var key = new AssignmentKey(characterID, gimmickID);
             if (_overrides.TryGetValue(key, out Configurable<bool> configurable))
             {
                 return configurable.Value;

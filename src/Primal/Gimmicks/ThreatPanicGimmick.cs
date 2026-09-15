@@ -141,19 +141,13 @@ namespace Primal.Gimmicks
         private static void Postfix(Player __instance)
         {
             Player self = __instance;
-            if (self?.playerState == null)
+            if (!GimmickGate.IsActiveFor(self, ID, out string characterID))
             {
                 return;
             }
 
-            RainWorld rainWorld = self.room?.game?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            RainWorld rainWorld = GimmickGate.RainWorldFor(self);
+            if (rainWorld == null)
             {
                 return;
             }
@@ -165,10 +159,10 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            // Shared with ThreatSlowdownGimmick -- see this file's header comment for why the
-            // threshold and lookup are deliberately the same one, not a separate copy.
-            float threat = ThreatSlowdownGimmick.GetCurrentThreat(rainWorld);
-            float panicFraction = Mathf.Clamp01(threat / ThreatSlowdownGimmick.ThreatLevelOneThreshold);
+            // Shared with ThreatSlowdownGimmick via ThreatReader -- same threshold, same lookup,
+            // and (as of 2026-09-15) memoized per frame so both gimmicks being active on the same
+            // character doesn't run the whole reflection chain twice every tick.
+            float panicFraction = ThreatReader.ThreatFraction(rainWorld);
 
             if (!ActiveInstances.TryGetValue(self, out List<PanicInstance> instances))
             {

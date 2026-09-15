@@ -139,14 +139,12 @@ namespace Primal.Gimmicks
         // changes, without touching the grid, the title, or the subtitle above it.
         private readonly List<UIelement> _detailItems = new List<UIelement>();
 
-        // Every (character, gimmick) "is this assigned" Configurable<bool>, bound once up front
-        // in Initialize -- same objects GimmickAssignments.Register hands to the runtime patches,
-        // kept here too so the detail views can flip them directly (the "x" button and the
-        // add-gimmick picker) without needing new lookup surface on GimmickAssignments.
-        private readonly Dictionary<string, Configurable<bool>> _enabledConfigs = new Dictionary<string, Configurable<bool>>();
-
-        private static string EnabledKey(string characterID, string gimmickID) => characterID + "|" + gimmickID;
-
+        // This class used to keep its own parallel Dictionary<string, Configurable<bool>> of every
+        // (character, gimmick) assignment flag, keyed by a private EnabledKey() helper that was a
+        // verbatim duplicate of GimmickAssignments' own composite-key format -- two copies of the
+        // same objects under two copies of the same key scheme, in the same assembly. Removed
+        // 2026-09-15: GimmickAssignments.GetConfigurable is now the single lookup for both the
+        // runtime patches and this screen's own "x"/add-gimmick buttons.
         private DetailView _detailView = DetailView.None;
         private string _charID;
         private string _gimmickID;
@@ -174,6 +172,19 @@ namespace Primal.Gimmicks
                 new OpLabel(10f, TitleY, "Primal -- Gimmicks", true),
                 new OpLabel(10f, SubtitleY, "Select a character to edit its gimmicks:", false)
             };
+
+            // Mod-wide slot-switch key, parked on the title row's right-hand side -- the only
+            // setting on this screen that isn't per (character, gimmick), so it deliberately sits
+            // outside the grid/detail structure everything else uses.
+            OpKeyBinder slotSwitchBinder = PrimalSettings.BuildSlotSwitchBinder(
+                new Vector2(ContentLeft + ContentWidth - 120f, TitleY - 4f),
+                new Vector2(120f, 30f));
+            if (slotSwitchBinder != null)
+            {
+                permanentItems.Add(new OpLabel(ContentLeft + ContentWidth - 260f, TitleY, "Slot switch key:", false));
+                permanentItems.Add(slotSwitchBinder);
+            }
+
             permanentItems.AddRange(BuildCharacterGrid());
             _tab.AddItems(permanentItems.ToArray());
 
@@ -243,6 +254,11 @@ namespace Primal.Gimmicks
             }
             _configBound = true;
 
+            // Mod-wide settings (currently just the slot-switch key) bind here too, for exactly
+            // the same reason everything else does -- see Gotcha #7: an unbound Configurable is
+            // skipped by Remix's own config-load pass, so its saved value never survives a restart.
+            PrimalSettings.Bind(this);
+
             foreach (CharacterEntry character in AllCharacters)
             {
                 foreach (GimmickDef gimmick in GimmickRegistry.All)
@@ -255,7 +271,6 @@ namespace Primal.Gimmicks
                         new ConfigurableInfo(gimmick.DisplayName + " on " + character.DisplayName + ". " + gimmick.Description));
 
                     GimmickAssignments.Register(character.ID, gimmick.ID, configurable);
-                    _enabledConfigs[EnabledKey(character.ID, gimmick.ID)] = configurable;
 
                     // Bind this gimmick's own extra settings (if it has any) for this character,
                     // eagerly, same as the plain enabled/disabled flag above -- so the values
@@ -352,7 +367,7 @@ namespace Primal.Gimmicks
 
         private bool IsEnabledFor(string characterID, string gimmickID)
         {
-            return _enabledConfigs.TryGetValue(EnabledKey(characterID, gimmickID), out Configurable<bool> c) && c.Value;
+            return GimmickAssignments.IsEnabled(characterID, gimmickID);
         }
 
         // Every assignment change goes through here (both AddGimmick and RemoveGimmick call it),
@@ -362,7 +377,8 @@ namespace Primal.Gimmicks
         // button.
         private void SetEnabledFor(string characterID, string gimmickID, bool value)
         {
-            if (!_enabledConfigs.TryGetValue(EnabledKey(characterID, gimmickID), out Configurable<bool> c))
+            Configurable<bool> c = GimmickAssignments.GetConfigurable(characterID, gimmickID);
+            if (c == null)
             {
                 return;
             }

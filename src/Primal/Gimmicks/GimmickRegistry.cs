@@ -17,7 +17,7 @@ namespace Primal.Gimmicks
         /// lowered exhaustion threshold.
         /// </summary>
         public static readonly GimmickDef Misery = new GimmickDef(
-            "Misery",
+            MiseryEffect.ID,
             "Misery",
             "Every jump or wall-jump instantly maxes out exhaustion and comes out weak -- you have to let stamina recover between jumps, and even then jumps stay short.",
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Gourmand
@@ -40,7 +40,7 @@ namespace Primal.Gimmicks
         /// anything. See SlugpupEndingHook/SlugpupEndingSettings in SlugpupGimmick.cs.
         /// </summary>
         public static readonly GimmickDef Slugpup = new GimmickDef(
-            "Slugpup",
+            SlugpupGimmick.ID,
             "Slugpup",
             "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat.",
             SlugpupEndingSettings.Bind,
@@ -61,7 +61,7 @@ namespace Primal.Gimmicks
         /// to avoid disturbing existing default assignments and save markers.
         /// </summary>
         public static readonly GimmickDef OneSpear = new GimmickDef(
-            "OneSpear",
+            OneSpearGimmick.ID,
             "Master Spear",
             "Gains Spearmaster's tail spear-pull, his sole means of ever producing a weapon -- but it can only be pulled off a limited number of times for the whole save file; after that, the charge-up never quite finishes again.",
             OneSpearSettings.Bind,
@@ -77,7 +77,7 @@ namespace Primal.Gimmicks
         /// tick -- no warning yet, that's a later step.
         /// </summary>
         public static readonly GimmickDef TimeLimit = new GimmickDef(
-            "TimeLimit",
+            TimeLimitGimmick.ID,
             "Time Limit",
             "The character dies once the configured amount of time has passed, measured either for the whole run or per cycle.",
             TimeLimitSettings.Bind,
@@ -93,7 +93,7 @@ namespace Primal.Gimmicks
         /// types are still allowed can be configured -- see NoSpearsGimmick.NoSpearsSettings.
         /// </summary>
         public static readonly GimmickDef NoSpears = new GimmickDef(
-            "NoSpears",
+            NoSpearsGimmick.ID,
             "No Spears",
             "Spears become impossible to pick up -- they act as if they were never grabbable objects at all (individual spear types can be re-allowed in this gimmick's settings).",
             NoSpearsSettings.Bind,
@@ -111,7 +111,7 @@ namespace Primal.Gimmicks
         /// is dead (or a configurable escape timer runs out; see ChainsGimmick.ChainsSettings).
         /// </summary>
         public static readonly GimmickDef Chains = new GimmickDef(
-            "Chains",
+            ChainsGimmick.ID,
             "Chains",
             "Entering a room with living creatures in it seals every exit shut -- chained in place by void-chains -- until everything in the room is dead (or a configurable escape timer runs out).",
             ChainsSettings.Bind,
@@ -131,7 +131,7 @@ namespace Primal.Gimmicks
         /// to sub-select.
         /// </summary>
         public static readonly GimmickDef NoYeeks = new GimmickDef(
-            "NoYeeks",
+            NoYeeksGimmick.ID,
             "No Yeeks",
             "Yeeks become impossible to pick up -- they act as if they were never grabbable objects at all.",
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
@@ -144,7 +144,7 @@ namespace Primal.Gimmicks
         /// ChainsGimmick's excludeSquids preset flag.
         /// </summary>
         public static readonly GimmickDef NoCicadas = new GimmickDef(
-            "NoCicadas",
+            NoCicadasGimmick.ID,
             "No Squidcadas",
             "Squidcadas (cicadas) become impossible to pick up -- they act as if they were never grabbable objects at all.",
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
@@ -158,7 +158,7 @@ namespace Primal.Gimmicks
         /// playing under Artificer's own SlugCatClass.
         /// </summary>
         public static readonly GimmickDef NoMauling = new GimmickDef(
-            "NoMauling",
+            NoMaulingGimmick.ID,
             "No Mauling",
             "Disables the instant-kill maul grab outright (only ever relevant to a character playing under Artificer's own class in the first place).",
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
@@ -175,7 +175,7 @@ namespace Primal.Gimmicks
         /// menu keeps OpSimpleButton's own default color instead of being tagged.
         /// </summary>
         public static readonly GimmickDef NoPassages = new GimmickDef(
-            "NoPassages",
+            NoPassagesGimmick.ID,
             "No Passages",
             "Passages are still shown on the cycle-complete/death screen, but the button to actually use one is disabled."
         );
@@ -198,7 +198,7 @@ namespace Primal.Gimmicks
         /// assignment while testing, not a hardcoded default in GimmickDefaults.cs.
         /// </summary>
         public static readonly GimmickDef ThreatSlowdown = new GimmickDef(
-            "ThreatSlowdown",
+            ThreatSlowdownGimmick.ID,
             "Threat Slowdown",
             "Every tick has a rising chance of the character's real input being dropped entirely as vanilla's own threat meter rises, reaching guaranteed lockout once one pulse-circle is lit (\"threat level 1\").",
             homeCharacter: SlugcatStats.Name.Yellow
@@ -220,7 +220,7 @@ namespace Primal.Gimmicks
         /// ThreatPanicGimmick.cs's header comment, for the full account of the swap.
         /// </summary>
         public static readonly GimmickDef ThreatPanic = new GimmickDef(
-            "ThreatPanic",
+            ThreatPanicGimmick.ID,
             "Threat Panic",
             "As threat rises, the character starts involuntarily firing off random inputs -- a direction, grab, throw, or jump, held briefly -- on top of the player's own real input (which is never blocked), reaching maximum frequency at threat level 1.",
             PanicSettings.Bind,
@@ -242,7 +242,7 @@ namespace Primal.Gimmicks
         /// Remix menu, per explicit request.
         /// </summary>
         public static readonly GimmickDef CreatureKillList = new GimmickDef(
-            "CreatureKillList",
+            CreatureKillListGimmick.ID,
             "Kill List",
             "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );

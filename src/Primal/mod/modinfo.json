@@ -3,8 +3,6 @@
 	"name": "Primal",
 	"version": "0.1.0",
 	"authors": "Rokas",
-	"description": "Alternate versions of vanilla, Downpour, and Watcher slugcats with custom abilities (gimmicks), reached via a toggle on the character select screen.",
-	"requirements": [ "slime-cubed.slugbase" ],
-	"requirements_names": [ "SlugBase" ],
-	"tags": [ "Custom Slugcat" ]
+	"description": "Adds a fourth save slot per vanilla slot. On those slots only, the ordinary vanilla slugcats can have extra gameplay modifiers ('gimmicks') layered on top of them - configured per character in this mod's Remix options. Every other save slot plays completely unmodified.",
+	"tags": [ "Gameplay" ]
 }
