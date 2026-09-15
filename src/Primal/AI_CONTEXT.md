@@ -115,11 +115,22 @@ was tried twice and rejected both times for good reasons (see History).
 - `RainWorldHooks.cs` — a Postfix on `RainWorld.OnModsInit`. This is where `GimmickDefaults.Apply()`
   runs and where the Remix options screen gets registered (`MachineConnector.SetRegisteredOI`).
   **Do not move this earlier** — see Gotcha #2.
-- `PrimalCharacterNames.cs` (new, 2026-09-11; revised 2026-09-15) — while on the alt slot, relabels
-  Gourmand, Spearmaster, Sofanthiel, and Artificer on the "choose your character" screen as
-  "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER" / "PRIMAL ???" / "PRIMAL ARTIFICER", with a description
-  listing whichever gimmicks are currently assigned to them (Sofanthiel has none). See "Primal
-  character names, in detail" below.
+- `PrimalCharacterNames.cs` (new, 2026-09-11; revised 2026-09-15 twice) — while on the alt slot,
+  relabels **every** character on the "choose your character" screen as "PRIMAL &lt;NAME&gt;".
+  Gourmand, Spearmaster, Sofanthiel, and Artificer get "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER" /
+  "PRIMAL ???" / "PRIMAL ARTIFICER" with a written description listing whichever gimmicks are
+  currently assigned to them (Sofanthiel has none). Survivor, Monk, Hunter, Rivulet, Saint, and
+  Watcher (added in the second 2026-09-15 revision) get "PRIMAL SURVIVOR" / "PRIMAL MONK" /
+  "PRIMAL HUNTER" / "PRIMAL RIVULET" / "PRIMAL SAINT" / "PRIMAL WATCHER" with a plain, static
+  description: "Primal version not implemented". See "Primal character names, in detail" below.
+- `PrimalUnimplementedPortraits.cs` (new, 2026-09-15) — companion to the above: on the alt slot,
+  blacks out the character-select portrait for those same six "not implemented" characters, so the
+  status reads visually as well as in text. A Postfix on `Menu.MenuDepthIllustration.GrafUpdate`
+  that recolors the specific illustration whose filename contains "Slugcat" (the actual
+  character-portrait layer, distinct from the background/vines/pipes/plants layers around it) to
+  solid black, gated to the six target characters' own `MenuScene.SceneID`s. See "Primal character
+  portraits, in detail" below for why it hooks `GrafUpdate` specifically rather than a one-time
+  recolor.
 
 ### File map (`src/Primal/`)
 
@@ -2841,10 +2852,11 @@ compiling and running in this same codebase).
 **The description text** is intro flavor line + `"Active traits: "` followed by the display names
 of every `GimmickRegistry` entry currently `GimmickAssignments.IsEnabled` for that character (or a
 placeholder line if none are assigned yet) — built fresh every time the page is constructed, so it
-always reflects live Remix state rather than a hardcoded snapshot of today's defaults. If a gimmick
-is ever added for a character other than the ones already special-cased here, this patch's `else`
-branch deliberately leaves that character alone — extend the `if`/`else if` chain rather than
-assuming every character should get a "Primal" name.
+always reflects live Remix state rather than a hardcoded snapshot of today's defaults. (As of
+2026-09-15, this only applies to the four characters with real written content -- see below for the
+other six, which get a static description instead.) If a gimmick is ever added for a character not
+already covered by this switch, extend the `if`/`else if` chain rather than assuming a new
+character automatically deserves a written intro line.
 
 **This is the file to edit for a character's alt-slot display name or description.** Each
 `if (slugcatNumber == ...)` branch above sets a literal `name` string (shown all-caps on screen,
@@ -2891,6 +2903,23 @@ along with everything else without incident), so the toolchain/compile-time risk
 section was first written no longer applies — what's actually unconfirmed now is purely the
 in-game behavior: does `AccessTools.Field` actually find `difficultyLabel`/`infoLabel` at runtime,
 and does the screen show the expected text. See Outstanding items for the exact checklist.
+
+**2026-09-15, later the same day: the remaining six characters given a "Primal" label too.**
+Requested plainly: "for all characters that arent the 4 I have written descriptions for (inv,
+artificer, gourmand, spearmaster) rename them to Primal (their normal name) followed by a
+description that is 'Primal version not implemented'." Added six more `else if` branches --
+Survivor (`SlugcatStats.Name.White`) → **PRIMAL SURVIVOR**, Monk (`Yellow`) → **PRIMAL MONK**,
+Hunter (`Red`) → **PRIMAL HUNTER**, Rivulet → **PRIMAL RIVULET**, Saint → **PRIMAL SAINT**, and
+Watcher (guarded by `ModManager.Watcher`, since it's a separate DLC from MSC) → **PRIMAL WATCHER**
+-- each set to a single new `const string NotImplementedDescription = "Primal version not
+implemented";`, deliberately **not** routed through `BuildDescription` (no "Active traits" line
+appended): these six have no gimmicks of their own to report, and the request asked for that exact
+literal text, not a dynamic one. The old catch-all `else { return; }` branch (which used to leave
+every character but the original four completely vanilla) now only applies to a hypothetical future
+DLC character this mod hasn't accounted for at all -- every currently-known character is handled by
+one of the ten branches above it. Same container limitation as every other entry in this file (no
+`.NET` toolchain here) -- the change is six mechanically similar string-literal branches mirroring
+already-proven ones, so risk is low, but still unconfirmed in-game.
 
 ## Character-select portrait art, in detail (relevant if an artist edits these)
 
@@ -2941,6 +2970,86 @@ explanation, not something this session watched render; if editing the layer-1 p
 doesn't show up, check the game's graphics quality option (`Options.Quality`, referenced alongside
 `flatIllustrations` in the same file) in case this particular install has it forced to a low/flat
 setting.
+
+## Primal character portraits, in detail (blacking out the six "not implemented" characters)
+
+**The request:** immediately after asking for the six "not implemented" name/description branches
+above, in the same message: "look into how the character art seen in the selection menu is loaded
+and filter it to be completely black - this should mean you need to black out the '-1' image in
+the characters associated image folder." Implemented in the new `PrimalUnimplementedPortraits.cs`.
+
+**How the portrait is actually loaded, traced properly this time** (the section above, "Character-
+select portrait art, in detail," already covers the high-level mechanism -- multi-layer
+`MenuDepthIllustration`s per character, not a single flat image -- but this round needed the exact
+construction code, which is now available in `reference/GameSource/Menu/MenuScene.cs` where it
+wasn't before). `MenuScene.BuildMSCScene`/`BuildScene` build each character's select-screen scene
+via a dedicated method (`BuildSpearScene`, `BuildGourmandScene`, the base-game
+`Slugcat_White`/`Slugcat_Yellow`/`Slugcat_Red` branches, etc.), each calling
+`AddIllustration(new MenuDepthIllustration(menu, this, sceneFolder, "<fileName>", pos, depth,
+shader))` once per layer. For Spearmaster: `"Spearmaster Background - 4"`,
+`"Spearmaster Pipes - 3"`, `"Spearmaster Vines - 2"`, then `"Spearmaster Slugcat - 1"` (or
+`"...- 1 - Dark"` if locked) added last, on top -- that last one is the actual character portrait.
+
+**The "-1" shorthand doesn't generalize, but a different pattern does.** Checking every
+character's own scene-builder found the numeric suffix on the portrait layer varies -- Spearmaster
+and Monk (`"Yellow Slugcat - 1"`) are both "- 1", but Survivor's is `"White Slugcat - 2"` and
+Hunter's is `"Red Slugcat - 1"` again, with no consistent rule. What *is* consistent: every
+decoration/background layer is named after what it depicts (Background, Vines, Pipes, Haze,
+Specks, BkgPlants, FgPlants, Spears...), and only the actual character-portrait layer's filename
+contains the literal word "Slugcat" -- confirmed across every character's builder method in
+`MenuScene.cs`. So the implementation matches on `fileName.Contains("Slugcat")` rather than parsing
+out a number, which correctly generalizes across every character checked rather than special-
+casing Spearmaster's own "- 1" as if it were universal (a mistake in the same spirit as the
+`standardVoidSea` naming trap from the Slugpup ending work earlier the same day -- a shorthand the
+user reached for to describe one concrete example isn't necessarily the general rule, so it's
+worth checking against more than one character before committing to a pattern).
+
+**Why a Postfix on `GrafUpdate`, not a one-time color set.** `MenuIllustration` (the base class)
+exposes a plain `Color color` property that wraps `sprite.color` — trivial to set to black. The
+complication: `MenuDepthIllustration.GrafUpdate` (the override actually used at render time)
+recomputes `sprite.color` itself every frame from the illustration's size/depth (feeding a custom
+blur shader, unrelated to literal display color) -- but only `if (shader != MenuShader.Basic)`.
+Every MSC character's own portrait layer is built with `MenuShader.Basic` (see `BuildSpearScene`
+above), so for those a one-time color set would have actually been fine. But the three base-game
+portraits (`"White Slugcat - 2"`, `"Yellow Slugcat - 1"`, `"Red Slugcat - 1"`) use
+`ModManager.MMF ? MenuShader.Basic : MenuShader.LightEdges` -- on any install without the MMF mod,
+that's `LightEdges`, and the per-frame recompute *would* silently overwrite a one-time black back
+to its own encoded value, the exact same "quiet, no visible effect" failure mode this project has
+hit before (Gotcha #6-style). Postfixing `GrafUpdate` itself and re-applying black *after* the base
+method runs sidesteps the question of which shader a given character happens to use entirely --
+correct either way, with no need to special-case shader type or guess whether MMF is installed.
+
+**Scope and guards:** only fires while `PrimalSlot.IsActive`, and only for the illustration whose
+`owner` (a `MenuScene`) has one of the six target characters' own `SceneID`s
+(`MenuScene.SceneID.Slugcat_White/Yellow/Red`; `MoreSlugcatsEnums.MenuSceneID
+.Slugcat_Rivulet(_Cell)/Slugcat_Saint(_Max)`, guarded by `ModManager.MSC`; `Watcher.WatcherEnums
+.MenuSceneID.Slugcat_Watcher`, guarded by `ModManager.Watcher`). Since this hooks the illustration's
+own render call rather than a specific screen, it applies equally to the "choose your character"
+(new-game) screen and the "continue" screen for an existing save on one of these characters, with
+no extra work -- both reuse the same scene-building code and the same portrait assets.
+
+**Deliberately not handled:** `flatMode`/`flatIllustrations` (the pre-flattened single-image
+fallback mentioned in "Character-select portrait art, in detail" above) -- confirmed in that
+earlier investigation to be off under normal graphics settings, so a second code path just for that
+rare case was judged not worth adding without a concrete reason to think it's reachable in practice.
+
+**Not yet built or tested — same container limitation as everything else in this file (no `.NET`
+toolchain here).** Every new member access (`MenuDepthIllustration`/`MenuIllustration`'s
+`fileName`/`sprite`/`color`, `MenuObject.owner`, `MenuScene.sceneID`/`.menu`) was checked against
+`reference/GameSource/Menu/MenuScene.cs`, `MenuIllustration.cs`, and `MenuDepthIllustration.cs`
+rather than guessed -- all plain `public` members on ordinary, widely-reused vanilla menu classes,
+consistent with the same judgment call already made for `SlugcatPageNewGame`'s labels (Gotcha #1).
+Next, in-game, in order: (1) it compiles; (2) on the alt slot, each of the six "not implemented"
+characters' portrait renders as a solid black silhouette (shape preserved via alpha, color
+zeroed), with the surrounding background/vines/pipes/plants layers still visible and unmodified;
+(3) Gourmand/Spearmaster/Artificer/Sofanthiel's own portraits are completely untouched; (4) off the
+alt slot, every character's portrait (including these six) renders completely normally; (5) if any
+of the three base-game portraits (Survivor/Monk/Hunter) still show their real color, check whether
+MMF is installed and confirm the `LightEdges`-shader per-frame overwrite theory above by testing
+whether the *other* two (MSC-only) base-game-adjacent characters (Rivulet/Saint, both `Basic`-
+shaded) blacked out correctly while these three didn't -- that would confirm the shader-dependent
+timing issue precisely, the same way this project has isolated similar "some cases work, some
+don't" bugs before.
 
 ## Slugpup gimmick stats rescaling, in detail (fix for "Primal Gourmand looks a little thin")
 
@@ -3867,11 +3976,23 @@ in it.)
     confirmation: on the alt slot, Gourmand, Spearmaster, Artificer (2026-09-12), and Sofanthiel
     (2026-09-15) show "PRIMAL GOURMAND"/"PRIMAL SPEARMASTER"/"PRIMAL ARTIFICER"/"PRIMAL ???" with a
     description listing their currently-assigned gimmicks (Sofanthiel's will just read the generic
-    placeholder, since it has none) on the "choose your character" (new-game) screen; every other
-    character, and all four of these off the alt slot, are unaffected; and toggling a gimmick in
-    Remix changes the wording next time that screen is shown. As of 2026-09-15 Gourmand's and
-    Spearmaster's intro lines are the user's own rewrites (see "Primal character names, in detail"),
-    not the original generic "changed by something primal" placeholder text.
+    placeholder, since it has none); **and (added later the same day) Survivor, Monk, Hunter,
+    Rivulet, Saint, and Watcher show "PRIMAL SURVIVOR"/"PRIMAL MONK"/"PRIMAL HUNTER"/"PRIMAL
+    RIVULET"/"PRIMAL SAINT"/"PRIMAL WATCHER" with the literal static description "Primal version not
+    implemented"** — on the "choose your character" (new-game) screen; every one of these ten
+    characters off the alt slot is unaffected; and toggling a gimmick in Remix changes the wording
+    next time that screen is shown for the four characters whose description is gimmick-driven. As
+    of 2026-09-15 Gourmand's and Spearmaster's intro lines are the user's own rewrites (see "Primal
+    character names, in detail"), not the original generic "changed by something primal" placeholder
+    text.
+  - **New, highest priority:** `PrimalUnimplementedPortraits.cs` (see "Primal character portraits,
+    in detail" above) — the six "not implemented" characters' select-screen portraits should render
+    as solid black silhouettes on the alt slot, with everything else (background/vines/pipes/
+    plants, the other four characters' own portraits, every character off the alt slot) unaffected.
+    Specifically worth checking whether the three base-game portraits (Survivor/Monk/Hunter, whose
+    shader depends on whether the MMF mod is installed) black out correctly the same as the three
+    MSC ones (Rivulet/Saint, always `MenuShader.Basic`) — see that section's own doc comment for
+    why this could plausibly diverge and how to tell if it does.
   - Master Spear's (OneSpear's) now-configurable pull limit — confirm raising it above 1 in the
     settings sub-view actually grants more than one pull, and that the save-marker format change
     doesn't break anything on a save file that already has old-format markers on it (see the
