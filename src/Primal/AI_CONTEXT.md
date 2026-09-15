@@ -187,7 +187,7 @@ was tried twice and rejected both times for good reasons (see History).
   "Primal character names, in detail" below.
 - `Gimmicks/MiseryGimmick.cs` — the Misery gimmick. Traced from a third-party mod, see **Misery
   gimmick, in detail** below — read this before touching it, the mechanic is non-obvious.
-- `Gimmicks/SlugpupGimmick.cs` — five patches making up the Slugpup gimmick, **rewritten
+- `Gimmicks/SlugpupGimmick.cs` — seven patches/classes making up the Slugpup gimmick, **rewritten
   2026-09-15** onto a completely different mechanism than its original `SlugCatClass`-flip
   approach. `SlugpupGimmick` now forces `Player.isSlugpup`'s getter to return `true` (Postfix,
   `MethodType.Getter`) *without ever touching `SlugCatClass`* — the same trick the reference
@@ -196,15 +196,25 @@ was tried twice and rejected both times for good reasons (see History).
   flip-based version looked "like a slugpup" instead of "a fatter version" — i.e. it lost the real
   character's own `SlugCatClass`-gated body shape and abilities while pup-ified, which is exactly
   backwards from the gimmick's whole point. `SlugpupStatsGimmick` (Postfix on `Player.NPCStats`'s
-  constructor) and the new `SlugpupMalnourishmentStatsGimmick` (Postfix on
-  `Player.SetMalnourished` — a second, previously-undiscovered bug found in the same pass: that
-  method unconditionally rebuilds `npcCharacterStats` from scratch any time malnourishment status
-  changes, silently undoing the rescale) both call into the shared `SlugpupStatsScaling.Rescale`
-  helper to re-derive the pup's physical stats from the real character's own stats.
-  `SlugpupColorGimmick` (Postfix on `Player.ShortCutColor()`) shrank in scope now that the main
-  body color is automatically correct once `SlugCatClass` isn't flipped, but still fixes the
-  narrower shortcut/pipe-transition-tint case, which reads `isSlugpup` directly. See **Slugpup
-  gimmick stats rescaling, in detail** and **Slugpup gimmick: SlugCatClass-flip rewrite, in
+  constructor) and `SlugpupMalnourishmentStatsGimmick` (Postfix on `Player.SetMalnourished` — a
+  second, previously-undiscovered bug found in the same pass: that method unconditionally rebuilds
+  `npcCharacterStats` from scratch any time malnourishment status changes, silently undoing the
+  rescale) both call into the shared `SlugpupStatsScaling.Rescale` helper to re-derive the pup's
+  physical stats from the real character's own stats. `SlugpupColorGimmick` (Postfix on
+  `Player.ShortCutColor()`) shrank in scope now that the main body color is automatically correct
+  once `SlugCatClass` isn't flipped, but still fixes the narrower shortcut/pipe-transition-tint
+  case, which reads `isSlugpup` directly. **Added the same day, a fourth feature, not a bugfix:**
+  `SlugpupEndingHook` (Postfix on `RainWorldGame.BeatGameMode`, `standardVoidSea: true` only) plus
+  `SlugpupEndingMarker` (a permanent per-character save marker, same
+  `unrecognizedSaveStrings` mechanism as `OneSpearGimmick`) and `SlugpupEndingSettings` (a new
+  `Configurable<bool>`, default **on**) — once a character reaches the standard Outer Expanse
+  ending, the gimmick permanently stops applying to them (still shown assigned in Remix, just
+  inert) for the rest of that save file. This needed no changes to `SlugpupStatsGimmick`,
+  `SlugpupMalnourishmentStatsGimmick`, or `SlugpupColorGimmick` at all — they (and vanilla's own
+  `NPCStats`-construction gate) all key off `Player.isSlugpup`, so making `SlugpupGimmick`'s own
+  Postfix the single place that checks the ending marker is enough to turn the whole gimmick's
+  effects off from one choke point. See **Slugpup gimmick stats rescaling, in detail**, **Slugpup
+  gimmick: SlugCatClass-flip rewrite, in detail**, and **Slugpup gimmick: ends at Outer Expanse, in
   detail** below before touching any of this — genuinely one of the trickier gimmicks in this
   codebase, and **not yet confirmed working as of this doc** (no `.NET` toolchain in this
   container to build/test against).
@@ -2261,11 +2271,13 @@ Current settings, concretely:
   scheme from a single un-indexed marker to indexed-per-use markers so a *count* (not just a
   boolean) can be tracked — see that file's own doc comment and the file-map entry above for the
   backward-compatibility note.
-- **Misery, Slugpup**: no settings (`BindSettings`/`BuildSettingsUI` both left null in
-  `GimmickRegistry.cs`) — nothing obvious to expose yet. If asked for ideas later: Misery could
-  expose the exhaustion multiplier or which of the two effects (instant-max-exhaustion vs.
-  forced-PainJumps) are active; Slugpup doesn't have an obvious knob beyond an on/off that already
-  exists as the enabled flag itself.
+- **Misery**: no settings (`BindSettings`/`BuildSettingsUI` both left null in `GimmickRegistry.cs`)
+  — nothing obvious to expose yet. If asked for ideas later: could expose the exhaustion multiplier
+  or which of the two effects (instant-max-exhaustion vs. forced-PainJumps) are active.
+- **Slugpup** (`SlugpupEndingSettings`, added 2026-09-15): `Configurable<bool>
+  endsAtOuterExpanse` (default **true**, via `OpCheckBox`) — whether reaching the standard Outer
+  Expanse ending permanently stops the gimmick for that character on that save file. See
+  "Slugpup gimmick: ends at Outer Expanse, in detail" below.
 
 **First real in-game test result:** the user opened the drill-down menu (the design that predates
 the character-grid/detail-panel merge above) in Remix and confirmed the core navigation worked —
@@ -3182,6 +3194,102 @@ abilities/behaviors that key off `SlugCatClass == Gourmand` elsewhere in vanilla
 noticeably different while pup-ified vs. not) now work correctly, matching "use that character's
 abilities as a slugpup" from the gimmick's original request.
 
+## Slugpup gimmick: ends at Outer Expanse, in detail
+
+**The request:** "now look into a setting for the slugpup gimmick - if a given character with this
+setting reaches the ending sequence in outer expanse, after the credits if they come back to the
+run, they will stop being a slugpup - the gimmick will effectively be removed. its still applied,
+just doesnt do anything. make this effect a default setting." Requested as a follow-up to the
+SlugCatClass-flip rewrite above, but this one is a new feature, not a bugfix.
+
+**Finding the right hook: "the ending sequence in Outer Expanse" specifically, not any ending.**
+Rain World (with MSC) has several distinct ways a campaign can end: the generic "swim into the void
+sea gate at Outer Expanse and ascend" ending most characters can take, plus a handful of
+region-specific alt endings (Rivulet's Sky Islands/`SL_AI`, Artificer's `LC_FINAL`, Saint's own
+ascension, Spearmaster's `SI_A07`, and even a *second*, separate Gourmand-specific secret ending
+tied to a food-completionist tracker, `WinState.GourFeastTracker` — unlocks pups in Sandbox Mode,
+nothing to do with Outer Expanse at all). All of these funnel through one shared method,
+`RainWorldGame.BeatGameMode(RainWorldGame game, bool standardVoidSea)` — traced via
+`reference/GameSource/RainWorldGame.cs` and every one of its ~10 call sites across the decompiled
+tree. Exactly one call site passes `standardVoidSea: true`:
+`RainWorldGame.ExitToVoidSeaSlideShow()`, which in turn is only ever called from
+`VoidSea/VoidSeaScene.cs` — the swim-upward ascension sequence that plays after passing through
+Outer Expanse's own ending gate. Every other call site (`SLOracleBehaviorHasMark.cs`,
+`Menu/EndCredits.cs`, `MoreSlugcats/MSCRoomSpecificScript.cs`, `Watcher/...`, and `BeatGameMode`'s
+own Gourmand-alt-ending branch) passes `standardVoidSea: false`. So checking specifically for
+`standardVoidSea == true` in a Postfix on `BeatGameMode` is exactly "reached Outer Expanse's own
+generic ending," cleanly distinct from every other ending path (Gourmand's food-completionist
+secret ending included) without needing any per-character special-casing.
+
+**Confirmed this doesn't end the save file** (matching the user's own framing, "after the credits
+if they come back to the run"): `BeatGameMode`'s `standardVoidSea: true` branch sets
+`deathPersistentSaveData.ascended = true`/saves progression/etc., but never deletes or locks
+anything — picking the same character on the same slot again afterward resumes from the same den,
+same as vanilla's own well-known "keep playing after the ending" behavior. Re-reaching the ending a
+second time on the same save just re-runs `BeatGameMode(true)` again, which this gimmick's own
+marker-write is written to tolerate (idempotent — see below).
+
+**Implementation, in three pieces, all in `Gimmicks/SlugpupGimmick.cs`:**
+
+1. **`SlugpupEndingHook`** — a Postfix on `RainWorldGame.BeatGameMode`. Guards: `standardVoidSea`,
+   `PrimalSlot.IsActive`, `game.IsStorySession`, the gimmick actually assigned to
+   `game.StoryCharacter`, and the new setting (below) enabled for that character. If all pass, it
+   permanently records the marker.
+2. **`SlugpupEndingMarker`** — a plain existence-only marker (`"PRIMAL_SLUGPUP_ENDED<dpB>" +
+   characterID`), written into the same `DeathPersistentSaveData.unrecognizedSaveStrings`
+   passthrough list `OneSpearGimmick` and the Kill List gimmick already use for their own save
+   markers — the established pattern in this codebase for "a fact about this save file vanilla
+   itself doesn't know how to store." Unlike `OneSpearGimmick`'s *indexed, counted* markers (it
+   needs to know *how many* pulls have been used), this only ever needs a yes/no, so it's a single
+   un-indexed key, checked with a plain `.Contains(...)`.
+3. **`SlugpupEndingSettings`** — one new `Configurable<bool> endsAtOuterExpanse`, **default true**
+   (per the user's explicit "make this effect a default setting"), shown as a single `OpCheckBox`
+   in the Slugpup gimmick's settings sub-view (which didn't exist before this — Slugpup previously
+   had `BindSettings`/`BuildSettingsUI` both left `null`, per the "no obvious knob" note in the
+   config-menu section above; that's now out of date).
+
+**Where the marker is actually read — and why nothing else in this file needed to change.**
+`SlugpupGimmick`'s own `isSlugpup`-getter Postfix (the single choke point this whole gimmick was
+already rebuilt around earlier the same day) is the *only* place that checks
+`SlugpupEndingMarker.HasEnded(...)`: if the marker is present, it simply doesn't force `__result`
+to `true` anymore, so `isSlugpup` goes back to returning its real, original value. Everything else
+in this file already depends on that one property rather than re-deriving "is this gimmick active"
+independently:
+- `SlugpupStatsGimmick` only ever runs because `Player`'s own constructor gates `NPCStats`
+  construction on `if (isSlugpup) npcStats = new NPCStats(this);` — once `isSlugpup` goes back to
+  false, `NPCStats` (and this Postfix) simply never fires again for this player.
+- `SlugpupMalnourishmentStatsGimmick` similarly only matters because `Player.SetMalnourished`'s own
+  rebuild is itself gated on `if (isSlugpup)` — same story.
+- `SlugpupColorGimmick` has its own explicit `if (!self.isSlugpup) return;` guard, which now
+  naturally resolves to "return" once the marker is set.
+
+So this feature needed exactly one new `if` check in one place (`SlugpupGimmick`'s own Postfix),
+not four — a direct, deliberate payoff of that same-day rewrite having centralized "is this
+character currently being treated as a pup" onto a single property instead of scattering separate
+`SlugCatClass`/assignment checks across every patch, the way the *pre-rewrite* version would have
+required touching every single class individually to get this right.
+
+**"Still applied, just doesn't do anything," precisely:** `GimmickAssignments.IsEnabled` is never
+touched by any of this — the Remix checkbox for this character stays checked forever, exactly
+matching the user's own phrasing. Only the *effect* turns off, via the save marker, independent of
+the assignment itself.
+
+**Not yet built or tested — same container limitation as everything else in this file.** Every new
+member access (`RainWorldGame.BeatGameMode`, `RainWorldGame.StoryCharacter`,
+`RainWorldGame.IsStorySession`, `RainWorldGame.GetStorySession`) was checked against
+`reference/GameSource/RainWorldGame.cs` rather than guessed -- all four are plain `public`
+properties/methods on an ordinary, widely-used class, not a tightly-encapsulated simulation object,
+so no reflection was used for any of them (consistent with this codebase's usual Gotcha #1
+judgment call). Next, in-game, in order: (1) it compiles; (2) assign Slugpup to a character, verify
+the new checkbox appears in that character's settings sub-view, defaulted to checked; (3) reach the
+standard Outer Expanse ending (swim into the void sea gate) with the checkbox checked, and confirm
+the BepInEx log shows the `[Slugpup] ... reached the Outer Expanse ending` line; (4) continue
+playing that same character/slot afterward and confirm they render/behave as their normal adult
+self, not a pup, for the rest of that save; (5) uncheck the setting for a different character
+*before* they reach the ending, reach it, and confirm the gimmick keeps working afterward (the
+marker should never get written); (6) reach the ending a second time on an already-ended character
+(if reachable) and confirm nothing breaks (the marker write is a no-op the second time).
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
@@ -3334,6 +3442,23 @@ in it.)
   reverted to full-adult or generic-pup sizing — the new, specific regression case found this round;
   (6) any of Gourmand's own `SlugCatClass`-gated behaviors/abilities that used to break under the
   old flip now work correctly while pup-ified.**
+- **New, not yet built or tested (2026-09-15, sixth Slugpup round, a feature not a bugfix — see
+  "Slugpup gimmick: ends at Outer Expanse, in detail" above): reaching the standard Outer Expanse
+  ending now permanently stops the Slugpup gimmick for that character on that save file (still
+  shown assigned in Remix -- just inert), gated by a new `Configurable<bool>`
+  (`SlugpupEndingSettings.endsAtOuterExpanse`) that **defaults to on**, per explicit request. New
+  `SlugpupEndingHook` (Postfix on `RainWorldGame.BeatGameMode`, `standardVoidSea: true` only) and
+  `SlugpupEndingMarker` (a permanent per-character `unrecognizedSaveStrings` marker, same mechanism
+  `OneSpearGimmick` already uses). Needed no changes to `SlugpupStatsGimmick`,
+  `SlugpupMalnourishmentStatsGimmick`, or `SlugpupColorGimmick` -- they all key off
+  `Player.isSlugpup` (directly or via vanilla's own `NPCStats`-construction gate), so the one new
+  check in `SlugpupGimmick`'s own Postfix is enough to turn the whole gimmick off from a single
+  choke point. **When testing: (1) it compiles; (2) the new checkbox shows up in Slugpup's settings
+  sub-view, checked by default; (3) reaching the Outer Expanse ending with it checked logs
+  `[Slugpup] ... reached the Outer Expanse ending` and the character plays as their normal adult
+  self from then on, for the rest of that save; (4) unchecking it for a character before they reach
+  the ending means the gimmick keeps working after they reach it; (5) reaching the ending twice on
+  the same character doesn't break anything.**
 - **New, built, deploy-gap already found and fixed, not yet tested in-game (2026-09-12): the Chains
   gimmick.** Requested by the user as "find the artificer chains mod and turn that into a gimmick"
   — turned out to be a **local, not-on-the-Workshop** mod already installed on the user's machine

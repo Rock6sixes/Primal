@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
 using HarmonyLib;
+using Menu.Remix.MixedUI;
 using UnityEngine;
 
 namespace Primal.Gimmicks
@@ -75,7 +77,8 @@ namespace Primal.Gimmicks
             }
 
             Player self = __instance;
-            RainWorld rainWorld = self.abstractCreature?.world?.game?.rainWorld;
+            RainWorldGame game = self.abstractCreature?.world?.game;
+            RainWorld rainWorld = game?.rainWorld;
             if (self.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld))
             {
                 return;
@@ -84,6 +87,13 @@ namespace Primal.Gimmicks
             string characterID = self.playerState.slugcatCharacter?.value;
             if (!GimmickAssignments.IsEnabled(characterID, ID))
             {
+                return;
+            }
+
+            if (SlugpupEndingMarker.HasEnded(game, characterID))
+            {
+                // Reached the Outer Expanse ending with this setting on -- permanently stopped
+                // for this character on this save file. See SlugpupEndingHook's doc comment.
                 return;
             }
 
@@ -395,6 +405,170 @@ namespace Primal.Gimmicks
             {
                 __result = realColor;
             }
+        }
+    }
+
+    /// <summary>
+    /// The fourth part of the Slugpup gimmick (2026-09-15): once a character reaches the standard
+    /// Outer Expanse ending (swimming into the void sea gate and ascending -- vanilla's own
+    /// generic "beat the game" ending most characters can take, as opposed to a region-specific
+    /// alt ending), stop applying this gimmick to them for the rest of that save file, if this
+    /// setting (default on, see SlugpupEndingSettings) is enabled for them.
+    ///
+    /// Requested as: "if a given character with this setting reaches the ending sequence in outer
+    /// expanse, after the credits if they come back to the run, they will stop being a slugpup --
+    /// the gimmick will effectively be removed. its still applied, just doesnt do anything." The
+    /// "still applied, just doesn't do anything" phrasing is deliberate and matches how this is
+    /// implemented: GimmickAssignments.IsEnabled keeps returning true for this character forever
+    /// (the Remix checkbox stays checked, nothing is unassigned) -- a separate, permanent save
+    /// marker is what actually turns the gimmick's own effects off, read by SlugpupGimmick's own
+    /// isSlugpup-getter Postfix (the single choke point everything else in this file already
+    /// depends on -- see its own doc comment). Once isSlugpup naturally goes back to returning its
+    /// original (false) result, NPCStats is never constructed for this player again (so
+    /// SlugpupStatsGimmick simply never fires), Player.SetMalnourished's own isSlugpup check also
+    /// goes the other way (so SlugpupMalnourishmentStatsGimmick never fires either), and
+    /// SlugpupColorGimmick's own explicit `if (!self.isSlugpup) return;` guard catches it directly
+    /// -- so this one check in one place is enough to turn off the whole gimmick's effects, with no
+    /// need to duplicate an ending check into every other patch in this file.
+    ///
+    /// **Ground-truthed which method fires for "the ending sequence in Outer Expanse" specifically**
+    /// rather than any of the several region-specific alt endings other characters have (Rivulet's
+    /// Sky Islands resolution, Artificer's, Saint's, Spearmaster's, and even Gourmand's own separate
+    /// food-completionist secret ending) by tracing `RainWorldGame.BeatGameMode(RainWorldGame game,
+    /// bool standardVoidSea)`: its `standardVoidSea: true` branch is called from exactly one place,
+    /// `RainWorldGame.ExitToVoidSeaSlideShow()`, which in turn is only ever called from
+    /// `VoidSea/VoidSeaScene.cs` -- the swim-upward "ascension" sequence that plays after passing
+    /// through Outer Expanse's ending gate. Every other `BeatGameMode` call site in the game passes
+    /// `standardVoidSea: false` (the various alt endings) -- so checking specifically for `true`
+    /// is what isolates "reached Outer Expanse's own generic ending" from every other way a
+    /// campaign can end. This matches vanilla's actual save-file behavior: reaching this ending
+    /// doesn't delete or lock the save -- picking the same character again on the same slot resumes
+    /// play from the same den, same as the user's own framing ("after the credits if they come back
+    /// to the run").
+    /// </summary>
+    [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.BeatGameMode))]
+    internal static class SlugpupEndingHook
+    {
+        private static void Postfix(RainWorldGame game, bool standardVoidSea)
+        {
+            if (!standardVoidSea || game == null || !game.IsStorySession || !PrimalSlot.IsActive(game.rainWorld))
+            {
+                return;
+            }
+
+            string characterID = game.StoryCharacter?.value;
+            if (!GimmickAssignments.IsEnabled(characterID, SlugpupGimmick.ID))
+            {
+                return;
+            }
+
+            if (!SlugpupEndingSettings.EndsAtOuterExpanse(characterID))
+            {
+                return;
+            }
+
+            if (SlugpupEndingMarker.RecordEnded(game, characterID))
+            {
+                Plugin.Log?.LogInfo($"[Slugpup] {characterID}: reached the Outer Expanse ending -- the gimmick stays assigned but stops applying for the rest of this save file.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// The permanent, per-character, per-save-file marker SlugpupEndingHook writes and
+    /// SlugpupGimmick's own isSlugpup Postfix reads -- same DeathPersistentSaveData.
+    /// unrecognizedSaveStrings passthrough mechanism already established by OneSpearGimmick (see
+    /// that file's own doc comment) and the Kill List gimmick, reused here for a plain one-time
+    /// flag rather than a counted/indexed marker, since this only ever needs to be recorded once.
+    /// </summary>
+    internal static class SlugpupEndingMarker
+    {
+        private const string SaveMarkerKey = "PRIMAL_SLUGPUP_ENDED";
+
+        private static string Marker(string characterID)
+        {
+            return SaveMarkerKey + "<dpB>" + characterID;
+        }
+
+        public static bool HasEnded(RainWorldGame game, string characterID)
+        {
+            if (game == null || characterID == null || !game.IsStorySession)
+            {
+                return false;
+            }
+
+            List<string> markers = game.GetStorySession?.saveState?.deathPersistentSaveData?.unrecognizedSaveStrings;
+            return markers != null && markers.Contains(Marker(characterID));
+        }
+
+        // Returns true if this call is what actually recorded the marker (false if it was already
+        // present, or if it couldn't be written) -- so callers can log only on the real transition.
+        public static bool RecordEnded(RainWorldGame game, string characterID)
+        {
+            List<string> markers = game?.GetStorySession?.saveState?.deathPersistentSaveData?.unrecognizedSaveStrings;
+            if (markers == null || characterID == null)
+            {
+                return false;
+            }
+
+            string marker = Marker(characterID);
+            if (markers.Contains(marker))
+            {
+                return false;
+            }
+
+            markers.Add(marker);
+            return true;
+        }
+    }
+
+    /// <summary>Per-character settings for the Slugpup gimmick: whether reaching the Outer Expanse
+    /// ending permanently stops it (see SlugpupEndingHook). Defaults to on, per the user's own
+    /// request that this behavior ship as the default rather than an opt-in.</summary>
+    internal static class SlugpupEndingSettings
+    {
+        private const bool DefaultEndsAtOuterExpanse = true;
+
+        private static readonly Dictionary<string, Configurable<bool>> _endsAtOuterExpanse = new Dictionary<string, Configurable<bool>>();
+
+        // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
+        // BuildSettingsUI doc comment for why (Configurable<T> can only ever be bound to one
+        // UIconfig element at a time; building a fresh OpCheckBox every time this sub-view opened
+        // threw Menu.Remix.MultiuseConfigurableException the second time around).
+        private static readonly Dictionary<string, List<UIelement>> _uiCache = new Dictionary<string, List<UIelement>>();
+
+        public static void Bind(OptionInterface owner, string characterID)
+        {
+            _endsAtOuterExpanse[characterID] = owner.config.Bind(
+                characterID + "_Slugpup_endsAtOuterExpanse",
+                DefaultEndsAtOuterExpanse,
+                new ConfigurableInfo("Once this character reaches the standard Outer Expanse ending, stop being a slugpup for the rest of this save file. The gimmick stays assigned -- it just no longer does anything."));
+        }
+
+        public static bool EndsAtOuterExpanse(string characterID)
+        {
+            return _endsAtOuterExpanse.TryGetValue(characterID, out Configurable<bool> c) ? c.Value : DefaultEndsAtOuterExpanse;
+        }
+
+        public static List<UIelement> BuildUI(string characterID, float topY)
+        {
+            if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
+            {
+                return cached;
+            }
+
+            var items = new List<UIelement>();
+            if (!_endsAtOuterExpanse.TryGetValue(characterID, out Configurable<bool> endsAtOuterExpanse))
+            {
+                // Not bound yet -- don't cache an incomplete/empty result.
+                return items;
+            }
+
+            items.Add(new OpCheckBox(endsAtOuterExpanse, 20f, topY - 40f));
+            items.Add(new OpLabel(56f, topY - 36f, "Stop being a slugpup after the Outer Expanse ending", false));
+
+            _uiCache[characterID] = items;
+            return items;
         }
     }
 }

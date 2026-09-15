@@ -33,11 +33,18 @@ namespace Primal.Gimmicks
         /// correctly treat the player as a pup, while everything that reads SlugCatClass directly
         /// (PlayerGraphics' per-character body shape, diet, other abilities) keeps seeing the real
         /// character.
+        ///
+        /// Has one setting (added 2026-09-15, default ON): once this character reaches the
+        /// standard Outer Expanse ending, the gimmick permanently stops applying to them for the
+        /// rest of that save file -- still shown as assigned in Remix, it just no longer does
+        /// anything. See SlugpupEndingHook/SlugpupEndingSettings in SlugpupGimmick.cs.
         /// </summary>
         public static readonly GimmickDef Slugpup = new GimmickDef(
             "Slugpup",
             "Slugpup",
             "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat.",
+            SlugpupEndingSettings.Bind,
+            SlugpupEndingSettings.BuildUI,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Gourmand
         );
 
