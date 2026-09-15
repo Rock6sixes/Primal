@@ -260,7 +260,7 @@ was tried twice and rejected both times for good reasons (see History).
   bullet and the detail section below for the full account. **Not yet built or tested since the
   swap.**
 - `Gimmicks/CreatureKillListGimmick.cs` (new, 2026-09-15; revised same day) — the Kill List gimmick:
-  tracks every one of a fixed, curated 54-species roster (`KillListRegistry.All`) the assigned
+  tracks every one of a fixed, curated 55-species roster (`KillListRegistry.All`) the assigned
   character personally kills — tracking only, no goal/reward logic yet. `CreatureKillListGimmick`
   itself (a Postfix on `Creature.Die()`) reads vanilla's own `Creature.killTag` for attribution
   rather than reimplementing "who killed this", and records into `KillListTracker`'s in-memory
@@ -2523,9 +2523,23 @@ Requested plainly: "remove yeek and slugpup from the list." Both were resolved m
 original curation pass above (`Yeek` — direct match; `SlugNPC` — the user's own resolution for
 "Slugpup", since a real slugpup isn't a `CreatureTemplate.Type` at all), not confusing ones, so
 there's nothing to re-derive — just two `KillListEntry` lines removed from `KillListRegistry.All`
-and every "56" reference elsewhere in this file/the source updated to match. **Final roster: 54
-entries** — see `KillListRegistry.All` in `Gimmicks/CreatureKillListGimmick.cs` for the exact list
-with display names.
+and every "56" reference elsewhere in this file/the source updated to match. Roster: 54 entries.
+
+**Update (2026-09-15, fifth round): a real miss caught by the user — `Spider` added as "Small
+Spider".** The user pointed out directly: "I also see that your list doesnt include the small
+spiders — these dont get tracked by the standard kill counter and have the ability to combine into
+a bigger mass of spiders." Checked `Spider.cs` to confirm rather than guess: plain
+`CreatureTemplate.Type.Spider` (distinct from the already-tracked `BigSpider`/`SpitterSpider`) is
+exactly this — each spider belongs to a `Flock` (a `SpiderMass` subclass), and `Flock.Update()`
+periodically finds a nearby spider belonging to a *different* flock and calls `Merge(SpiderMass
+otherFlock)`, folding the smaller flock's spiders into the larger one. This is the one entry from
+the original 92-type enumeration that fell through the cracks during the very first curation pass
+— the user's own list named "Big Spider" and "Spitter Spider" specifically but never gave a name
+for the plain "Spider," and it was silently dropped as unmatched instead of being flagged the way
+`Coalescipede`/`Strawberry Lizard`/etc. were. Added as `new KillListEntry(CreatureTemplate.Type.
+Spider, "Small Spider")`, per the user's own chosen display name. **Final roster: 55 entries** —
+see `KillListRegistry.All` in `Gimmicks/CreatureKillListGimmick.cs` for the exact list with display
+names.
 
 **"Killed by [character]", precisely.** Rather than reimplementing kill attribution from scratch
 (fragile territory — Rain World's damage system varies a lot by creature and death cause), this
@@ -2612,7 +2626,7 @@ exact mechanism (`airDrown`) and its timing were read directly rather than infer
 lethal impact damage (unlike Leech's own `TerrainImpact`, which never does) — `Creature.
 TerrainImpact`'s *base* implementation only ever spawns cosmetic water-drip particles, never calling
 `Violence()`/`Die()` itself, so wherever this really happens it must be creature-specific, and
-checking all 54 individually was judged out of scope for this pass; the new handler-fallback above
+checking all 55 individually was judged out of scope for this pass; the new handler-fallback above
 would actually cover this case too now, PROVIDED the creature was recently grabbed by the tracked
 player before being thrown — worth re-testing specifically now that the fallback exists. (2) a
 **slow, multi-second spear stab** — `Spear.cs`'s own per-tick stab damage calls
@@ -2687,7 +2701,7 @@ considered and rejected for this pass: unlike a broken Remix tab (contained to t
 a broken cycle-end screen could block ordinary play entirely, and this container has no way to test
 a hand-built Page-based UI before shipping it. Names are comma-joined into two paragraphs (not one
 line per creature) specifically so `DialogNotify`'s own word-wrap keeps the box more reasonably
-proportioned than ~54 forced line breaks would — but with up to 54 names across two sections, the
+proportioned than ~55 forced line breaks would — but with up to 55 names across two sections, the
 box can still plausibly run taller than the visible screen. Flagged as a known, unverified layout
 risk rather than a solved problem.
 
@@ -2725,7 +2739,7 @@ would mean the fallback's window or hook coverage needs another look; (8) simila
 spear-stab kill** (hold a lizard down and stab repeatedly for several seconds rather than a single
 quick throw, without ever grabbing it directly) to check whether the ~5-second killTag decay window
 causes a miss the handler-fallback can't cover either (since the player never grabbed the lizard,
-only stabbed it); (9) kill something NOT on the 54-species list (e.g. a Watcher creature) and
+only stabbed it); (9) kill something NOT on the 55-species list (e.g. a Watcher creature) and
 confirm nothing is recorded and nothing throws; (10) confirm the "KILL LIST" button only appears
 for a character that actually has the gimmick assigned, and doesn't appear (or doesn't break
 anything) for one that doesn't.
@@ -3625,11 +3639,18 @@ in it.)
   especially darker ones (Spearmaster, Sofanthiel/Inv); (4) check `BepInEx/LogOutput.log` for a
   `PlayerGraphics.DefaultSlugcatColor threw` line -- if present, every button fell back to
   uncolored and the reflection lookup needs a fix.
-- **New, not yet built or tested (2026-09-15, revised three times same day): Kill List gimmick.**
-  Requested as a completionist tracker -- kill every one of a fixed, curated 54-species roster,
+- **New, not yet built or tested (2026-09-15, revised four times same day): Kill List gimmick.**
+  Requested as a completionist tracker -- kill every one of a fixed, curated 55-species roster,
   tracking only for now (no goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`;
   `GimmickRegistry.cs` updated (no default assignment, no home-character color tag, no settings
   sub-view at all -- not requested). See "Kill List gimmick, in detail" above for the full account.
+  Round 5 ("your list doesnt include the small spiders"): a real curation miss caught by the user --
+  plain `CreatureTemplate.Type.Spider` (distinct from the already-tracked `BigSpider`/`SpitterSpider`)
+  was silently dropped during the very first curation pass instead of being flagged as unmatched.
+  Confirmed via `Spider.cs` (each spider belongs to a `Flock`/`SpiderMass`, periodically merging with
+  others via `Merge(SpiderMass otherFlock)`) rather than guessed, then added as
+  `new KillListEntry(CreatureTemplate.Type.Spider, "Small Spider")` per the user's chosen display
+  name -- 54 entries up to 55, every roster-count reference elsewhere updated to match.
   Round 4: `Yeek` and `SlugNPC` ("Slugpup") removed from the roster outright, no reason given --
   56 entries down to 54, `KillListRegistry.All` and every roster-count reference elsewhere updated
   to match.

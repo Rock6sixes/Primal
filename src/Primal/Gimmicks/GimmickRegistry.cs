@@ -216,7 +216,7 @@ namespace Primal.Gimmicks
         );
 
         /// <summary>
-        /// Tracks every one of a fixed, 54-species roster (see KillListRegistry.All in
+        /// Tracks every one of a fixed, 55-species roster (see KillListRegistry.All in
         /// CreatureKillListGimmick.cs) that the assigned character personally kills -- via
         /// vanilla's own Creature.killTag attribution, not just "died somewhere nearby" -- and
         /// only banks a cycle's kills permanently if that cycle actually ends in a successful
@@ -231,7 +231,7 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef CreatureKillList = new GimmickDef(
             "CreatureKillList",
             "Kill List",
-            "Tracks every kill this character personally lands against a fixed 54-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
+            "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );
 
         public static readonly GimmickDef[] All =

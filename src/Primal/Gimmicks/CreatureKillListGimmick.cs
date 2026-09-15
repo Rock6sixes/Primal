@@ -9,7 +9,7 @@ namespace Primal.Gimmicks
 {
     /// <summary>
     /// The "Kill List" gimmick: once assigned to a character, every creature that character
-    /// personally kills is checked off a fixed, curated roster of 54 tracked species. For now this
+    /// personally kills is checked off a fixed, curated roster of 55 tracked species. For now this
     /// only tracks progress -- there's no win condition or reward yet, per the user's own framing
     /// ("for now the goal will be to track every creature"). See KillListRegistry.All below for the
     /// full roster, and AI_CONTEXT.md's "Kill List gimmick, in detail" for how it was assembled
@@ -273,7 +273,7 @@ namespace Primal.Gimmicks
 
     internal static class KillListRegistry
     {
-        // 54 entries, curated by the user from the full set of CreatureTemplate.Type values this
+        // 55 entries, curated by the user from the full set of CreatureTemplate.Type values this
         // game registers (92 total across vanilla + every DLC) -- see AI_CONTEXT.md for the full
         // back-and-forth on what got matched to what and why. Deliberately excludes: the three
         // internal-only "ancestor" types (Slugcat, LizardTemplate, StandardGroundCreature) that no
@@ -290,7 +290,7 @@ namespace Primal.Gimmicks
         // Behemoth" -- not on this list at all, different creature).
         public static readonly KillListEntry[] All =
         {
-            // Vanilla (43)
+            // Vanilla (44)
             new KillListEntry(CreatureTemplate.Type.GreenLizard, "Green Lizard"),
             new KillListEntry(CreatureTemplate.Type.PinkLizard, "Pink Lizard"),
             new KillListEntry(CreatureTemplate.Type.WhiteLizard, "White Lizard"),
@@ -307,6 +307,7 @@ namespace Primal.Gimmicks
             new KillListEntry(CreatureTemplate.Type.Centipede, "Centipede"),
             new KillListEntry(CreatureTemplate.Type.RedCentipede, "Red Centipede"),
             new KillListEntry(CreatureTemplate.Type.Centiwing, "Centiwing"),
+            new KillListEntry(CreatureTemplate.Type.Spider, "Small Spider"),
             new KillListEntry(CreatureTemplate.Type.BigSpider, "Big Spider"),
             new KillListEntry(CreatureTemplate.Type.SpitterSpider, "Spitter Spider"),
             new KillListEntry(CreatureTemplate.Type.DropBug, "Dropwig"),
@@ -530,13 +531,13 @@ namespace Primal.Gimmicks
     /// notification, shown via ProcessManager.ShowDialog -- the same mechanism vanilla itself uses
     /// everywhere from OptionsMenu to ExpeditionMenu), sized via
     /// Menu.DialogBoxNotify.CalculateDialogBoxSize, which grows to fit however much text it's
-    /// given with no built-in cap or scrolling. With up to ~54 names across two sections this
+    /// given with no built-in cap or scrolling. With up to ~55 names across two sections this
     /// produces a tall box that can run past the visible screen -- there is no scrollable
     /// alternative in wide vanilla use to reach for instead, and building a fully custom
     /// scrollable in-game Page was judged too large a risk to the actual gameplay screen (unlike a
     /// broken Remix tab, a broken cycle-end screen could block ordinary play) for a first pass.
     /// Names are comma-joined into two paragraphs (not one per line) specifically to let
-    /// DialogNotify's own word-wrap keep the box more reasonably proportioned than 54 forced line
+    /// DialogNotify's own word-wrap keep the box more reasonably proportioned than 55 forced line
     /// breaks would. Flagged in AI_CONTEXT.md as unverified layout, same honest treatment as this
     /// mod's other first-pass UI work.
     /// </summary>
