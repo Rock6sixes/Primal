@@ -379,9 +379,16 @@ was tried twice and rejected both times for good reasons (see History).
   `exceptionLog.txt` and `consoleLog.txt` live (Unity's own crash/exception logs — **check these
   before theorizing** when a bug is "silent", see Gotcha #1), and `BepInEx\LogOutput.log` (BepInEx's
   own log, shows plugin load order and any `Logger.LogError` calls this mod makes).
-- Requires SlugBase (`slime-cubed.slugbase`) installed as a dependency, even though this mod no
-  longer creates any SlugBase characters — it's declared via `[BepInDependency]` and
-  `modinfo.json`'s `requirements` purely to control BepInEx's plugin load order (see Gotcha #2).
+- No longer requires SlugBase. The hard `[BepInDependency]`/`modinfo.json` `requirements` on
+  `slime-cubed.slugbase` was removed 2026-09-15 (see the refactor entry near the bottom of this
+  doc) — it was a leftover from the two discarded SlugBase-character designs, controlling nothing
+  but BepInEx's plugin load order for a dependency this mod stopped using. SlugBase can still be
+  installed alongside Primal with no conflict; it's just no longer required.
+- `scripts/build-deploy-run.sh` (Git Bash, run on the Windows machine above — not in this
+  container) does the build + copy-to-`MOD_DEST` + launch cycle described above in one step, with
+  `--no-build`/`--no-launch` flags for a partial run. Its default paths match the ones just above;
+  override via `PRIMAL_SRC_DIR`/`RAINWORLD_GAME_DIR`/`RAINWORLD_MOD_DEST` env vars if they ever
+  drift from what's documented here.
 
 ## Gotcha #1 — direct field/property access can compile fine and still crash at runtime
 
