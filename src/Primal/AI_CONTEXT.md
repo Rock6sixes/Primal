@@ -30,6 +30,16 @@ find them): those are left exactly as actually captured, since the whole point o
 that they're byte-for-byte reproducible from a real log file, and at the time they were captured
 the mod really was still called AltCharacters. Don't "fix" those quotes to say Primal.
 
+**2026-09-15: the leftover pre-rename `src/AltCharacters/` project tree deleted entirely.** The
+rename above only ever touched `src/Primal/` — the old `src/AltCharacters/` folder (its own full
+copy of the source at the time of the rename, its own build output, and its own now-superseded
+duplicate of this exact file) had been left sitting untouched in the repo since 2026-09-12, not
+excluded from anything, not referenced by any build, just dead weight that could easily be mistaken
+for a second active project by a future session. Deleted outright (`git rm -r`) rather than
+excluded — this repo is real git history now, so removing it loses nothing recoverable. If you're
+looking for the pre-rename version of any of this doc's own history, it's in this file's own git
+log, not a second file on disk.
+
 ## Maintenance policy — keep this document current
 
 **This file is a living document, not a one-time snapshot.** Whoever (whichever session) is
