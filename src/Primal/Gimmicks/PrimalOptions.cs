@@ -563,6 +563,19 @@ namespace Primal.Gimmicks
 
         // ---- detail sub-view: one gimmick's settings for the selected character ---------------
 
+        // Fixed on-screen viewport for the settings scroll box below -- same footprint the
+        // settings content used to be placed at directly (DetailTopY - 84f down to a small bottom
+        // margin), now the fixed *viewport* a scrollable content area sits inside instead.
+        private const float SettingsViewportTop = DetailTopY - 84f;
+        private const float SettingsViewportBottom = 10f;
+        private const float SettingsViewportHeight = SettingsViewportTop - SettingsViewportBottom;
+        // A little narrower than the full content width (unlike AddGimmickListWidth below, which
+        // is narrow because its buttons are a single column by design) to leave clearance at the
+        // right edge for the scroll box's own slide bar, since settings content -- Chains'
+        // two-column banlist grid especially -- otherwise uses close to the full content width.
+        private const float SettingsViewportWidth = ContentWidth - 40f;
+        private const float SettingsContentTopPadding = 20f;
+
         private void RenderGimmickSettings()
         {
             if (!TryFindCharacter(_charID, out CharacterEntry character))
@@ -593,16 +606,40 @@ namespace Primal.Gimmicks
                 description = gimmick.Description
             });
 
-            if (gimmick.HasSettings)
+            if (!gimmick.HasSettings)
             {
-                items.AddRange(gimmick.BuildSettingsUI(character.ID, DetailTopY - 84f));
-            }
-            else
-            {
-                items.Add(new OpLabel(20f, DetailTopY - 84f, "This gimmick has no additional settings.", false));
+                items.Add(new OpLabel(20f, SettingsViewportTop, "This gimmick has no additional settings.", false));
+                ShowDetail(items);
+                return;
             }
 
+            // Wrapped in a scrollable OpScrollBox (added 2026-09-15) -- some gimmicks' settings
+            // (Chains, notably: a 12-checkbox banlist plus a preset picker and two toggles) lay
+            // out well past 400px tall, badly overflowing the ~241px actually available below the
+            // heading -- those rows used to render off the bottom of the Remix window with no way
+            // to reach them. Same OpScrollBox pattern already established for the add-gimmick
+            // picker below (RenderAddGimmick) -- see that method's own comment for the exact
+            // constructor arguments and the two-step-commit ordering OpScrollBox requires (it must
+            // already be attached to the OpTab before AddItems is called on it, confirmed the hard
+            // way in-game there). For a gimmick whose settings already fit (TimeLimit, NoSpears,
+            // OneSpear, ThreatPanic -- GimmickDef.SettingsContentHeight left at its default of 0),
+            // Mathf.Max clamps the content size up to the viewport's own height, so this is a
+            // no-op wrapper for them, not a visible behavior change.
+            float contentHeight = Mathf.Max(SettingsViewportHeight, gimmick.SettingsContentHeight);
+            float contentTopY = contentHeight - SettingsContentTopPadding;
+
+            OpScrollBox scrollBox = new OpScrollBox(
+                new Vector2(ContentLeft, SettingsViewportBottom),
+                new Vector2(SettingsViewportWidth, SettingsViewportHeight),
+                contentHeight,
+                false,  // horizontal
+                false,  // hasBack -- no visible frame, matches this screen's plain look elsewhere
+                true    // hasSlideBar
+            );
+            items.Add(scrollBox);
+
             ShowDetail(items);
+            scrollBox.AddItems(gimmick.BuildSettingsUI(character.ID, contentTopY).ToArray());
         }
 
         // ---- detail sub-view: add-a-gimmick picker for the selected character ------------------

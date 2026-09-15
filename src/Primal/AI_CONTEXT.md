@@ -2319,6 +2319,56 @@ just being clipped a different way; every gimmick in the list is reachable and c
 the last one; and the rest of the Remix screen (character grid, assigned-gimmick table, settings
 sub-views) still look and behave exactly as before.
 
+### Per-gimmick settings sub-view made scrollable too (2026-09-15)
+
+Reported directly: some gimmicks' *settings* sub-view (`RenderGimmickSettings`, opened by clicking
+a gimmick's name in a character's assigned-gimmick table — distinct from the add-gimmick picker
+above) don't fit the available space either, "notably Artificer's applied gimmick of Chains."
+Checked against `ChainsSettings.BuildUI` (`ChainsGimmick.cs`): its content (an escape-timer row,
+two checkboxes, a "Quick preset" `OpListBox`, then a 6-row/2-column, 12-checkbox banlist grid) lays
+out from `topY` down to roughly `topY - 424` — well past the ~241px actually available below the
+heading (`DetailTopY - 84f` down to a small bottom margin, the same space `RenderGimmickSettings`
+used to place settings content into directly, unwrapped). Everything past that point rendered off
+the bottom of the Remix window with no way to reach it — the exact same class of bug the add-gimmick
+picker had (see above), just in the sibling sub-view that fix didn't touch.
+
+**Fix:** `RenderGimmickSettings` now wraps whatever `GimmickDef.BuildSettingsUI` returns in an
+`OpScrollBox`, same pattern as `RenderAddGimmick` (including the same two-step-commit ordering —
+`ShowDetail(items)` with the still-empty scroll box first, then `scrollBox.AddItems(...)`
+afterward). The one wrinkle settings has that the add-gimmick picker didn't: that picker always
+knows its own content height from a simple formula (`candidates.Count * RowHeight`), but a
+gimmick's settings content height is arbitrary and defined entirely inside that gimmick's own
+`*Settings.BuildUI` — `GimmickDef` had no way to know it up front. Rather than have
+`PrimalOptions` inspect already-built elements' positions to guess a bounding box, `GimmickDef`
+gained one new optional field, `SettingsContentHeight` (default `0`), which a gimmick can set to
+however tall its own settings content actually is; `RenderGimmickSettings` clamps the scroll box's
+content size up to at least the plain viewport height either way
+(`Mathf.Max(SettingsViewportHeight, gimmick.SettingsContentHeight)`), so leaving it at the default
+is a correct, silent no-op for every gimmick whose settings already fit (TimeLimit, NoSpears,
+OneSpear, ThreatPanic) — only `Chains` sets it explicitly, to `480f` (a little headroom over the
+~424px actually needed). No changes were needed inside any `*Settings.BuildUI` method itself —
+every one of them already treats the `topY` argument as an opaque "lay out downward from here"
+starting coordinate (per `GimmickDef.BuildSettingsUI`'s own doc-comment contract), so handing them
+a coordinate local to the scroll box's own content area instead of an absolute screen coordinate
+needed no code changes on their end, just a different `topY` value computed at the call site.
+
+Touched `GimmickDef.cs` (new `SettingsContentHeight` field + constructor parameter),
+`GimmickRegistry.cs` (`Chains`'s registration passes `settingsContentHeight: 480f`), and
+`PrimalOptions.cs` (`RenderGimmickSettings` rewritten as described above). **Not built or tested at
+all** — this container has no `.NET` toolchain (see "Container environment notes"), so this
+couldn't even be locally reasoned about beyond careful reading of the existing, already-working
+`RenderAddGimmick` scroll box as a template. When this next reaches a real build+test cycle, check:
+(1) it still compiles (three touched files, no new `using`s needed — `List<T>.ToArray()` is a
+plain BCL method); (2) opening Chains' settings for Artificer no longer clips — the escape timer,
+both toggles, the preset picker, and all 12 banlist checkboxes (both columns) are all reachable via
+scrolling and each control still reads/writes the right `Configurable`; (3) every OTHER gimmick's
+settings sub-view (TimeLimit, NoSpears, OneSpear, ThreatPanic) still looks and behaves exactly as
+before — these should be an invisible no-op wrapper, not a visible layout change, since their
+content already fit within the plain viewport height; (4) the settings-viewport's slide bar doesn't
+visually collide with anything at the settings screen's right edge (a margin choice, `ContentWidth
+- 40f`, not verified in-game any more than the add-gimmick picker's own analogous margin was when
+it shipped).
+
 ## Primal character names, in detail
 
 Requested by the user right after deprioritizing the config-menu UI merge above (2026-09-11):
@@ -3184,6 +3234,18 @@ in it.)
   usual way, and re-check closely if anything about either gimmick seems off. **Not yet built or
   tested** — see the checklist at the end of "Threat Slowdown and Threat Panic gimmicks, in detail"
   above.
+- **New, not yet built or tested (2026-09-15): per-gimmick settings sub-view made scrollable.**
+  Reported directly: some gimmicks' settings sub-view — Chains on Artificer, notably — don't fit
+  the available space. `GimmickDef.cs`, `GimmickRegistry.cs`, and `PrimalOptions.cs` all touched;
+  see "Per-gimmick settings sub-view made scrollable" under "Config menu UI, in detail" above for
+  the full account. This session's container has no `.NET` toolchain at all (see "Container
+  environment notes" below), so none of this could be compiled or run here — written by close
+  analogy to the already-shipped, already-working add-gimmick-picker scroll box, but genuinely
+  unverified. Next: `dotnet build`, then in-game confirm (1) it compiles; (2) Chains' settings for
+  Artificer now scroll to reach every control (escape timer, both toggles, preset picker, all 12
+  banlist checkboxes) instead of clipping; (3) every other gimmick's settings sub-view
+  (TimeLimit/NoSpears/OneSpear/ThreatPanic) looks and behaves completely unchanged; (4) no visual
+  collision between the new scroll box's slide bar and anything at the settings screen's right edge.
 
 ## Container environment notes
 

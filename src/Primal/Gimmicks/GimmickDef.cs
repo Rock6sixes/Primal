@@ -65,18 +65,32 @@ namespace Primal.Gimmicks
         /// </summary>
         public readonly Func<string, float, List<UIelement>> BuildSettingsUI;
 
+        /// <summary>
+        /// Optional. Minimum virtual content height (Remix screen units) this gimmick's settings
+        /// sub-view needs. PrimalOptions.RenderGimmickSettings always wraps BuildSettingsUI's
+        /// result in a scrollable OpScrollBox and clamps its content size up to at least the
+        /// plain viewport height (~241px as of this writing), so the default of 0 here just means
+        /// "fits already, nothing extra needed" -- for a gimmick whose settings lay out taller
+        /// than that (Chains, notably: a 12-checkbox banlist plus a preset picker and two toggles,
+        /// well over 400px), set this to however tall BuildSettingsUI's content actually is (plus
+        /// a little headroom) so the scroll box gives it room to scroll instead of clipping it.
+        /// </summary>
+        public readonly float SettingsContentHeight;
+
         public GimmickDef(
             string id,
             string displayName,
             string description,
             Action<OptionInterface, string> bindSettings = null,
-            Func<string, float, List<UIelement>> buildSettingsUI = null)
+            Func<string, float, List<UIelement>> buildSettingsUI = null,
+            float settingsContentHeight = 0f)
         {
             ID = id;
             DisplayName = displayName;
             Description = description;
             BindSettings = bindSettings;
             BuildSettingsUI = buildSettingsUI;
+            SettingsContentHeight = settingsContentHeight;
         }
 
         /// <summary>Whether this gimmick has a settings sub-view at all (vs. a plain "no

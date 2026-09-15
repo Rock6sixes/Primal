@@ -97,7 +97,12 @@ namespace Primal.Gimmicks
             "Chains",
             "Entering a room with living creatures in it seals every exit shut -- chained in place by void-chains -- until everything in the room is dead (or a configurable escape timer runs out).",
             ChainsSettings.Bind,
-            ChainsSettings.BuildUI
+            ChainsSettings.BuildUI,
+            // ChainsSettings.BuildUI lays out an escape-timer row, two toggles, a preset picker,
+            // and a 6-row/2-column, 12-checkbox banlist grid -- well over 400px tall, badly
+            // overflowing the plain ~241px settings viewport (see PrimalOptions.RenderGimmickSettings).
+            // 480 gives it room to scroll instead of clipping/being unreachable.
+            settingsContentHeight: 480f
         );
 
         /// <summary>
