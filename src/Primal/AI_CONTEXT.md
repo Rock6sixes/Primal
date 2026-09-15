@@ -274,9 +274,15 @@ was tried twice and rejected both times for good reasons (see History).
   request. `KillListButtonHook`/`KillListSignalHook` (Postfixes on `Menu.SleepAndDeathScreen`'s
   `AddSubObjects`/`Singal`) add a "KILL LIST" button to the cycle-end screen that opens a
   `Menu.DialogNotify` listing not-yet-killed species, then killed — replacing an earlier
-  Remix-settings-based progress view entirely, per explicit request. See **Kill List gimmick, in
-  detail** below for the full account, including a real attribution gap found (and not yet closed)
-  for kills by pure throw-impact rather than bite/weapon/explosion. **Brand new, never built or
+  Remix-settings-based progress view entirely, per explicit request. `CreatureKillListHandlerHook`
+  (Postfix on `PhysicalObject.Grabbed`) records "who last grabbed this creature" as a fallback
+  attribution source for death causes with no `killTag` at all — added after double-checking the
+  leech kill path specifically found that Leech isn't `IPlayerEdible` and dies via its own
+  unattributed `airDrown` (out-of-water) mechanism, the single most common way a leech actually
+  dies in normal play. See **Kill List gimmick, in detail** below for the full account, including
+  two more attribution gaps found but deliberately not yet fixed (throw-impact kills for species
+  whose own `TerrainImpact` override applies lethal damage, and slow spear-stab kills outlasting
+  `killTag`'s own decay window). **Brand new, never built or
   tested as of this doc.**
 
 ### Deployment layout (all on the user's Windows machine, not this container)
@@ -2555,28 +2561,59 @@ subclasses never call, per above) *also* auto-sets `killTag` whenever the attack
 owner is itself a `Creature` (`if (source.owner is Creature) SetKillTag(...)`) — a second,
 redundant safety net for ordinary creature-vs-creature contact damage.
 
-For batflies (`Fly`, an `IPlayerEdible`) and leeches specifically: the dominant, iconic way players
-actually eliminate small prey in this game — grab it, then eat it — goes through
-`Player.BiteEdibleObject`, which explicitly calls `SetKillTag` before consuming. **High confidence
-this path is correctly attributed.**
+For batflies (`Fly`, an `IPlayerEdible`): the dominant, iconic way players actually eliminate small
+prey in this game — grab it, then eat it — goes through `Player.BiteEdibleObject`, which explicitly
+calls `SetKillTag` before consuming. **High confidence this path is correctly attributed.**
 
-**One real gap found, not yet closed:** killing something by **throwing it into a wall/floor**
-(pure impact damage, no bite/maul/weapon/explosion involved) does not appear to be covered by any
-of the 13 call sites above. Traced why: `Creature.TerrainImpact` (the method that fires on a hard
-landing) only ever spawns cosmetic water-drip particles in its base implementation — it never calls
-`Violence()` or `Die()` itself, so it can't be *where* such a death happens; a creature-specific
-override would have to do it instead, and checking every one of those individually (potentially
-different for each of the 56 tracked species) was judged out of scope for this pass. Separately,
-even a **spear stab** — the single most common Lizard-killing method — is worth a second look:
-`Spear.cs`'s own per-tick stab damage calls `Violence(base.firstChunk, ...)` directly, where
-`base.firstChunk.owner` is the *spear itself* (a `Weapon`, not a `Creature`), so neither of the two
-attribution mechanisms above fires from the stab tick itself — a stab-killed creature relies
-entirely on `Weapon.cs`'s own `SetKillTag` call from the *initial* thrown-weapon collision having
-already tagged it, and that tag decays after `killTagCounter` reaches 0 (~200 ticks / 5 seconds,
-per `Creature.SetKillTag`'s own body) with nothing found that re-refreshes it on each subsequent
-stab tick while a spear stays embedded. Whether a slow multi-second stab-kill can outlast that
-5-second window in practice is a real, live question this container has no way to test. **Flagged
-for an explicit in-game check**, not fixed blind — see the checklist at the end of this section.
+**Leeches, double-checked separately (2026-09-15, third round — "double check the leech kill path
+too") — a real, confirmed gap, found and fixed.** `Leech.cs` is **not** `IPlayerEdible` (grepped
+every `IPlayerEdible` implementer in the whole source; Leech isn't one), so `BiteEdibleObject` never
+applies to it at all — there's no "grab and eat" path for leeches the way there is for batflies.
+Reading `Leech.cs` end to end for how it actually dies turned up the real mechanism: an `airDrown`
+counter (`Leech.Update`, line ~292) that rises while `mainBodyChunk.submersion == 0` (i.e.
+out of water) and calls `Die()` **directly, unconditionally, with no `SetKillTag` anywhere in that
+code path** once it hits 1.0 (~900 ticks / 22.5 seconds at the increment rate of `0.0011111111f`
+per tick). This is the ordinary, everyday way a pulled-off-and-thrown-away leech actually dies in
+normal play — not eaten, not smashed, not stabbed — so **the original implementation would never
+have counted a leech kill via this path at all**, the single most common one. (Leech's own
+`TerrainImpact` override was also checked directly, since throw-impact was already a suspected
+gap generally — confirmed it only ever calls `Stun(...)`, never damage or `Die()`, so leeches
+specifically can't be killed by throwing them into a wall; that generic concern doesn't apply to
+this species even though the underlying gap-pattern, "a creature-specific death path with no
+`SetKillTag` call anywhere in it," is exactly the same shape.)
+
+**Fix:** rather than special-case Leech's `airDrown` mechanism specifically, added a general
+fallback source of attribution — `CreatureKillListHandlerHook` (Postfix on
+`PhysicalObject.Grabbed(Creature.Grasp)`, the base method; checked and confirmed only `Fly.cs`/
+`LanternMouse.cs` of this gimmick's tracked roster override it, and both call `base.Grabbed`, so
+this gets real coverage) records "which tracked player most recently grabbed this creature" into a
+new `KillListTracker._handlers` table (`ConditionalWeakTable<Creature, HandlerRecord>`, keyed on
+the creature instance). `CreatureKillListGimmick`'s own `Die()` Postfix now only reaches for this
+fallback when `killTag` is **entirely absent** (`killer == null`) — deliberately never overriding a
+`killTag` that's already set to something else (e.g. eaten by another creature), since that's real,
+known information that shouldn't be second-guessed by a weaker "was recently touched" heuristic.
+The fallback's own window (`HandlerAttributionWindowTicks`, 2400 ticks / 60 seconds) is
+deliberately much longer than `killTag`'s own ~5-second decay — sized against Leech's own
+worst-case ~22.5-second `airDrown` timer with margin for the delay between being dropped and
+actually drying out, while still short enough that "you touched this several minutes ago" can't
+retroactively claim an unrelated later death. **This is the one death-path gap actually found and
+fixed this round** — high confidence it correctly resolves the leech case specifically, since the
+exact mechanism (`airDrown`) and its timing were read directly rather than inferred.
+
+**Two more gaps found but deliberately NOT fixed yet, still open:** (1) killing something by
+**throwing it into a wall/floor** for species where the creature-specific override actually applies
+lethal impact damage (unlike Leech's own `TerrainImpact`, which never does) — `Creature.
+TerrainImpact`'s *base* implementation only ever spawns cosmetic water-drip particles, never calling
+`Violence()`/`Die()` itself, so wherever this really happens it must be creature-specific, and
+checking all 56 individually was judged out of scope for this pass; the new handler-fallback above
+would actually cover this case too now, PROVIDED the creature was recently grabbed by the tracked
+player before being thrown — worth re-testing specifically now that the fallback exists. (2) a
+**slow, multi-second spear stab** — `Spear.cs`'s own per-tick stab damage calls
+`Violence(base.firstChunk, ...)` with the *spear's own* chunk as source (not a `Creature`), so
+neither `killTag`'s own auto-set-on-Violence path nor (for a creature that was never grabbed by the
+player, just stabbed from a distance) the new handler-fallback would apply if the kill happens after
+`killTag`'s own 5-second decay from the initial thrown-weapon collision. **Both flagged for an
+explicit in-game check**, not fixed blind — see the checklist at the end of this section.
 
 **Only banked on a successful cycle end — a deliberate change from the first pass.** Originally
 this wrote straight to `DeathPersistentSaveData` the instant a kill landed. Requested to change:
@@ -2671,15 +2708,20 @@ kill another tracked species, then deliberately **die** before reaching a shelte
 LIST" on the death screen and confirm that cycle's kill was NOT added (still only the
 previously-banked one shows); (5) fully quit and relaunch, reload the same character, reach a
 shelter, and confirm the previously-banked kill survived the restart; (6) **specifically test a
-kill via throwing a creature into a wall/floor** (no biting, no spear, no explosion) and confirm
-whether it's attributed correctly — this is the one gap flagged above as unconfirmed, and a
-negative result here means `Creature.TerrainImpact`-driven deaths need their own explicit
-`SetKillTag` call added, per-species or via some other hook not yet identified; (7) similarly test
-a **slow spear-stab kill** (hold a lizard down and stab repeatedly for several seconds rather than
-a single quick throw) to check whether the ~5-second killTag decay window causes a miss; (8) kill
-something NOT on the 56-species list (e.g. a Watcher creature) and confirm nothing is recorded and
-nothing throws; (9) confirm the "KILL LIST" button only appears for a character that actually has
-the gimmick assigned, and doesn't appear (or doesn't break anything) for one that doesn't.
+leech kill** — pull a leech off, throw it somewhere dry, wait for it to die of `airDrown`
+(~22.5 seconds), and confirm it's still correctly attributed via the new handler-fallback (this is
+the gap actually found and fixed this round — highest-priority thing to confirm); (7) test a kill
+via throwing a creature into a wall/floor for some OTHER species (no biting, no spear, no
+explosion) and confirm whether it's attributed correctly now that the handler-fallback exists — a
+negative result here (for a creature that WAS recently grabbed by the player before being thrown)
+would mean the fallback's window or hook coverage needs another look; (8) similarly test a **slow
+spear-stab kill** (hold a lizard down and stab repeatedly for several seconds rather than a single
+quick throw, without ever grabbing it directly) to check whether the ~5-second killTag decay window
+causes a miss the handler-fallback can't cover either (since the player never grabbed the lizard,
+only stabbed it); (9) kill something NOT on the 56-species list (e.g. a Watcher creature) and
+confirm nothing is recorded and nothing throws; (10) confirm the "KILL LIST" button only appears
+for a character that actually has the gimmick assigned, and doesn't appear (or doesn't break
+anything) for one that doesn't.
 
 ## Primal character names, in detail
 
@@ -3576,35 +3618,40 @@ in it.)
   especially darker ones (Spearmaster, Sofanthiel/Inv); (4) check `BepInEx/LogOutput.log` for a
   `PlayerGraphics.DefaultSlugcatColor threw` line -- if present, every button fell back to
   uncolored and the reflection lookup needs a fix.
-- **New, not yet built or tested (2026-09-15, revised same day): Kill List gimmick.** Requested as
-  a completionist tracker -- kill every one of a fixed, curated 56-species roster, tracking only
-  for now (no goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`; `GimmickRegistry.cs`
-  updated (no default assignment, no home-character color tag, no settings sub-view at all -- not
-  requested). See "Kill List gimmick, in detail" above for the full account. Same-day revision, two
-  explicit changes from the first pass: (1) kills are now only banked permanently if the cycle
-  actually ends in a successful sleep (`RainWorldGame.Win`, confirmed to fire only from
-  `ShelterDoor.cs`) -- a cycle ending in death (`RainWorldGame.GameOver`, confirmed to fire only
-  from real death paths) discards that cycle's kills instead; (2) progress is no longer shown in
-  the Remix menu at all -- instead a "KILL LIST" button on the cycle-end screen
-  (`Menu.SleepAndDeathScreen`) opens a popup listing not-yet-killed species, then killed. Also
-  traced attribution in full this round (13 total `SetKillTag(` call sites across the whole
-  codebase) and found one real, unclosed gap: a kill by pure throw-impact (no bite/weapon/
-  explosion) may not be attributed at all, since `Creature.TerrainImpact`'s base implementation
-  never calls `Violence()`/`Die()` itself. Same container limitation as the entries above (no
-  `.NET` toolchain here) -- every new member access was checked against `reference/GameSource/`
-  rather than guessed, but none of it has compiled or run once. Next: `dotnet build`, then in-game,
-  in order: (1) it compiles; (2) assign Kill List to a character, kill a tracked species by
-  grabbing and eating it (the one attribution path checked with high confidence), reach a shelter,
-  and confirm the "KILL LIST" button on the sleep screen shows it under KILLED; (3) kill a
-  *different* species, then deliberately die before reaching a shelter, and confirm that cycle's
-  kill was discarded (not shown on the death screen's own Kill List, and still absent next cycle);
-  (4) fully quit/relaunch, reload the same character, reach a shelter, and confirm the earlier
-  banked kill survived (proves the save-file round-trip); (5) specifically test a kill by
-  **throwing a creature into a wall** with no other damage involved, and a **slow multi-second
-  spear-stab kill**, to check the one flagged attribution gap and the killTag's ~5-second decay
-  window; (6) kill something NOT on the list (e.g. a Watcher creature) and confirm nothing is
-  recorded and nothing throws; (7) confirm the "KILL LIST" button only appears for a character that
-  actually has the gimmick assigned.
+- **New, not yet built or tested (2026-09-15, revised twice same day): Kill List gimmick.**
+  Requested as a completionist tracker -- kill every one of a fixed, curated 56-species roster,
+  tracking only for now (no goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`;
+  `GimmickRegistry.cs` updated (no default assignment, no home-character color tag, no settings
+  sub-view at all -- not requested). See "Kill List gimmick, in detail" above for the full account.
+  Round 2: (1) kills are now only banked permanently if the cycle actually ends in a successful
+  sleep (`RainWorldGame.Win`, confirmed to fire only from `ShelterDoor.cs`) -- a cycle ending in
+  death (`RainWorldGame.GameOver`, confirmed to fire only from real death paths) discards that
+  cycle's kills instead; (2) progress is no longer shown in the Remix menu at all -- instead a
+  "KILL LIST" button on the cycle-end screen (`Menu.SleepAndDeathScreen`) opens a popup listing
+  not-yet-killed species, then killed. Round 2 also traced attribution in full (13 total
+  `SetKillTag(` call sites) and flagged, but didn't fix, a suspected throw-impact gap.
+  Round 3 ("double check the leech kill path too") **confirmed and fixed a real gap**: `Leech.cs`
+  isn't `IPlayerEdible`, so the "grab and eat" attribution path never applies to it at all, and its
+  actual, everyday death mechanism -- an `airDrown` (out-of-water) timer that calls `Die()` directly
+  with zero `SetKillTag` anywhere in that path -- would never have been counted. Fixed with a new,
+  general fallback (`CreatureKillListHandlerHook`, a Postfix on `PhysicalObject.Grabbed`) that
+  records "who last grabbed this creature" and lets `Die()`'s Postfix use that instead, but only
+  when `killTag` is entirely absent (never overriding a `killTag` that's set to something else).
+  Same container limitation as the entries above (no `.NET` toolchain here) -- every new member
+  access was checked against `reference/GameSource/` rather than guessed, but none of it has
+  compiled or run once. Next: `dotnet build`, then in-game, in order: (1) it compiles; (2) assign
+  Kill List to a character, kill a tracked species by grabbing and eating it, reach a shelter, and
+  confirm the "KILL LIST" button on the sleep screen shows it under KILLED; (3) kill a *different*
+  species, then deliberately die before reaching a shelter, and confirm that cycle's kill was
+  discarded; (4) fully quit/relaunch, reload the same character, reach a shelter, and confirm the
+  earlier banked kill survived; (5) **highest priority: pull a leech off, throw it somewhere dry,
+  wait ~22.5 seconds for it to die of `airDrown`, and confirm it's still attributed correctly** --
+  this is the specific gap this round fixed; (6) test a throw-into-wall kill for some other species
+  now that the handler-fallback exists, and a slow multi-second spear-stab kill (never grabbing the
+  target directly), to check the two attribution gaps still flagged as open; (7) kill something NOT
+  on the list (e.g. a Watcher creature) and confirm nothing is recorded and nothing throws; (8)
+  confirm the "KILL LIST" button only appears for a character that actually has the gimmick
+  assigned.
 
 ## Container environment notes
 

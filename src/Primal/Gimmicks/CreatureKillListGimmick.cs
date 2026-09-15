@@ -80,6 +80,25 @@ namespace Primal.Gimmicks
             }
 
             AbstractCreature killer = KillTagField?.GetValue(__instance) as AbstractCreature;
+            if (killer == null)
+            {
+                // No killTag at all -- some death causes never set one (confirmed, tracing the
+                // "double check attribution... for leeches" request: Leech's own airDrown-out-of-
+                // water death calls Die() directly with no SetKillTag anywhere in that path, since
+                // Leech isn't IPlayerEdible and the death itself isn't a Violence()-driven hit at
+                // all). Fall back to "who last handled this creature" instead of giving up --
+                // see CreatureKillListHandlerHook/KillListTracker.TryGetRecentHandler below for the
+                // full mechanism and its bounded time window. Deliberately NOT used when killTag
+                // IS set but points at something other than a player (e.g. eaten by another
+                // creature) -- that's a real, known cause, and shouldn't be second-guessed by a
+                // weaker "was recently touched" heuristic.
+                int? tick = __instance.abstractCreature?.world?.game?.clock;
+                if (tick.HasValue && KillListTracker.TryGetRecentHandler(__instance, tick.Value, out AbstractCreature handler))
+                {
+                    killer = handler;
+                }
+            }
+
             Player player = killer?.realizedCreature as Player;
             if (player?.playerState == null || player.room?.game == null || !player.room.game.IsStorySession)
             {
@@ -110,6 +129,51 @@ namespace Primal.Gimmicks
 
             _recorded.Add(__instance, null);
             KillListTracker.RecordPendingKill(characterID, type.value);
+        }
+    }
+
+    /// <summary>
+    /// Records "which player most recently grabbed this creature" -- purely as a fallback source
+    /// of attribution for CreatureKillListGimmick's Die() Postfix, for death causes that never set
+    /// vanilla's own Creature.killTag at all (see that Postfix's own comment; found and confirmed
+    /// via Leech's airDrown-out-of-water death specifically).
+    ///
+    /// Patched on PhysicalObject.Grabbed(Creature.Grasp) -- the base method (checked: of the 10
+    /// files across the whole decompiled source that override Grabbed, only Fly.cs and
+    /// LanternMouse.cs are on this gimmick's tracked roster, and both call base.Grabbed(grasp), so
+    /// a patch on the base method gets real coverage here the same way Die() does).
+    /// </summary>
+    [HarmonyPatch(typeof(PhysicalObject), nameof(PhysicalObject.Grabbed))]
+    internal static class CreatureKillListHandlerHook
+    {
+        private static void Postfix(PhysicalObject __instance, Creature.Grasp grasp)
+        {
+            if (!(__instance is Creature creature) || !(grasp?.grabber is Player player))
+            {
+                return;
+            }
+            if (player.playerState == null || player.room?.game == null)
+            {
+                return;
+            }
+            if (!PrimalSlot.IsActive(player.room.game.rainWorld))
+            {
+                return;
+            }
+
+            string characterID = player.playerState.slugcatCharacter?.value;
+            if (!GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID))
+            {
+                return;
+            }
+
+            CreatureTemplate.Type type = creature.abstractCreature?.creatureTemplate?.type;
+            if (type == null || !KillListRegistry.ByID.ContainsKey(type.value))
+            {
+                return;
+            }
+
+            KillListTracker.RecordHandler(creature, player.abstractCreature, player.room.game.clock);
         }
     }
 
@@ -323,6 +387,50 @@ namespace Primal.Gimmicks
         // lost rather than carried into a later cycle -- an accepted, low-stakes edge case rather
         // than something worth extra bookkeeping for.
         private static readonly Dictionary<string, HashSet<string>> _pending = new Dictionary<string, HashSet<string>>();
+
+        // "Who last handled this creature" -- a fallback attribution source for death causes that
+        // never set vanilla's own Creature.killTag at all, keyed on the creature INSTANCE (so it
+        // naturally disappears once the creature itself is garbage-collected, same lifetime
+        // reasoning as CreatureKillListGimmick's own _recorded table). Deliberately a much longer
+        // window than killTag's own ~5-second decay (see HandlerAttributionWindowTicks below) --
+        // the whole point is to cover a death that happens well after the grab, which killTag
+        // itself can't.
+        private sealed class HandlerRecord
+        {
+            public AbstractCreature Handler;
+            public int Tick;
+        }
+
+        private static readonly ConditionalWeakTable<Creature, HandlerRecord> _handlers = new ConditionalWeakTable<Creature, HandlerRecord>();
+
+        // 2400 ticks = 60 seconds at the fixed 40 ticks/second simulation rate (see
+        // TimeLimitGimmick.cs's own TicksPerSecond doc comment for that constant) -- comfortably
+        // over Leech's own worst-case airDrown timer (~900 ticks / 22.5s from fully-saturated to
+        // dead, per Leech.cs's own airDrown += 0.0011111111f per tick), with margin for the delay
+        // between being dropped/thrown and actually drying out. Long enough to close the confirmed
+        // gap, short enough that "you touched this 10 minutes ago" can't retroactively claim an
+        // unrelated later death.
+        private const int HandlerAttributionWindowTicks = 2400;
+
+        public static void RecordHandler(Creature creature, AbstractCreature handler, int tick)
+        {
+            HandlerRecord record = _handlers.GetOrCreateValue(creature);
+            record.Handler = handler;
+            record.Tick = tick;
+        }
+
+        /// <summary>True only if this creature was handled by a tracked player within the last
+        /// HandlerAttributionWindowTicks ticks of game time.</summary>
+        public static bool TryGetRecentHandler(Creature creature, int currentTick, out AbstractCreature handler)
+        {
+            if (_handlers.TryGetValue(creature, out HandlerRecord record) && currentTick - record.Tick <= HandlerAttributionWindowTicks)
+            {
+                handler = record.Handler;
+                return handler != null;
+            }
+            handler = null;
+            return false;
+        }
 
         private static string Marker(string characterID, string creatureID)
         {
