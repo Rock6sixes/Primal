@@ -24,11 +24,15 @@ namespace Primal.Gimmicks
         );
 
         /// <summary>
-        /// Based on Player.SlugCatClass -- the single field vanilla itself uses everywhere
-        /// (physics, jump height, grabbing, AI perception, and every visual in PlayerGraphics)
-        /// to decide "is this player currently a slugpup". Vanilla already flips this per-slot
-        /// for Jolly Co-op's own "make this player a pup" option; this gimmick reuses the exact
-        /// same switch for a single-player story character instead.
+        /// As of its 2026-09-15 rewrite, based on Player.isSlugpup (forced true via a Postfix on
+        /// its getter) rather than Player.SlugCatClass -- see SlugpupGimmick.cs for the full
+        /// account of why the original SlugCatClass-flip approach was wrong (it broke the real
+        /// character's own SlugCatClass-gated abilities and visual fatness while pup-ified) and
+        /// how forcing isSlugpup alone, the way the reference "Pupify" mod actually does it,
+        /// fixes that: physics/jump height/grabbing/AI-perception all read isSlugpup and still
+        /// correctly treat the player as a pup, while everything that reads SlugCatClass directly
+        /// (PlayerGraphics' per-character body shape, diet, other abilities) keeps seeing the real
+        /// character.
         /// </summary>
         public static readonly GimmickDef Slugpup = new GimmickDef(
             "Slugpup",
@@ -40,9 +44,11 @@ namespace Primal.Gimmicks
         /// <summary>
         /// Grants Spearmaster's real tail spear-pull -- his only way of producing a weapon,
         /// since his diet gives negative food from everything -- by flipping Player.SlugCatClass
-        /// to vanilla Spear (the same trick Slugpup uses), which is what every one of vanilla's
-        /// hardcoded Spearmaster checks in Player.Update() gates on. Unlike vanilla Spearmaster,
-        /// though, the pull can only succeed a limited number of times per save file (default 1,
+        /// to vanilla Spear (see OneSpearGimmick.cs; Slugpup used to use this same trick but no
+        /// longer does as of its 2026-09-15 rewrite -- see SlugpupGimmick.cs), which is what every
+        /// one of vanilla's hardcoded Spearmaster checks in Player.Update() gates on. Unlike
+        /// vanilla Spearmaster, though, the pull can only succeed a limited number of times per
+        /// save file (default 1,
         /// configurable -- see OneSpearGimmick.OneSpearSettings) before it stops working for
         /// good. Shown in the UI as "Master Spear" -- the internal ID/class name stayed "OneSpear"
         /// to avoid disturbing existing default assignments and save markers.

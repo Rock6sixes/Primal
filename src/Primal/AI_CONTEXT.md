@@ -187,16 +187,27 @@ was tried twice and rejected both times for good reasons (see History).
   "Primal character names, in detail" below.
 - `Gimmicks/MiseryGimmick.cs` — the Misery gimmick. Traced from a third-party mod, see **Misery
   gimmick, in detail** below — read this before touching it, the mechanic is non-obvious.
-- `Gimmicks/SlugpupGimmick.cs` — three patches making up the Slugpup gimmick. `SlugpupGimmick`
-  flips `Player.SlugCatClass` to `SlugcatStatsName.Slugpup` right after `GetInitialSlugcatClass`
-  sets it (the same trick vanilla's own Jolly Co-op pup-mode uses) — this part alone is confirmed
-  working (Gourmand does become pup-sized/pup-shaped and behaves like a pup mechanically).
-  `SlugpupStatsGimmick` (Postfix on `Player.NPCStats`'s constructor) and `SlugpupColorGimmick`
-  (Postfix on `Player.ShortCutColor()`) are two later additions fixing real bugs the flip alone
-  left behind — the pup's physical stats and rendered color were both generic/randomized instead
-  of proportional to the real character. See **Slugpup gimmick stats rescaling, in detail** below
-  before touching any of this — it documents a genuine multi-round debugging struggle (four
-  attempts, three different failure modes) and is **not yet confirmed working as of this doc**.
+- `Gimmicks/SlugpupGimmick.cs` — five patches making up the Slugpup gimmick, **rewritten
+  2026-09-15** onto a completely different mechanism than its original `SlugCatClass`-flip
+  approach. `SlugpupGimmick` now forces `Player.isSlugpup`'s getter to return `true` (Postfix,
+  `MethodType.Getter`) *without ever touching `SlugCatClass`* — the same trick the reference
+  "Pupify" mod's own `PlayerHooks.Player_isSlugpup` hook uses, found by re-reading its decompiled
+  source (`reference/ExampleMods/Pupify/Pupify.decompiled.cs`) after the user reported the old
+  flip-based version looked "like a slugpup" instead of "a fatter version" — i.e. it lost the real
+  character's own `SlugCatClass`-gated body shape and abilities while pup-ified, which is exactly
+  backwards from the gimmick's whole point. `SlugpupStatsGimmick` (Postfix on `Player.NPCStats`'s
+  constructor) and the new `SlugpupMalnourishmentStatsGimmick` (Postfix on
+  `Player.SetMalnourished` — a second, previously-undiscovered bug found in the same pass: that
+  method unconditionally rebuilds `npcCharacterStats` from scratch any time malnourishment status
+  changes, silently undoing the rescale) both call into the shared `SlugpupStatsScaling.Rescale`
+  helper to re-derive the pup's physical stats from the real character's own stats.
+  `SlugpupColorGimmick` (Postfix on `Player.ShortCutColor()`) shrank in scope now that the main
+  body color is automatically correct once `SlugCatClass` isn't flipped, but still fixes the
+  narrower shortcut/pipe-transition-tint case, which reads `isSlugpup` directly. See **Slugpup
+  gimmick stats rescaling, in detail** and **Slugpup gimmick: SlugCatClass-flip rewrite, in
+  detail** below before touching any of this — genuinely one of the trickier gimmicks in this
+  codebase, and **not yet confirmed working as of this doc** (no `.NET` toolchain in this
+  container to build/test against).
 - `Gimmicks/OneSpearGimmick.cs` — grants (or, on real Spearmaster, restricts) the tail spear-pull.
   Two parts: `SpearIdentity` flips `SlugCatClass` to `Spear` (same trick as Slugpup) via two hooks
   (`GetInitialSlugcatClass` Postfix and `InitiateGraphicsModule` Prefix — **both are required**,
@@ -3074,6 +3085,103 @@ real stats (...)` log line. Given the track record above (four rounds, each with
 failure mode), don't be surprised if this needs a fifth — see "Outstanding items" below for exactly
 what to check next.
 
+## Slugpup gimmick: SlugCatClass-flip rewrite, in detail (fix for "not fat enough" / "looks like a slugpup")
+
+**The report:** with the stats and color fixes above already in place and tested, the user reported
+back: "he had the right color, but wasn't fat enough, for lack of a better word... currently primal
+gourmand looks like a slugpup but he should look like a more fat version, like what pupify does."
+This is a *third*, distinct bug from the two already fixed above — proof the "keep expecting more
+of the same" warning at the top of the stats-rescaling section was well-founded.
+
+**Root cause: the original architecture itself, not a missing rescale.** `SlugpupGimmick` flipped
+`Player.SlugCatClass` to `SlugcatStatsName.Slugpup` outright. That successfully routes
+`Player.slugcatStats` through the rescaled `npcCharacterStats` (fixing weight/speed/etc.), but
+`SlugCatClass` is *also* the exact field `PlayerGraphics.DrawSprites` branches on directly to decide
+body-fatness sprite scale — confirmed by reading `reference/GameSource/PlayerGraphics.cs` around its
+head/body `scaleX` assignments: `if (SlugCatClass == Gourmand) scaleX = 1.4f + ...` (head) / `1.6f +
+...` (body); `else if (SlugCatClass == Spear) scaleX = 0.76f + ...`; `else if (SlugCatClass ==
+Slugpup) scaleX = 0.9f + 0.2f*Wideness + ...` (a much narrower 0.9–1.1 range, keyed off the random
+personality stat, nothing to do with the real character at all). Once `SlugCatClass` becomes
+`Slugpup`, the `Gourmand` branch (1.4×/1.6×, the actual source of Gourmand's signature fatness) can
+never be reached again — the pup renders using the generic Slugpup formula instead, which is exactly
+"looks like a slugpup" rather than "a fatter version of Gourmand." The same `SlugCatClass` field
+also gates unrelated per-character abilities and behavior throughout the codebase (diet/food-value
+lookups, and any other `SlugCatClass ==` check anywhere in the game), meaning the original
+implementation was silently breaking *all* of those too for as long as a character was pup-ified —
+directly contradicting the user's own original framing of this gimmick when first requested: "play
+as a slugpup while also changing behavior so that you can use that character's abilities as a
+slugpup." The original file-map bullet's claim that the flip "alone is confirmed working" was true
+only in the narrow sense that the character *becomes pup-sized and pup-behaving* — it was never
+actually checked against "and still looks/acts like the real character," because nobody had reason
+to suspect the flip cost anything until this specific report.
+
+**The fix: re-read Pupify's own actual mechanism instead of re-deriving the trick from scratch.**
+This container has a committed, already-decompiled copy of Pupify at
+`reference/ExampleMods/Pupify/Pupify.decompiled.cs` (3,545 lines — no live disassembly needed this
+round). Grepping it specifically for `PlayerGraphics` and `isSlugpup` (a question the original
+stats-rescaling investigation never asked, since it was only looking for the stats-constructor hook
+at the time) found `PlayerHooks.Player_isSlugpup` (~line 2679): a hook on `Player.isSlugpup`'s
+*getter itself* — `if (!__instance.isNPC && !Plugin.MakeChanges(__instance)) return true; __result =
+true; return false;` — that forces the getter to `true` for a pup-ified player *without ever writing
+to `SlugCatClass`*. Cross-checked against `PlayerHooks.Player_GetInitialSlugcatClass` (~line 1982),
+which explicitly guards `!...Room.world.game.IsStorySession` and otherwise just calls
+`orig.Invoke(self)` (vanilla's own unmodified logic) — confirming Pupify deliberately leaves
+`SlugCatClass` alone in ordinary single-player story sessions and gets "is a pup" entirely from the
+`isSlugpup` override instead. This is the actual reason a Pupify companion pup looks like a smaller
+version of their own real character rather than a generic slugpup: every `SlugCatClass ==`-gated
+system (fatness scale, diet, abilities) keeps seeing the real identity, while every `isSlugpup`-gated
+system (stats routing, jump height, grabbing rules, AI perception — all confirmed via
+`reference/GameSource/Player.cs` to key off `Player.isSlugpup` directly, not `SlugCatClass`) still
+correctly treats the player as a pup.
+
+**Applied to this codebase:** `SlugpupGimmick` now patches `Player.isSlugpup`'s getter
+(`MethodType.Getter` — the same pattern already proven in this codebase by `MiseryGimmick`'s
+`PainJumps` hook) with a Postfix that ORs in `true` when the real character has the gimmick
+assigned, and never touches `SlugCatClass`. `SlugpupStatsGimmick`'s own logic didn't need to change
+conceptually (it was already keying off `playerState.slugcatCharacter`, not `SlugCatClass`) — just
+one now-permanently-false guard removed (`if (self.SlugCatClass != Slugpup) return;`, which would
+never pass once the flip stopped happening). `SlugpupColorGimmick` needed the least conceptual
+change of the three but the most explanation: with `SlugCatClass` never flipped,
+`PlayerGraphics.ApplyPalette`'s own `SlugCatClass == Slugpup` branch (the thing this class was
+originally built to work around) is simply never taken anymore, so the *main body color* is already
+correct for free — but `Player.ShortCutColor()` (used separately for actual shortcut/pipe-transition
+tinting) branches on `!isSlugpup` in its own body, confirmed by reading
+`reference/GameSource/Player.cs` directly, so once `isSlugpup` is forced `true` that one narrower
+case still needs the same fix, just with its guard changed from `SlugCatClass != Slugpup` to
+`!isSlugpup`.
+
+**A second, previously-undiscovered bug found in the same pass, unrelated to the flip:**
+`Player.SetMalnourished(bool, bool)` — called by vanilla any time a player's malnourished status
+actually changes, a routine and frequent in-game event, not an edge case — when `isSlugpup` is true,
+unconditionally replaces `npcCharacterStats` outright: `npcCharacterStats = new
+SlugcatStats(SlugCatClass, flag);`. That is a fresh, un-rescaled `SlugcatStats`, discarding whatever
+`SlugpupStatsGimmick`'s own `NPCStats`-constructor Postfix had carefully rescaled at spawn time — so
+the very first malnourishment change after spawning would silently revert the rescale for the rest
+of that cycle. This bug existed in every previous round of this gimmick (both under the old
+`SlugCatClass`-flip architecture and would have persisted under the new one too) and was only found
+now because this round traced `SetMalnourished` line-by-line for an unrelated reason. Fixed with a
+new `SlugpupMalnourishmentStatsGimmick` (Postfix on `Player.SetMalnourished`) that re-applies the
+identical rescale; the rescale logic itself was extracted into a shared `SlugpupStatsScaling.Rescale`
+helper so `SlugpupStatsGimmick` and this new class can't silently drift apart from each other.
+
+**Not yet built or tested — same container limitation as every other entry in this file (no `.NET`
+toolchain here).** Every new member access (`Player.isSlugpup`'s getter, `Player.SetMalnourished`)
+was checked against `reference/GameSource/Player.cs` rather than guessed, and the overall approach is
+now independently validated against Pupify's own actual, working implementation rather than being a
+fresh guess — but given this gimmick's track record (three real, distinct bugs found across three
+separate rounds, none of them caught by compilation), don't assume this round is exhaustive either.
+Next, in-game, in order: (1) it compiles; (2) Primal Gourmand, pup-ified, now shows the same visibly
+fat head/body proportions a normal (non-pup) Gourmand does, just smaller — not the plain, narrow
+Slugpup shape; (3) still renders in Gourmand's own tan/pink color (both main body and, more subtly,
+brief shortcut/pipe-transition tint); (4) still has pup-scale physical stats (mass/speed/etc. — cross
+-check the `[Slugpup] ... npcCharacterStats rescaled from real stats (...)` log line); (5) eat enough
+to become malnourished (or start malnourished and eat enough to recover), then confirm the pup-scale
+stats are *still* correctly rescaled afterward (not reverted to full-adult or generic-pup sizing) —
+the specific case the new `SlugpupMalnourishmentStatsGimmick` patch exists for; (6) Gourmand's own
+abilities/behaviors that key off `SlugCatClass == Gourmand` elsewhere in vanilla (if any are
+noticeably different while pup-ified vs. not) now work correctly, matching "use that character's
+abilities as a slugpup" from the gimmick's original request.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
@@ -3205,6 +3313,27 @@ in it.)
   thin as a pup AND renders in Gourmand's own tan/pink color, and check the BepInEx log for
   `[Slugpup] Gourmand: npcCharacterStats rescaled from real stats (bodyWeightFac X -> Y)` (X should
   be noticeably larger than Y) to confirm the stats patch actually ran.
+- **New, not yet built or tested (2026-09-15, fifth Slugpup round — see "Slugpup gimmick:
+  SlugCatClass-flip rewrite, in detail" above for the full account): the stats/color fixes above
+  got tested in-game and confirmed the color was now correct, but Gourmand still "wasn't fat
+  enough... looks like a slugpup" instead of a fatter version of himself. Root cause: the
+  `SlugCatClass`-flip architecture itself, not a missing rescale — flipping `SlugCatClass` away
+  from `Gourmand` meant `PlayerGraphics`' own Gourmand-specific 1.4×/1.6× fatness scale could never
+  fire. Rewrote the whole gimmick to match how the reference "Pupify" mod actually does it (found by
+  re-reading `reference/ExampleMods/Pupify/Pupify.decompiled.cs`, already committed in this repo, no
+  live disassembly needed this round): force `Player.isSlugpup`'s getter to `true` directly, and
+  never touch `SlugCatClass` at all. Also found and fixed a second, independent, previously-missed
+  bug in the same pass: `Player.SetMalnourished` unconditionally rebuilds `npcCharacterStats` from
+  scratch any time malnourishment changes, silently undoing the rescale — fixed with a new
+  `SlugpupMalnourishmentStatsGimmick` Postfix. **When retesting, check all of, in order: (1) it
+  compiles; (2) pup-ified Gourmand shows the same fat head/body proportions a normal adult Gourmand
+  does, just smaller, not the plain narrow Slugpup shape; (3) still renders in Gourmand's own
+  tan/pink for both main body color and shortcut/pipe-transition tint; (4) pup-scale physical stats
+  are still correctly applied (check the `[Slugpup] ...` log line); (5) eat until malnourished (or
+  recover from it) and confirm the pup-scale stats are STILL correctly rescaled afterward, not
+  reverted to full-adult or generic-pup sizing — the new, specific regression case found this round;
+  (6) any of Gourmand's own `SlugCatClass`-gated behaviors/abilities that used to break under the
+  old flip now work correctly while pup-ified.**
 - **New, built, deploy-gap already found and fixed, not yet tested in-game (2026-09-12): the Chains
   gimmick.** Requested by the user as "find the artificer chains mod and turn that into a gimmick"
   — turned out to be a **local, not-on-the-Workshop** mod already installed on the user's machine
