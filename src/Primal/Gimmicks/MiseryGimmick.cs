@@ -51,21 +51,15 @@ namespace Primal.Gimmicks
     {
         public const string ID = "Misery";
 
+        // This method used to be the only place in the mod that factored the standard
+        // "on a reserved slot, and this gimmick is assigned to this player's real character" gate
+        // out of a patch body -- every other gimmick copy-pasted it instead, because the name made
+        // it look Misery-specific. It's now GimmickGate.IsActiveFor, shared by all of them; this
+        // stays as a thin named alias purely because three separate patch classes in this file
+        // read better calling MiseryEffect.IsActiveFor than repeating the gimmick ID each time.
         public static bool IsActiveFor(Player self)
         {
-            if (self?.playerState == null)
-            {
-                return false;
-            }
-
-            RainWorld rainWorld = self.room?.game?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return false;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            return GimmickAssignments.IsEnabled(characterID, ID);
+            return GimmickGate.IsActiveFor(self, ID);
         }
     }
 

@@ -1,0 +1,6 @@
+# .NET / MSBuild build output (per mod project under src/*)
+bin/
+obj/
+
+# csproj's own post-build copy of the compiled plugin (source-of-truth is bin/, not this copy)
+src/*/mod/plugins/

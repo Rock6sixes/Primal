@@ -1,7 +1,0 @@
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\bin\Debug\AltCharacters.dll
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\bin\Debug\AltCharacters.pdb
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\obj\Debug\AltCharacters.csproj.AssemblyReference.cache
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\obj\Debug\AltCharacters.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\obj\Debug\AltCharacters.csproj.CoreCompileInputs.cache
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\obj\Debug\AltCharacters.dll
-C:\Users\rokas\Documents\RWMods\src\AltCharacters\obj\Debug\AltCharacters.pdb

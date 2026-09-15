@@ -219,13 +219,14 @@ namespace Primal.Gimmicks
         private static void Postfix(Player __instance)
         {
             Player self = __instance;
-            RainWorld rainWorld = self?.abstractCreature?.world?.game?.rainWorld;
-            if (self?.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld))
+            // Not GimmickGate.IsActiveFor: this gimmick needs the "assigned" answer as a value
+            // rather than an early return, because turning it OFF mid-run has to actively release
+            // a player it had already locked in a room (see below).
+            if (!GimmickGate.TryGetCharacter(self, out string characterID))
             {
                 return;
             }
 
-            string characterID = self.playerState.slugcatCharacter?.value;
             ChainState state = States.GetOrCreateValue(self);
             bool enabled = GimmickAssignments.IsEnabled(characterID, ID);
 
@@ -842,14 +843,7 @@ namespace Primal.Gimmicks
                     continue;
                 }
 
-                RainWorld rainWorld = player.abstractCreature?.world?.game?.rainWorld;
-                if (player.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-                {
-                    continue;
-                }
-
-                string characterID = player.playerState.slugcatCharacter?.value;
-                if (!GimmickAssignments.IsEnabled(characterID, ChainsGimmick.ID))
+                if (!GimmickGate.IsActiveFor(player, ChainsGimmick.ID, out string characterID))
                 {
                     continue;
                 }
@@ -909,12 +903,25 @@ namespace Primal.Gimmicks
             }
 
             AbstractCreature owner = __instance.creature;
+            RainWorldGame game = owner?.world?.game;
+
+            // Cheapest possible global gate, FIRST. This Postfix is the hottest patch in the mod --
+            // ArtificialIntelligence.Update runs for every AI-driven creature in every realized
+            // room, every tick, so in a busy room that's dozens of calls per tick. Until 2026-09-15
+            // the PrimalSlot check lived down inside the per-player loop below, meaning every one
+            // of those calls walked the room and iterated the whole player list before discovering
+            // the mod wasn't even active. One comparison up here short-circuits all of it.
+            if (game == null || !PrimalSlot.IsActive(game.rainWorld))
+            {
+                return;
+            }
+
             // AbstractWorldEntity.Room (capital R) returns an AbstractRoom, not the realized Room
             // this needs -- the realized Creature's own `.room` field (same one TryAddArrivingCreature
             // and GetCreatureList already key off elsewhere in this file) is what's actually comparable
             // to another realized creature's room.
-            Room room = owner?.realizedCreature?.room;
-            List<AbstractCreature> players = owner?.world?.game?.Players;
+            Room room = owner.realizedCreature?.room;
+            List<AbstractCreature> players = game.Players;
             if (room == null || players == null)
             {
                 return;
@@ -936,14 +943,8 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                RainWorld rainWorld = player.abstractCreature?.world?.game?.rainWorld;
-                if (player.playerState == null || rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-                {
-                    continue;
-                }
-
-                string characterID = player.playerState.slugcatCharacter?.value;
-                if (!GimmickAssignments.IsEnabled(characterID, ChainsGimmick.ID) || !ChainsSettings.FauxHuntedBurden(characterID))
+                if (!GimmickGate.IsActiveFor(player, ChainsGimmick.ID, out string characterID)
+                    || !ChainsSettings.FauxHuntedBurden(characterID))
                 {
                     continue;
                 }

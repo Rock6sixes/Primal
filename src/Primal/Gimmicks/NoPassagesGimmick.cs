@@ -48,9 +48,6 @@ namespace Primal.Gimmicks
     {
         public const string ID = "NoPassages";
 
-        private static readonly FieldInfo SaveStateField =
-            AccessTools.Field(typeof(Menu.KarmaLadderScreen), "saveState");
-
         private static readonly FieldInfo PassageButtonField =
             AccessTools.Field(typeof(Menu.SleepAndDeathScreen), "passageButton");
 
@@ -63,18 +60,8 @@ namespace Primal.Gimmicks
         private static void Postfix(Menu.SleepAndDeathScreen __instance)
         {
             RainWorld rainWorld = __instance.manager?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            if (!(SaveStateField?.GetValue(__instance) is SaveState saveState))
-            {
-                return;
-            }
-
-            string characterID = saveState.saveStateNumber?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            string characterID = PrimalMenuAccess.GetCharacterID(__instance);
+            if (!GimmickGate.IsEnabledForCharacter(rainWorld, characterID, ID))
             {
                 return;
             }

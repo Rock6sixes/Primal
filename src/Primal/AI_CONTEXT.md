@@ -30,6 +30,16 @@ find them): those are left exactly as actually captured, since the whole point o
 that they're byte-for-byte reproducible from a real log file, and at the time they were captured
 the mod really was still called AltCharacters. Don't "fix" those quotes to say Primal.
 
+**2026-09-15: the leftover pre-rename `src/AltCharacters/` project tree deleted entirely.** The
+rename above only ever touched `src/Primal/` — the old `src/AltCharacters/` folder (its own full
+copy of the source at the time of the rename, its own build output, and its own now-superseded
+duplicate of this exact file) had been left sitting untouched in the repo since 2026-09-12, not
+excluded from anything, not referenced by any build, just dead weight that could easily be mistaken
+for a second active project by a future session. Deleted outright (`git rm -r`) rather than
+excluded — this repo is real git history now, so removing it loses nothing recoverable. If you're
+looking for the pre-rename version of any of this doc's own history, it's in this file's own git
+log, not a second file on disk.
+
 ## Maintenance policy — keep this document current
 
 **This file is a living document, not a one-time snapshot.** Whoever (whichever session) is
@@ -75,16 +85,24 @@ was tried twice and rejected both times for good reasons (see History).
 
 ## Current architecture (as of this doc)
 
-- `PrimalSlot.ReservedSlot = 666666` — the one save slot number this mod treats specially. Chosen
-  because Rain World only ever uses `saveSlot` to build a filename string, never as an index, so an
-  arbitrarily large number is safe, and nothing else will plausibly generate it.
-- `PrimalSlot.IsActive(RainWorld)` — `rainWorld.options.saveSlot == ReservedSlot`. This is the single
-  gate every gimmick patch checks before doing anything.
+- `PrimalSlot.ReservedSlot = 666666` — the **first** of a range of save slot numbers this mod
+  reserves: one per real vanilla slot, so real slot N's Primal counterpart is `ReservedSlot + N`
+  (`PrimalSlotFor`/`RealSlotFor`). Chosen because Rain World only ever uses `saveSlot` to build a
+  filename string, never as an index, so arbitrarily large numbers are safe, and nothing else will
+  plausibly generate anything in this range.
+- `PrimalSlot.IsActive(RainWorld)` — `rainWorld.options.saveSlot >= ReservedSlot`, i.e. a **range**
+  check, not equality against one fixed slot (it was equality until the 2026-09-13 multiple-Primal-
+  slots change; see PrimalSlot.cs's own header). This is the single gate every gimmick patch checks
+  before doing anything.
 - A gimmick is: one Harmony patch class + a stable string ID. It reads
   `player.playerState.slugcatCharacter.value` (the player's **real, unfaked** vanilla identity) and
-  `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior.
-- `GimmickRegistry` lists the known gimmicks (currently: `Misery`, `Slugpup`, `OneSpear` (shown in
-  the UI as "Master Spear"), `TimeLimit`, `NoSpears`, `Chains`).
+  `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior. In
+  practice every patch does that through **`GimmickGate`** (see below) rather than open-coding it.
+- `GimmickRegistry` lists the known gimmicks — currently 13: `Misery`, `Slugpup`, `OneSpear` (shown
+  in the UI as "Master Spear"), `TimeLimit`, `NoSpears`, `Chains`, `NoYeeks`, `NoCicadas`,
+  `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`, `CreatureKillList` (shown as "Kill
+  List"). Each `GimmickDef` takes its ID from the owning patch class's own `ID` const rather than
+  re-typing the string, so the two can't drift apart silently.
   `GimmickAssignments` is the runtime enabled/disabled lookup (Remix-configured override, falling
   back to a hardcoded default from `GimmickDefaults`). `PrimalOptions` builds the Remix menu
   screen as a **permanent character grid with a detail panel appended below it** — see "Config menu
@@ -95,7 +113,17 @@ was tried twice and rejected both times for good reasons (see History).
 - `GimmickDef` (see `Gimmicks/GimmickDef.cs`) optionally carries `BindSettings`/`BuildSettingsUI` —
   a gimmick can expose its own settings sub-view (e.g. TimeLimit's minutes + per-cycle/per-run
   toggle) beyond the plain enabled/disabled flag. See that file's own doc comments and the section
-  below for the pattern; `Misery` and `Slugpup` currently have none (both null).
+  below for the pattern. Gimmicks with no settings at all (both null, so the screen shows a plain
+  "no settings" message instead): `Misery`, `NoYeeks`, `NoCicadas`, `NoMauling`, `NoPassages`,
+  `CreatureKillList`.
+- **Shared helpers (added 2026-09-15, in the refactor pass — see "Shared helpers and the 2026-09-15
+  refactor, in detail" below).** Four small classes every gimmick now leans on instead of
+  re-implementing the same thing per file:
+  `GimmickGate` (the player → real character → IsActive → IsEnabled gate, in one place),
+  `PrimalSaveMarkers` (this mod's `unrecognizedSaveStrings` marker format + a cached lookup),
+  `PrimalMenuAccess` (the one reflected `KarmaLadderScreen.saveState` handle the menu-side patches
+  share), and `ThreatReader` (the threat lookup both threat gimmicks read, memoized per frame).
+  `PrimalSettings` holds the one mod-wide (not per-character) setting, the slot-switch key.
 - `PrimalSlotOptionsMenuHooks.cs` adds the 4th button to the vanilla Options menu and makes it
   drive the exact same `Menu.OptionsMenu.SetCurrentlySelectedOfSeries("SaveSlot", ...)` /
   `GetCurrentlySelectedOfSeries` / `ProgressionBusy` / `HandleSaveSlotChangeFailed` machinery
@@ -105,10 +133,22 @@ was tried twice and rejected both times for good reasons (see History).
 - `RainWorldHooks.cs` — a Postfix on `RainWorld.OnModsInit`. This is where `GimmickDefaults.Apply()`
   runs and where the Remix options screen gets registered (`MachineConnector.SetRegisteredOI`).
   **Do not move this earlier** — see Gotcha #2.
-- `PrimalCharacterNames.cs` (new, 2026-09-11) — while on the alt slot, relabels Gourmand and
-  Spearmaster on the "choose your character" screen as "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER",
-  with a description listing whichever gimmicks are currently assigned to them. See "Primal
-  character names, in detail" below.
+- `PrimalCharacterNames.cs` (new, 2026-09-11; revised 2026-09-15 twice) — while on the alt slot,
+  relabels **every** character on the "choose your character" screen as "PRIMAL &lt;NAME&gt;".
+  Gourmand, Spearmaster, Sofanthiel, and Artificer get "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER" /
+  "PRIMAL ???" / "PRIMAL ARTIFICER" with a written description listing whichever gimmicks are
+  currently assigned to them (Sofanthiel has none). Survivor, Monk, Hunter, Rivulet, Saint, and
+  Watcher (added in the second 2026-09-15 revision) get "PRIMAL SURVIVOR" / "PRIMAL MONK" /
+  "PRIMAL HUNTER" / "PRIMAL RIVULET" / "PRIMAL SAINT" / "PRIMAL WATCHER" with a plain, static
+  description: "Primal version not implemented". See "Primal character names, in detail" below.
+- `PrimalUnimplementedPortraits.cs` (new, 2026-09-15) — companion to the above: on the alt slot,
+  blacks out the character-select portrait for those same six "not implemented" characters, so the
+  status reads visually as well as in text. A Postfix on `Menu.MenuDepthIllustration.GrafUpdate`
+  that recolors the specific illustration whose filename contains "Slugcat" (the actual
+  character-portrait layer, distinct from the background/vines/pipes/plants layers around it) to
+  solid black, gated to the six target characters' own `MenuScene.SceneID`s. See "Primal character
+  portraits, in detail" below for why it hooks `GrafUpdate` specifically rather than a one-time
+  recolor.
 
 ### File map (`src/Primal/`)
 
@@ -124,11 +164,36 @@ was tried twice and rejected both times for good reasons (see History).
   Slot Tab-switch, in detail** below.
 - `Gimmicks/GimmickDef.cs` — data class: ID + display name + description, plus optional
   `BindSettings`/`BuildSettingsUI` hooks for gimmicks with their own settings sub-view (see below).
-- `Gimmicks/GimmickRegistry.cs` — the list of all gimmicks (`GimmickRegistry.All`).
+- `Gimmicks/GimmickRegistry.cs` — the list of all gimmicks (`GimmickRegistry.All`). Each entry's ID
+  comes from the owning patch class's own `ID` const (`MiseryEffect.ID`, `ChainsGimmick.ID`, ...)
+  rather than a re-typed string literal, so a typo can't silently unwire a gimmick.
 - `Gimmicks/GimmickAssignments.cs` — runtime "is gimmick G enabled on character C" lookup
   (Remix-bound `Configurable<bool>`, falling back to a hardcoded default). Unchanged by the UI
   overhaul — `PrimalOptions` still calls `Register` for every (character, gimmick) pair
-  exactly as before; only how those pairs are *displayed* changed.
+  exactly as before; only how those pairs are *displayed* changed. **2026-09-15:** the composite
+  dictionary key is now an allocation-free `AssignmentKey` struct instead of `characterID + "|" +
+  gimmickID` (which allocated a string on every call of a method the doc claimed didn't allocate,
+  from the mod's hottest paths), and `GetConfigurable` was added so `PrimalOptions` can stop
+  keeping a second parallel dictionary of the same objects under a duplicate key format.
+- `Gimmicks/GimmickGate.cs` (new, 2026-09-15) — the shared "should this gimmick do anything for
+  this player right now" gate: resolve the live `RainWorld` off the player, `PrimalSlot.IsActive`,
+  read the real character ID, `GimmickAssignments.IsEnabled`. Replaces ~21 copy-pasted copies of
+  that block and unifies the two different ways patches used to reach `RainWorld` onto the robust
+  one (`abstractCreature.world.game`, valid mid-construction, with `room.game` as fallback). Also
+  has `IsEnabledForCharacter` for the menu-side patches, which have no `Player` to read.
+- `Gimmicks/PrimalSaveMarkers.cs` (new, 2026-09-15) — this mod's `DeathPersistentSaveData
+  .unrecognizedSaveStrings` marker convention (the `<dpB>` delimiter) and a per-save-data cached
+  lookup, shared by OneSpear, the Kill List, and the Slugpup ending flag. The cache is what makes
+  the Slugpup flag safe to check from `Player.isSlugpup`'s getter; see the refactor section below.
+- `Gimmicks/PrimalMenuAccess.cs` (new, 2026-09-15) — the single reflected
+  `Menu.KarmaLadderScreen.saveState` handle (and the character ID derived from it) that
+  `NoPassagesGimmick` and both Kill List menu hooks used to each cache separately.
+- `Gimmicks/ThreatReader.cs` (new, 2026-09-15) — the threat lookup and the "threat level 1"
+  threshold, extracted out of `ThreatSlowdownGimmick` (where `ThreatPanicGimmick` reached across to
+  call them) and memoized per `Time.frameCount`, since both gimmicks Postfix the same method and
+  Monk has both by default — so the whole reflection chain was running twice per tick.
+- `Gimmicks/PrimalSettings.cs` (new, 2026-09-15) — mod-wide (not per-character) settings. Currently
+  just the slot-switch key, previously a hardcoded `KeyCode.Tab` in `PrimalSlotTabSwitchHook`.
 - `Gimmicks/GimmickDefaults.cs` — the mod's out-of-the-box gimmick assignments (currently: Gourmand
   gets Misery + Slugpup; Spearmaster gets OneSpear + TimeLimit + NoSpears; Artificer gets Chains).
   Called from `RainWorldHooks`, not `Plugin`.
@@ -176,16 +241,43 @@ was tried twice and rejected both times for good reasons (see History).
   "Primal character names, in detail" below.
 - `Gimmicks/MiseryGimmick.cs` — the Misery gimmick. Traced from a third-party mod, see **Misery
   gimmick, in detail** below — read this before touching it, the mechanic is non-obvious.
-- `Gimmicks/SlugpupGimmick.cs` — three patches making up the Slugpup gimmick. `SlugpupGimmick`
-  flips `Player.SlugCatClass` to `SlugcatStatsName.Slugpup` right after `GetInitialSlugcatClass`
-  sets it (the same trick vanilla's own Jolly Co-op pup-mode uses) — this part alone is confirmed
-  working (Gourmand does become pup-sized/pup-shaped and behaves like a pup mechanically).
-  `SlugpupStatsGimmick` (Postfix on `Player.NPCStats`'s constructor) and `SlugpupColorGimmick`
-  (Postfix on `Player.ShortCutColor()`) are two later additions fixing real bugs the flip alone
-  left behind — the pup's physical stats and rendered color were both generic/randomized instead
-  of proportional to the real character. See **Slugpup gimmick stats rescaling, in detail** below
-  before touching any of this — it documents a genuine multi-round debugging struggle (four
-  attempts, three different failure modes) and is **not yet confirmed working as of this doc**.
+- `Gimmicks/SlugpupGimmick.cs` — seven patches/classes making up the Slugpup gimmick, **rewritten
+  2026-09-15** onto a completely different mechanism than its original `SlugCatClass`-flip
+  approach. `SlugpupGimmick` now forces `Player.isSlugpup`'s getter to return `true` (Postfix,
+  `MethodType.Getter`) *without ever touching `SlugCatClass`* — the same trick the reference
+  "Pupify" mod's own `PlayerHooks.Player_isSlugpup` hook uses, found by re-reading its decompiled
+  source (`reference/ExampleMods/Pupify/Pupify.decompiled.cs`) after the user reported the old
+  flip-based version looked "like a slugpup" instead of "a fatter version" — i.e. it lost the real
+  character's own `SlugCatClass`-gated body shape and abilities while pup-ified, which is exactly
+  backwards from the gimmick's whole point. `SlugpupStatsGimmick` (Postfix on `Player.NPCStats`'s
+  constructor) and `SlugpupMalnourishmentStatsGimmick` (Postfix on `Player.SetMalnourished` — a
+  second, previously-undiscovered bug found in the same pass: that method unconditionally rebuilds
+  `npcCharacterStats` from scratch any time malnourishment status changes, silently undoing the
+  rescale) both call into the shared `SlugpupStatsScaling.Rescale` helper to re-derive the pup's
+  physical stats from the real character's own stats. `SlugpupColorGimmick` (Postfix on
+  `Player.ShortCutColor()`) shrank in scope now that the main body color is automatically correct
+  once `SlugCatClass` isn't flipped, but still fixes the narrower shortcut/pipe-transition-tint
+  case, which reads `isSlugpup` directly. **Added the same day, a fourth feature, not a bugfix,
+  revised twice after direct user corrections:** `SlugpupEndingHook` (Postfix on
+  `RainWorldGame.BeatGameMode`, checking `!standardVoidSea` -- i.e. any "standard" ending, not the
+  separate void-sea/ascension outcome; see "Slugpup gimmick: ends at Outer Expanse, in detail"
+  below for both corrections that got it here, including an intermediate version that wrongly
+  hooked `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding.Update` and only caught the Outer
+  Expanse walk-ending, not Rivulet/Artificer/Saint/Spearmaster's own alt endings) plus
+  `SlugpupEndingMarker` (a permanent per-character save marker, same `unrecognizedSaveStrings`
+  mechanism as `OneSpearGimmick`) and `SlugpupEndingSettings` (a new `Configurable<bool>
+  EndsOnBeatingGame`, default **on**) — once a character beats the game via any standard ending
+  (Outer Expanse's walk-ending, or any character's own alt ending), the gimmick permanently stops
+  applying to them (still shown assigned in Remix, just inert) for the rest of that save file. This
+  needed no changes to `SlugpupStatsGimmick`,
+  `SlugpupMalnourishmentStatsGimmick`, or `SlugpupColorGimmick` at all — they (and vanilla's own
+  `NPCStats`-construction gate) all key off `Player.isSlugpup`, so making `SlugpupGimmick`'s own
+  Postfix the single place that checks the ending marker is enough to turn the whole gimmick's
+  effects off from one choke point. See **Slugpup gimmick stats rescaling, in detail**, **Slugpup
+  gimmick: SlugCatClass-flip rewrite, in detail**, and **Slugpup gimmick: ends at Outer Expanse, in
+  detail** below before touching any of this — genuinely one of the trickier gimmicks in this
+  codebase, and **not yet confirmed working as of this doc** (no `.NET` toolchain in this
+  container to build/test against).
 - `Gimmicks/OneSpearGimmick.cs` — grants (or, on real Spearmaster, restricts) the tail spear-pull.
   Two parts: `SpearIdentity` flips `SlugCatClass` to `Spear` (same trick as Slugpup) via two hooks
   (`GetInitialSlugcatClass` Postfix and `InitiateGraphicsModule` Prefix — **both are required**,
@@ -249,6 +341,31 @@ was tried twice and rejected both times for good reasons (see History).
   file originally implemented the input-drop mechanic now in `ThreatSlowdownGimmick.cs`; see that
   bullet and the detail section below for the full account. **Not yet built or tested since the
   swap.**
+- `Gimmicks/CreatureKillListGimmick.cs` (new, 2026-09-15; revised same day) — the Kill List gimmick:
+  tracks every one of a fixed, curated 55-species roster (`KillListRegistry.All`) the assigned
+  character personally kills — tracking only, no goal/reward logic yet. `CreatureKillListGimmick`
+  itself (a Postfix on `Creature.Die()`) reads vanilla's own `Creature.killTag` for attribution
+  rather than reimplementing "who killed this", and records into `KillListTracker`'s in-memory
+  "pending" set (not the save file directly). `CreatureKillListCycleWinHook`/
+  `CreatureKillListCycleGameOverHook` (Postfixes on `RainWorldGame.Win`/`.GameOver`) decide each
+  cycle's fate: `Win` (confirmed via decompilation to fire only from `ShelterDoor.cs`, i.e. only on
+  a genuine successful shelter-reach) commits a character's pending kills to
+  `DeathPersistentSaveData.unrecognizedSaveStrings` (same marker mechanism `OneSpearGimmick.cs`
+  already established); `GameOver` (confirmed to fire only from real death paths in `Player.cs`)
+  discards them instead — "if character dies, then it should not get counted," per explicit
+  request. `KillListButtonHook`/`KillListSignalHook` (Postfixes on `Menu.SleepAndDeathScreen`'s
+  `AddSubObjects`/`Singal`) add a "KILL LIST" button to the cycle-end screen that opens a
+  `Menu.DialogNotify` listing not-yet-killed species, then killed — replacing an earlier
+  Remix-settings-based progress view entirely, per explicit request. `CreatureKillListHandlerHook`
+  (Postfix on `PhysicalObject.Grabbed`) records "who last grabbed this creature" as a fallback
+  attribution source for death causes with no `killTag` at all — added after double-checking the
+  leech kill path specifically found that Leech isn't `IPlayerEdible` and dies via its own
+  unattributed `airDrown` (out-of-water) mechanism, the single most common way a leech actually
+  dies in normal play. See **Kill List gimmick, in detail** below for the full account, including
+  two more attribution gaps found but deliberately not yet fixed (throw-impact kills for species
+  whose own `TerrainImpact` override applies lethal damage, and slow spear-stab kills outlasting
+  `killTag`'s own decay window). **Brand new, never built or
+  tested as of this doc.**
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -262,9 +379,16 @@ was tried twice and rejected both times for good reasons (see History).
   `exceptionLog.txt` and `consoleLog.txt` live (Unity's own crash/exception logs — **check these
   before theorizing** when a bug is "silent", see Gotcha #1), and `BepInEx\LogOutput.log` (BepInEx's
   own log, shows plugin load order and any `Logger.LogError` calls this mod makes).
-- Requires SlugBase (`slime-cubed.slugbase`) installed as a dependency, even though this mod no
-  longer creates any SlugBase characters — it's declared via `[BepInDependency]` and
-  `modinfo.json`'s `requirements` purely to control BepInEx's plugin load order (see Gotcha #2).
+- No longer requires SlugBase. The hard `[BepInDependency]`/`modinfo.json` `requirements` on
+  `slime-cubed.slugbase` was removed 2026-09-15 (see the refactor entry near the bottom of this
+  doc) — it was a leftover from the two discarded SlugBase-character designs, controlling nothing
+  but BepInEx's plugin load order for a dependency this mod stopped using. SlugBase can still be
+  installed alongside Primal with no conflict; it's just no longer required.
+- `scripts/build-deploy-run.sh` (Git Bash, run on the Windows machine above — not in this
+  container) does the build + copy-to-`MOD_DEST` + launch cycle described above in one step, with
+  `--no-build`/`--no-launch` flags for a partial run. Its default paths match the ones just above;
+  override via `PRIMAL_SRC_DIR`/`RAINWORLD_GAME_DIR`/`RAINWORLD_MOD_DEST` env vars if they ever
+  drift from what's documented here.
 
 ## Gotcha #1 — direct field/property access can compile fine and still crash at runtime
 
@@ -2214,11 +2338,13 @@ Current settings, concretely:
   scheme from a single un-indexed marker to indexed-per-use markers so a *count* (not just a
   boolean) can be tracked — see that file's own doc comment and the file-map entry above for the
   backward-compatibility note.
-- **Misery, Slugpup**: no settings (`BindSettings`/`BuildSettingsUI` both left null in
-  `GimmickRegistry.cs`) — nothing obvious to expose yet. If asked for ideas later: Misery could
-  expose the exhaustion multiplier or which of the two effects (instant-max-exhaustion vs.
-  forced-PainJumps) are active; Slugpup doesn't have an obvious knob beyond an on/off that already
-  exists as the enabled flag itself.
+- **Misery**: no settings (`BindSettings`/`BuildSettingsUI` both left null in `GimmickRegistry.cs`)
+  — nothing obvious to expose yet. If asked for ideas later: could expose the exhaustion multiplier
+  or which of the two effects (instant-max-exhaustion vs. forced-PainJumps) are active.
+- **Slugpup** (`SlugpupEndingSettings`, added 2026-09-15): `Configurable<bool>
+  EndsOnBeatingGame` (default **true**, via `OpCheckBox`) — whether beating the game via any
+  standard (non-ascension) ending permanently stops the gimmick for that character on that save
+  file. See "Slugpup gimmick: ends at Outer Expanse, in detail" below.
 
 **First real in-game test result:** the user opened the drill-down menu (the design that predates
 the character-grid/detail-panel merge above) in Remix and confirmed the core navigation worked —
@@ -2309,6 +2435,430 @@ just being clipped a different way; every gimmick in the list is reachable and c
 the last one; and the rest of the Remix screen (character grid, assigned-gimmick table, settings
 sub-views) still look and behave exactly as before.
 
+### Per-gimmick settings sub-view made scrollable too (2026-09-15)
+
+Reported directly: some gimmicks' *settings* sub-view (`RenderGimmickSettings`, opened by clicking
+a gimmick's name in a character's assigned-gimmick table — distinct from the add-gimmick picker
+above) don't fit the available space either, "notably Artificer's applied gimmick of Chains."
+Checked against `ChainsSettings.BuildUI` (`ChainsGimmick.cs`): its content (an escape-timer row,
+two checkboxes, a "Quick preset" `OpListBox`, then a 6-row/2-column, 12-checkbox banlist grid) lays
+out from `topY` down to roughly `topY - 424` — well past the ~241px actually available below the
+heading (`DetailTopY - 84f` down to a small bottom margin, the same space `RenderGimmickSettings`
+used to place settings content into directly, unwrapped). Everything past that point rendered off
+the bottom of the Remix window with no way to reach it — the exact same class of bug the add-gimmick
+picker had (see above), just in the sibling sub-view that fix didn't touch.
+
+**Fix:** `RenderGimmickSettings` now wraps whatever `GimmickDef.BuildSettingsUI` returns in an
+`OpScrollBox`, same pattern as `RenderAddGimmick` (including the same two-step-commit ordering —
+`ShowDetail(items)` with the still-empty scroll box first, then `scrollBox.AddItems(...)`
+afterward). The one wrinkle settings has that the add-gimmick picker didn't: that picker always
+knows its own content height from a simple formula (`candidates.Count * RowHeight`), but a
+gimmick's settings content height is arbitrary and defined entirely inside that gimmick's own
+`*Settings.BuildUI` — `GimmickDef` had no way to know it up front. Rather than have
+`PrimalOptions` inspect already-built elements' positions to guess a bounding box, `GimmickDef`
+gained one new optional field, `SettingsContentHeight` (default `0`), which a gimmick can set to
+however tall its own settings content actually is; `RenderGimmickSettings` clamps the scroll box's
+content size up to at least the plain viewport height either way
+(`Mathf.Max(SettingsViewportHeight, gimmick.SettingsContentHeight)`), so leaving it at the default
+is a correct, silent no-op for every gimmick whose settings already fit (TimeLimit, NoSpears,
+OneSpear, ThreatPanic) — only `Chains` sets it explicitly, to `480f` (a little headroom over the
+~424px actually needed). No changes were needed inside any `*Settings.BuildUI` method itself —
+every one of them already treats the `topY` argument as an opaque "lay out downward from here"
+starting coordinate (per `GimmickDef.BuildSettingsUI`'s own doc-comment contract), so handing them
+a coordinate local to the scroll box's own content area instead of an absolute screen coordinate
+needed no code changes on their end, just a different `topY` value computed at the call site.
+
+Touched `GimmickDef.cs` (new `SettingsContentHeight` field + constructor parameter),
+`GimmickRegistry.cs` (`Chains`'s registration passes `settingsContentHeight: 480f`), and
+`PrimalOptions.cs` (`RenderGimmickSettings` rewritten as described above). **Not built or tested at
+all** — this container has no `.NET` toolchain (see "Container environment notes"), so this
+couldn't even be locally reasoned about beyond careful reading of the existing, already-working
+`RenderAddGimmick` scroll box as a template. When this next reaches a real build+test cycle, check:
+(1) it still compiles (three touched files, no new `using`s needed — `List<T>.ToArray()` is a
+plain BCL method); (2) opening Chains' settings for Artificer no longer clips — the escape timer,
+both toggles, the preset picker, and all 12 banlist checkboxes (both columns) are all reachable via
+scrolling and each control still reads/writes the right `Configurable`; (3) every OTHER gimmick's
+settings sub-view (TimeLimit, NoSpears, OneSpear, ThreatPanic) still looks and behaves exactly as
+before — these should be an invisible no-op wrapper, not a visible layout change, since their
+content already fit within the plain viewport height; (4) the settings-viewport's slide bar doesn't
+visually collide with anything at the settings screen's right edge (a margin choice, `ContentWidth
+- 40f`, not verified in-game any more than the add-gimmick picker's own analogous margin was when
+it shipped).
+
+### Gimmick buttons colored by their home character (2026-09-15)
+
+Requested directly: gimmicks are already thematically tied to certain characters by default (Chains
+↔ Artificer, ThreatPanic ↔ Monk, etc.), so color-code each gimmick's button in the Remix menu by
+that character's own color, using "a variable [on] each gimmick to reference a character" plus "each
+character... their own color."
+
+**The character reference:** `GimmickDef` gained a new optional field, `HomeCharacter`
+(`SlugcatStats.Name`, default `null`) — a *display-only* tag independent of `GimmickDefaults`' real
+default (character, gimmick) assignments (which can differ or cover multiple characters — NoYeeks/
+NoCicadas/NoMauling default onto both Artificer AND Inv, for instance) and independent of whatever
+a player has actually assigned a gimmick to at runtime. `GimmickRegistry.cs` sets it per gimmick,
+matching each one's own doc comment/History account of which character it was designed around:
+Misery/Slugpup → Gourmand, OneSpear/TimeLimit/NoSpears → Spearmaster, Chains/NoYeeks/NoCicadas/
+NoMauling → Artificer, ThreatSlowdown/ThreatPanic → Monk. `NoPassages` deliberately has none (left
+`null`) — it was never requested for, or thematically tied to, any specific character.
+
+**The character's color:** rather than hand-picking new colors, `PrimalOptions.GetHomeCharacterColor`
+reuses vanilla's own real per-character palette — `PlayerGraphics.DefaultSlugcatColor(SlugcatStats.Name)`
+— the same "History" preference this whole project keeps coming back to (ride on an existing,
+already-tested vanilla system instead of reimplementing one). Deliberately `DefaultSlugcatColor`,
+**not** the "live" `PlayerGraphics.SlugcatColor` already used elsewhere in this codebase
+(`SlugpupColorGimmick`, see "Slugpup gimmick stats rescaling, in detail" above) — `SlugcatColor` also
+factors in the player's own Jolly Co-op custom/auto color settings, which would make a gimmick's
+color tag silently drift based on unrelated Options instead of just reflecting that character's own
+identity color; `DefaultSlugcatColor` is a plain, state-free per-character lookup (confirmed via
+`reference/GameSource/PlayerGraphics.cs` — Gourmand's tan/pink, Rivulet's blue, Artificer's
+maroon, etc., the same literal values already traced in the Slugpup section above for an unrelated
+fix). Resolved via `AccessTools.Method` reflection, same Gotcha #1 discipline as every other
+gameplay-class member this codebase touches (showing `public` in the compile-time/publicized
+reference assembly proves nothing about the real one) — and, since this one runs while the Remix
+menu itself is being built rather than in a per-tick gameplay patch, wrapped in its own try/catch
+(logs and returns "no color" on failure) so a `MethodAccessException` here can't take the whole
+config screen down with Remix's own error screen the way an uncaught one would.
+
+**Where it's applied:** `OpSimpleButton.colorEdge` (confirmed via `reference/GameSource/
+Menu.Remix.MixedUI/OpSimpleButton.cs` — a plain public `Color` field that drives both the button's
+border AND its label text color in `GrafUpdate`, `_label.color = base.bumpBehav.GetColor(colorEdge)`)
+on the gimmick's name button in the assigned-gimmicks table (`RenderCharacterGimmicks`) and on each
+row in the add-gimmick picker (`RenderAddGimmick`) — i.e. every place a gimmick shows up as a
+selectable/clickable item in the Remix menu. Deliberately not `colorFill` (which would recolor the
+whole button as a solid block, risking unreadable text against some characters' lighter colors) —
+just the border+text tint is enough to read as a color tag at a glance without hurting legibility.
+A gimmick with no `HomeCharacter` (`NoPassages`) or a failed color lookup just keeps
+`OpSimpleButton`'s own default `colorEdge` (`MenuColorEffect.rgbMediumGrey`) untouched, same as
+every other unstyled button already on this screen ("x" remove buttons, the "+" button, the
+character grid) — no separate "neutral color" constant needed.
+
+Touched `GimmickDef.cs` (new `HomeCharacter` field/parameter), `GimmickRegistry.cs` (each
+gimmick's `homeCharacter:` argument), and `PrimalOptions.cs` (`GetHomeCharacterColor` plus the two
+`colorEdge` assignments). **Not built or tested at all** — same container limitation as the settings
+scroll box above (no `.NET` toolchain here); written from decompiled ground-truth for both new
+member accesses (`OpSimpleButton.colorEdge`, `PlayerGraphics.DefaultSlugcatColor`) rather than
+guessed, but still genuinely unverified. When this next reaches a real build+test cycle, check: (1)
+it compiles; (2) opening any character's gimmick table shows each assigned gimmick's name button
+tinted (border + text) in its home character's real in-game color — e.g. Chains on Artificer reads
+in Artificer's maroon, Misery/Slugpup on Gourmand read in Gourmand's tan/pink; (3) the add-gimmick
+picker shows the same tint per row; (4) NoPassages' button (wherever it's assigned) looks completely
+unstyled/default, not some fallback gray meant to look intentional; (5) the tinted text is still
+legible against the button's own black fill for every character's color, especially any character
+whose color skews dark (Spearmaster's dark purple, Sofanthiel/Inv's near-black navy) -- if any read
+as too dim, revisit whether some minimum-brightness floor is worth adding, since none was applied
+here; (6) check `BepInEx/LogOutput.log` for a `PlayerGraphics.DefaultSlugcatColor threw` line, which
+would mean every gimmick fell back to uncolored and the reflection lookup needs a fix.
+
+## Kill List gimmick, in detail (brand new, never built or tested)
+
+Requested 2026-09-15: "creature kill list — once the gimmick is enabled, the game begins tracking
+killed creatures across the entire run and your goal becomes to kill every type of creature. for
+now the goal will be to track every creature." Explicitly staged as tracking-only for this pass —
+no win condition, no reward, no UI enforcing anything — matching how this project has approached
+every other multi-round feature (ship the mechanism first, layer behavior on top once it's
+confirmed working).
+
+**Building the roster came first, deliberately, before any code.** Per the user's own instruction
+("before code changes, output this list of creatures to this chat"), every registered
+`CreatureTemplate.Type` was enumerated directly from `reference/GameSource/` rather than guessed —
+three files register them (`CreatureTemplate.cs` for the 47 vanilla ones, `DLCSharedEnums.cs` for
+13 shared across DLCs, `MoreSlugcatsEnums.cs` for 5 MSC-only, `Watcher/WatcherEnums.cs` for 27
+Watcher-only — 92 total). The user then supplied their own curated list of community/wiki names to
+track and asked for each to be matched to its internal type, flagging anything confusing rather
+than guessing. Most matched cleanly; a handful needed real disambiguation, resolved with actual
+ground truth rather than assumption:
+- **"Caramel Lizard" → `SpitLizard`, "Strawberry Lizard" → `ZoopLizard`** — not a guess: found the
+  literal in-game display-name strings in `MoreSlugcats/MoreSlugcatsCreatures.cs`
+  (`creatureNames[(int)DLCSharedEnums.CreatureTemplateType.SpitLizard] = "Caramel Lizards"`, same
+  for `ZoopLizard`/"Strawberry Lizards") — these are the game's own official names, not community
+  nicknames, and they directly resolved what would otherwise have been an unverifiable guess.
+- **"Coalescipede"** — not found anywhere in the game's code, comments, or asset names (grepped the
+  whole decompiled source for `coalesc`, zero hits). Asked the user directly rather than guessing;
+  confirmed as `AquaCenti` ("Aquapede" in `MoreSlugcatsCreatures.cs`'s own official name — the
+  aquatic centipede-like DLC-shared creature).
+- **Centipede growth stages** — the user's list named four stages (Infant/Youth/Mature/Overgrown
+  Centipede) plus Red Centipede separately, but code only registers three centipede types total
+  (`SmallCentipede`, `Centipede`, `RedCentipede`) — confirmed by grepping the whole decompiled
+  source for "youth"/"overgrown"/"infant centipede"/"mature centipede" and finding nothing; the
+  size gradient within the plain `Centipede` type is purely visual/community-described, not a code
+  distinction. Asked the user rather than guessing which stage-name maps to which of the two
+  remaining types; resolved by just using all three types as found — `SmallCentipede` → "Small
+  Centipede", `Centipede` → "Centipede", `RedCentipede` → "Red Centipede" — dropping the four-stage
+  framing entirely rather than forcing an arbitrary mapping.
+- **"Slugpup"** — flagged as structurally different from everything else on the list (a slugpup is
+  normally a `Player` instance with `SlugCatClass == SlugcatStatsName.Slugpup`, not a
+  `CreatureTemplate.Type` at all, per this mod's own `SlugpupGimmick.cs`). The user resolved this
+  by simply pointing it at `SlugNPC` instead (MSC's own "Slugcat NPC" type, official name "Slugcat
+  NPC"/"Slugcats") — a real, ordinary `CreatureTemplate.Type`, sidestepping the special-case
+  entirely. `KillListEntry`/`KillListRegistry` therefore need no special handling for this one.
+- **"Chieftain Scavenger" → `ScavengerKing`** — the game's own official name is actually "King
+  Scavenger" (confirmed via the same `MoreSlugcatsCreatures.cs` lookup), not "Chieftain" — presented
+  to the user as a probable match with the official name flagged, not silently substituted.
+
+**What's deliberately NOT on the list**, confirmed unlisted rather than assumed excluded (the user
+never responded to this specific question, and moved on to resolving the ambiguous names instead —
+worth re-raising if a future session or the user wants the roster expanded): a handful of MSC/DLC
+types (`HunterDaddy`, `FireBug`, `TrainLizard`, `TerrorLongLegs`, `BigJelly`) and nearly all of
+Watcher's own roster (`DrillCrab`, `TowerCrab`, `Barnacle`, `SandGrub`, `BigSandGrub`, `BigMoth`,
+`SmallMoth`, `BoxWorm`, `FireSprite`, `Rattler`, `SkyWhale`, `ScavengerTemplar`,
+`ScavengerDisciple`, `Loach`, `RotLoach`, `BlizzardLizard`, `BasiliskLizard`, `IndigoLizard`,
+`PeachLizard`, `Rat`, `Frog`, `Tardigrade`, `GrappleSnake`, `Angler`, `RippleSpider`, `MothGrub`) —
+plus the three internal-only "ancestor" types (`Slugcat`, `LizardTemplate`,
+`StandardGroundCreature`) confirmed, by checking their actual usages in the decompiled source, to
+be generic category markers (`creatureTemplate.TopAncestor().type == CreatureTemplate.Type.X`) that
+no real spawned creature is ever actually typed as. Roster at this point: 56 entries.
+
+**Update (2026-09-15, fourth round): `Yeek` and `SlugNPC` ("Slugpup") removed, no reason given.**
+Requested plainly: "remove yeek and slugpup from the list." Both were resolved matches from the
+original curation pass above (`Yeek` — direct match; `SlugNPC` — the user's own resolution for
+"Slugpup", since a real slugpup isn't a `CreatureTemplate.Type` at all), not confusing ones, so
+there's nothing to re-derive — just two `KillListEntry` lines removed from `KillListRegistry.All`
+and every "56" reference elsewhere in this file/the source updated to match. Roster: 54 entries.
+
+**Update (2026-09-15, fifth round): a real miss caught by the user — `Spider` added as "Small
+Spider".** The user pointed out directly: "I also see that your list doesnt include the small
+spiders — these dont get tracked by the standard kill counter and have the ability to combine into
+a bigger mass of spiders." Checked `Spider.cs` to confirm rather than guess: plain
+`CreatureTemplate.Type.Spider` (distinct from the already-tracked `BigSpider`/`SpitterSpider`) is
+exactly this — each spider belongs to a `Flock` (a `SpiderMass` subclass), and `Flock.Update()`
+periodically finds a nearby spider belonging to a *different* flock and calls `Merge(SpiderMass
+otherFlock)`, folding the smaller flock's spiders into the larger one. This is the one entry from
+the original 92-type enumeration that fell through the cracks during the very first curation pass
+— the user's own list named "Big Spider" and "Spitter Spider" specifically but never gave a name
+for the plain "Spider," and it was silently dropped as unmatched instead of being flagged the way
+`Coalescipede`/`Strawberry Lizard`/etc. were. Added as `new KillListEntry(CreatureTemplate.Type.
+Spider, "Small Spider")`, per the user's own chosen display name. **Final roster: 55 entries** —
+see `KillListRegistry.All` in `Gimmicks/CreatureKillListGimmick.cs` for the exact list with display
+names.
+
+**Verification (2026-09-15, sixth round, no code change): centipede growth stages, including
+Coalescipede.** User asked to double-check that `Small Centipede`, `Centipede`, `Red Centipede`,
+`Centiwing`, and `Coalescipede` (`AquaCenti`) all get attributed the same way. Confirmed via
+`Centipede.cs`: all five roster entries are the *same* `Centipede` class, distinguished purely by
+`creatureTemplate.type` (`Small`/`Red`/`Centiwing`/`AquaCenti` are just bool properties reading that
+field) — there is no separate `AquaCenti.cs` or `Centiwing.cs`. `Die()` is a one-line override
+(`base.Die()`) for all variants alike, so the `killTag`-read at the top of `Creature.Die()` applies
+identically regardless of growth stage. `Violence()` is overridden (shell-falloff/shock-resistance
+logic differs per variant) but every code path falls through to an unconditional
+`base.Violence(...)` call at the end (`Centipede.cs` ~line 1334) — including `Creature.Violence()`'s
+own `SetKillTag((source.owner as Creature).abstractCreature)` when hit by another creature's body
+chunk. Spear stab/throw kills are attributed even more directly and universally, regardless of
+creature type: `Weapon.cs` (~line 363, the shared thrown/melee-hit collision path) calls
+`SetKillTag(thrownBy.abstractCreature)` unconditionally on any `Creature` a spear hits, before
+`HitSomething`/`Violence` even run. The one real difference: `Edible => Small` (`Centipede.cs:205`)
+— only `SmallCentipede` can be grabbed-and-eaten via the `IPlayerEdible`/`BiteEdibleObject` path;
+the larger stages can't be bite-killed at all, matching normal vanilla behavior, not a tracking gap.
+Also checked `Centipede.cs:1454` (`(shockObj as Creature).Die()`, no `SetKillTag`) — that's a
+centipede *shocking prey to death* (its own predation ability against something else), not a path
+by which the centipede itself dies, so it's irrelevant to this gimmick. No `airDrown`-style
+direct-`Die()` self-death path (the kind that caused the Leech gap in round 3) exists anywhere in
+`Centipede.cs`. Conclusion: all five entries attribute identically; no fix needed, no roster or code
+change made this round.
+
+**"Killed by [character]", precisely.** Rather than reimplementing kill attribution from scratch
+(fragile territory — Rain World's damage system varies a lot by creature and death cause), this
+reuses a mechanism vanilla already has: `Creature.killTag` (an `AbstractCreature`), set by the
+attacker's own code, and already read by `Creature.Die()`'s own base implementation at the very
+top of its body (for Arena scoring and social-event bookkeeping — confirmed by decompiling both
+`SetKillTag` and the start of `Die()`). This means a creature that dies from something other than
+direct player action (starvation, drowning, eaten by another creature, environmental hazards) has
+no `killTag` pointing at a player and is correctly not counted — a "you killed it" list, not a
+"this died somewhere near you" one.
+
+**Why `Creature.Die()` and not `Creature.Violence()`.** `Violence()` looked like the more obvious
+patch point at first (it's literally where damage happens), but checking first (this codebase's
+usual discipline) found `grep -rl "public override void Violence(" reference/GameSource/` returns
+**35 files** — including `Lizard.cs` (covering all 8 lizard color variants), `Scavenger.cs`,
+`Vulture.cs`, and most other common creatures — and spot-checking `Lizard.Violence` specifically
+found it's a **full reimplementation that never calls `base.Violence(...)`** (different creatures
+need completely different damage-resistance math, so each subclass just replaces the whole method).
+A Harmony patch on `Creature.Violence` would only ever fire for whichever creatures *don't*
+override it — missing most of the tracked roster silently, the exact "looks reasonable, is
+actually broken" trap this project's Gotchas exist to catch before shipping. `Die()` overrides, by
+contrast, were spot-checked across ~15 of the ~36 files that have one (`Fly`, `BigSpider`,
+`Spider`, `Centipede`, `EggBug`, `Snail`, `Vulture`, `TempleGuard`, `DropBug`, `Overseer`, `Leech`,
+`TubeWorm`, `Hazer`, `LanternMouse`, `GarbageWorm`, `Deer`, `DaddyLongLegs`, `JetFish`, `Cicada`,
+`SmallNeedleWorm`, `BigEel`) and every single one calls `base.Die()` (`Overseer.cs`'s override
+does too, just further down its body than the others — also incidentally confirms Overseers really
+are killable in vanilla, resolving an earlier open question from when this roster was first being
+discussed). One base-class patch on `Die()` therefore gets real, broad coverage; a lizard, a
+scavenger, and a vulture all still fire the same Postfix, unlike `Violence()`.
+
+**Attribution, traced in full (2026-09-15, second round — the user asked to "double check
+attribution works for stuff like batflies").** Enumerated every `SetKillTag(` call site in the
+whole decompiled source rather than trusting the first handful found: **13 total**, across
+`Player.cs` (5: a proximity weapon-attack effect, Gourmand's roll attack "SLUGROLLED", the fall-slam
+"SLUGSMASH", `BiteEdibleObject` — biting/eating something you're holding — and Artificer's maul),
+`Weapon.cs` (2: a thrown weapon's first creature collision, and `HitSomethingWithoutStopping`),
+`Explosion.cs`, `Pomegranate.cs`, `FlareBomb.cs`, `SporeCloud.cs`, `LocustSystem.cs`, and
+`Watcher/SandGrub.cs`. Separately, `Creature.Violence`'s own **base implementation** (the one ~35
+subclasses never call, per above) *also* auto-sets `killTag` whenever the attacking `BodyChunk`'s
+owner is itself a `Creature` (`if (source.owner is Creature) SetKillTag(...)`) — a second,
+redundant safety net for ordinary creature-vs-creature contact damage.
+
+For batflies (`Fly`, an `IPlayerEdible`): the dominant, iconic way players actually eliminate small
+prey in this game — grab it, then eat it — goes through `Player.BiteEdibleObject`, which explicitly
+calls `SetKillTag` before consuming. **High confidence this path is correctly attributed.**
+
+**Leeches, double-checked separately (2026-09-15, third round — "double check the leech kill path
+too") — a real, confirmed gap, found and fixed.** `Leech.cs` is **not** `IPlayerEdible` (grepped
+every `IPlayerEdible` implementer in the whole source; Leech isn't one), so `BiteEdibleObject` never
+applies to it at all — there's no "grab and eat" path for leeches the way there is for batflies.
+Reading `Leech.cs` end to end for how it actually dies turned up the real mechanism: an `airDrown`
+counter (`Leech.Update`, line ~292) that rises while `mainBodyChunk.submersion == 0` (i.e.
+out of water) and calls `Die()` **directly, unconditionally, with no `SetKillTag` anywhere in that
+code path** once it hits 1.0 (~900 ticks / 22.5 seconds at the increment rate of `0.0011111111f`
+per tick). This is the ordinary, everyday way a pulled-off-and-thrown-away leech actually dies in
+normal play — not eaten, not smashed, not stabbed — so **the original implementation would never
+have counted a leech kill via this path at all**, the single most common one. (Leech's own
+`TerrainImpact` override was also checked directly, since throw-impact was already a suspected
+gap generally — confirmed it only ever calls `Stun(...)`, never damage or `Die()`, so leeches
+specifically can't be killed by throwing them into a wall; that generic concern doesn't apply to
+this species even though the underlying gap-pattern, "a creature-specific death path with no
+`SetKillTag` call anywhere in it," is exactly the same shape.)
+
+**Fix:** rather than special-case Leech's `airDrown` mechanism specifically, added a general
+fallback source of attribution — `CreatureKillListHandlerHook` (Postfix on
+`PhysicalObject.Grabbed(Creature.Grasp)`, the base method; checked and confirmed only `Fly.cs`/
+`LanternMouse.cs` of this gimmick's tracked roster override it, and both call `base.Grabbed`, so
+this gets real coverage) records "which tracked player most recently grabbed this creature" into a
+new `KillListTracker._handlers` table (`ConditionalWeakTable<Creature, HandlerRecord>`, keyed on
+the creature instance). `CreatureKillListGimmick`'s own `Die()` Postfix now only reaches for this
+fallback when `killTag` is **entirely absent** (`killer == null`) — deliberately never overriding a
+`killTag` that's already set to something else (e.g. eaten by another creature), since that's real,
+known information that shouldn't be second-guessed by a weaker "was recently touched" heuristic.
+The fallback's own window (`HandlerAttributionWindowTicks`, 2400 ticks / 60 seconds) is
+deliberately much longer than `killTag`'s own ~5-second decay — sized against Leech's own
+worst-case ~22.5-second `airDrown` timer with margin for the delay between being dropped and
+actually drying out, while still short enough that "you touched this several minutes ago" can't
+retroactively claim an unrelated later death. **This is the one death-path gap actually found and
+fixed this round** — high confidence it correctly resolves the leech case specifically, since the
+exact mechanism (`airDrown`) and its timing were read directly rather than inferred.
+
+**Two more gaps found but deliberately NOT fixed yet, still open:** (1) killing something by
+**throwing it into a wall/floor** for species where the creature-specific override actually applies
+lethal impact damage (unlike Leech's own `TerrainImpact`, which never does) — `Creature.
+TerrainImpact`'s *base* implementation only ever spawns cosmetic water-drip particles, never calling
+`Violence()`/`Die()` itself, so wherever this really happens it must be creature-specific, and
+checking all 55 individually was judged out of scope for this pass; the new handler-fallback above
+would actually cover this case too now, PROVIDED the creature was recently grabbed by the tracked
+player before being thrown — worth re-testing specifically now that the fallback exists. (2) a
+**slow, multi-second spear stab** — `Spear.cs`'s own per-tick stab damage calls
+`Violence(base.firstChunk, ...)` with the *spear's own* chunk as source (not a `Creature`), so
+neither `killTag`'s own auto-set-on-Violence path nor (for a creature that was never grabbed by the
+player, just stabbed from a distance) the new handler-fallback would apply if the kill happens after
+`killTag`'s own 5-second decay from the initial thrown-weapon collision. **Both flagged for an
+explicit in-game check**, not fixed blind — see the checklist at the end of this section.
+
+**Only banked on a successful cycle end — a deliberate change from the first pass.** Originally
+this wrote straight to `DeathPersistentSaveData` the instant a kill landed. Requested to change:
+"if character dies, then it should not get counted... keep the memory of what got killed as you
+are now, but only save it on successful cycle ending." `KillListTracker` now has two tiers: an
+in-memory-only "pending" set per character (`RecordPendingKill`, called from the `Die()` Postfix,
+same as before except it no longer touches the save file directly), and the real permanent record.
+Two new Harmony patches decide which way a cycle's pending kills go:
+- `CreatureKillListCycleWinHook` — Postfix on `RainWorldGame.Win(bool malnourished, bool
+  fromWarpPoint)`. Confirmed via `grep -rn "\.Win(" reference/GameSource/*.cs` that this method has
+  **exactly two callers, both in `ShelterDoor.cs`**, both firing at the exact moment a character
+  successfully reaches and closes a shelter door — i.e. this genuinely only ever means "the cycle
+  just ended in success," not some other, looser notion of winning. Merges every assigned,
+  currently-in-session character's pending set into the real save data (`CommitPending`), then
+  clears it.
+- `CreatureKillListCycleGameOverHook` — Postfix on `RainWorldGame.GameOver(Creature.Grasp
+  dependentOnGrasp)`. Confirmed via the same technique that all **4 callers, all in `Player.cs`**,
+  are genuine character deaths (`PermaDie()`, a predator's den-drag "danger grasp" timing out at
+  exactly 60 ticks, or an ordinary `Die()` immediately followed by `GameOver(null)` twice more).
+  Discards (`DiscardPending`) rather than commits — a cycle ending in death loses that cycle's kills
+  entirely, per the request. Deliberately does not try to second-guess Jolly Co-op's own more
+  elaborate `JollyGameOverEvaluator` logic (whether GameOver "really" means everyone's dead in a
+  multiplayer session) — this mod has no other Jolly-specific handling anywhere, and worst case a
+  spurious call just clears an already-empty pending set (`DiscardPending` on a character with
+  nothing pending is a safe no-op).
+
+Persistence within `CommitPending` still follows `OneSpearGimmick.cs`'s own established marker
+pattern: `DeathPersistentSaveData.unrecognizedSaveStrings` gets one marker per (character,
+creature-type) pair the first time it's actually banked — `"PRIMAL_KILLLIST<dpB>" + characterID +
+"<dpB>" + creatureTypeID`. Unlike OneSpear's indexed per-use markers (tracking a repeatable count),
+this only ever needs one marker per pair, so the private `RecordKill` helper is simply idempotent.
+
+**Progress display moved out of the Remix menu entirely — a second deliberate change.** The first
+pass showed a live checklist in the gimmick's own Remix settings sub-view, which surfaced a real
+limitation (a save slot's `PlayerProgression` only ever keeps one character's `SaveState` loaded at
+a time, so the Remix character grid couldn't reliably show every character's progress). Requested
+instead: "dont show it in the settings — put a button in the cycle ending screen that opens up a
+window that lists all of the creatures killed — at the top list creatures that havent been killed,
+then a separator, then the ones that have been killed." This actually *resolves* the earlier
+limitation for free: the cycle-end screen (`Menu.SleepAndDeathScreen`) already has direct,
+unambiguous access to the correct character's own `SaveState` via `KarmaLadderScreen.saveState` (no
+guessing about which character is "currently mounted" needed at all). `GimmickDef.BuildSettingsUI`
+is now left `null` for this gimmick — opening its Remix settings sub-view just shows the ordinary
+"no additional settings" message every other settings-less gimmick shows.
+
+Implementation, two new Harmony patches on `Menu.SleepAndDeathScreen` (the same screen
+`NoPassagesGimmick.cs` already patches, reusing its exact `saveState`-reflection approach):
+`KillListButtonHook` (Postfix on `AddSubObjects`, which runs once per screen right after vanilla's
+own Continue/Exit/Passage buttons already exist) adds a "KILL LIST" button, positioned by
+recomputing the same X/Y formula vanilla's own `exitButton` uses (`ContinueAndExitButtonsXPos`,
+`SafeScreenOffset` — both plain public, already relied on by the very method being patched) rather
+than reading `exitButton.pos` back, so it needs no additional new member access. `KillListSignalHook`
+(Postfix on `Singal(MenuObject sender, string message)`) reacts to the click the same way every
+other vanilla button on this screen works — `SleepAndDeathScreen.Singal` itself starts with
+`base.Singal(sender, message)` then branches per-message for its own extra cases (confirmed via
+decompilation), so a Postfix here runs after all of that regardless of which branch fired and can't
+interfere with any real signal.
+
+The popup itself is a plain `Menu.DialogNotify` (shown via `ProcessManager.ShowDialog`, the same
+mechanism vanilla uses everywhere from `OptionsMenu` to `ExpeditionMenu` for "show some text, OK to
+dismiss"), sized via `Menu.DialogBoxNotify.CalculateDialogBoxSize` — which grows to fit whatever
+text it's given with **no built-in cap or scrolling**. A custom scrollable in-game `Page` was
+considered and rejected for this pass: unlike a broken Remix tab (contained to the mod's own menu),
+a broken cycle-end screen could block ordinary play entirely, and this container has no way to test
+a hand-built Page-based UI before shipping it. Names are comma-joined into two paragraphs (not one
+line per creature) specifically so `DialogNotify`'s own word-wrap keeps the box more reasonably
+proportioned than ~55 forced line breaks would — but with up to 55 names across two sections, the
+box can still plausibly run taller than the visible screen. Flagged as a known, unverified layout
+risk rather than a solved problem.
+
+**New reflection surface (Gotcha #1) this round:** nothing beyond what the first pass already
+used (`Creature.killTag`, plus `KarmaLadderScreen.saveState` which `NoPassagesGimmick.cs` had
+already established). `RainWorldGame.Players`/`AbstractCreature.state`/`PlayerState.
+slugcatCharacter`/`PlayerState.dead` and `KarmaLadderScreen.ContinueAndExitButtonsXPos`/
+`Options.SafeScreenOffset` are all trusted directly, judged the same low-risk "plain, ubiquitous,
+obviously-meant-to-be-public data property" category as `Creature.dead`/`.creatureTemplate.type`
+already are elsewhere in this codebase — not the narrow, easy-to-get-wrong utility-method category
+`ConfigHolder.Save()`/`PlayerProgression.currentSaveState` turned out to be (the latter is no
+longer used at all now that the settings-view approach is gone).
+
+**Not built or tested in any way** — this container has no `.NET` toolchain (see "Container
+environment notes" below), so this is written entirely from decompiled ground truth, not compiled
+or run once. No default assignment and no `HomeCharacter` (Remix-menu color tag) — not requested
+for any specific character, same as `NoPassages`. When this next reaches a real build+test cycle,
+check, in order: (1) it compiles; (2) assign Kill List to a character, kill one of the tracked
+species **by grabbing and eating it** on the Primal slot, and confirm
+`BepInEx/LogOutput.log` shows nothing alarming (no `[CreatureKillList]` log line exists anymore --
+this round removed that log statement along with the old immediate-persist path; check via the
+dialog instead, next step); (3) reach a shelter successfully, then open the "KILL LIST" button on
+the sleep screen and confirm that one species now shows under "KILLED"; (4) start a fresh cycle,
+kill another tracked species, then deliberately **die** before reaching a shelter — open "KILL
+LIST" on the death screen and confirm that cycle's kill was NOT added (still only the
+previously-banked one shows); (5) fully quit and relaunch, reload the same character, reach a
+shelter, and confirm the previously-banked kill survived the restart; (6) **specifically test a
+leech kill** — pull a leech off, throw it somewhere dry, wait for it to die of `airDrown`
+(~22.5 seconds), and confirm it's still correctly attributed via the new handler-fallback (this is
+the gap actually found and fixed this round — highest-priority thing to confirm); (7) test a kill
+via throwing a creature into a wall/floor for some OTHER species (no biting, no spear, no
+explosion) and confirm whether it's attributed correctly now that the handler-fallback exists — a
+negative result here (for a creature that WAS recently grabbed by the player before being thrown)
+would mean the fallback's window or hook coverage needs another look; (8) similarly test a **slow
+spear-stab kill** (hold a lizard down and stab repeatedly for several seconds rather than a single
+quick throw, without ever grabbing it directly) to check whether the ~5-second killTag decay window
+causes a miss the handler-fallback can't cover either (since the player never grabbed the lizard,
+only stabbed it); (9) kill something NOT on the 55-species list (e.g. a Watcher creature) and
+confirm nothing is recorded and nothing throws; (10) confirm the "KILL LIST" button only appears
+for a character that actually has the gimmick assigned, and doesn't appear (or doesn't break
+anything) for one that doesn't.
+
 ## Primal character names, in detail
 
 Requested by the user right after deprioritizing the config-menu UI merge above (2026-09-11):
@@ -2331,8 +2881,9 @@ been started with that character on the alt slot. That matches what the user ask
 `reference/GameSource/Menu/SlugcatSelectMenu.cs`) sets two fields, `difficultyLabel` (the name) and
 `infoLabel` (the description), based on which vanilla character is being shown — this patch runs
 right after that and, only if `PrimalSlot.IsActive(menu.manager.rainWorld)` and the character is
-Gourmand or Spearmaster, overwrites both with the Primal name and a gimmick-driven description; any
-other character (or either of these two off the alt slot) is left completely untouched.
+Gourmand, Spearmaster, Sofanthiel, or Artificer, overwrites both with the Primal name and a
+gimmick-driven description; any other character (or any of these four off the alt slot) is left
+completely untouched.
 
 **Read via reflection, not direct field access** — see the 2026-09-11 addendum to **Gotcha #1**
 above for why: `reference/GameSource/` is decompiled from the same publicized assembly as
@@ -2351,10 +2902,11 @@ compiling and running in this same codebase).
 **The description text** is intro flavor line + `"Active traits: "` followed by the display names
 of every `GimmickRegistry` entry currently `GimmickAssignments.IsEnabled` for that character (or a
 placeholder line if none are assigned yet) — built fresh every time the page is constructed, so it
-always reflects live Remix state rather than a hardcoded snapshot of today's defaults. If a gimmick
-is ever added for a character other than the ones already special-cased here, this patch's `else`
-branch deliberately leaves that character alone — extend the `if`/`else if` chain rather than
-assuming every character should get a "Primal" name.
+always reflects live Remix state rather than a hardcoded snapshot of today's defaults. (As of
+2026-09-15, this only applies to the four characters with real written content -- see below for the
+other six, which get a static description instead.) If a gimmick is ever added for a character not
+already covered by this switch, extend the `if`/`else if` chain rather than assuming a new
+character automatically deserves a written intro line.
 
 **This is the file to edit for a character's alt-slot display name or description.** Each
 `if (slugcatNumber == ...)` branch above sets a literal `name` string (shown all-caps on screen,
@@ -2371,8 +2923,29 @@ screen, a separate and unrelated label).
 "Chains gimmick, in detail"), the user asked for it to follow the same "Primal" treatment as
 Gourmand/Spearmaster: added an `else if` branch for `MoreSlugcatsEnums.SlugcatStatsName.Artificer`
 → **"PRIMAL ARTIFICER"**, with the same generic intro sentence style as the other two ("This
-Artificer has been changed by something primal..."). Not yet confirmed in-game as of this doc — see
-Outstanding items.
+Artificer has been changed by something primal..."). The user later hand-edited this intro line
+directly on their own machine (see the 2026-09-13-ish addendum on the `ChainsGimmick.cs` push,
+above) to a vanilla-flavored line instead — that hand edit was deliberately left in place.
+
+**2026-09-15: intro lines rewritten by the user; Sofanthiel added.** The user asked to see every
+Primal character's current name/description, then sent back rewritten intro lines for Gourmand and
+Spearmaster and a brand-new one for Sofanthiel (vanilla's "???"). Applied verbatim:
+- **PRIMAL GOURMAND** — "A glutton reduced to the simplest pleasures of life. Capable only of
+  sluggish rolling, one must seek out their home to regain some semblance of power."
+- **PRIMAL SPEARMASTER** — "A deteriorating abnormality with its crucial needles running out. A
+  traveller from a very far away land; A feeling in your hollow depths rushes you, messenger..."
+- **PRIMAL ???** (new `else if` branch, `MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel`) — "Thanks
+  Rockman." The label follows vanilla's own convention of naming this character "???" rather than
+  "THE X" (see `reference/GameSource/Menu/SlugcatSelectMenu.cs`'s Sofanthiel branch), so it becomes
+  "PRIMAL ???" rather than a literal "PRIMAL SOFANTHIEL". Unlike Gourmand/Spearmaster/Artificer,
+  Sofanthiel has no gimmick assigned (none exists for it), so its "Active traits" line will always
+  read the generic "No primal traits assigned yet" placeholder — this is a standalone flavor-text
+  addition, not tied to a gimmick the way the other three are.
+Artificer's description was **not** touched this round (the user's rewrite list didn't include it;
+it keeps the hand-edited vanilla-flavored line from 2026-09-12/13 above). Same container limitation
+as every other entry in this file — no `.NET` toolchain here, so none of this has compiled or run;
+the only change here is to string literals and one new `else if` branch mirroring three already-
+proven branches, so the risk is low, but still unconfirmed in-game.
 
 **Build/deploy status:** this feature has gone through several successful builds since it was first
 written (the Chains-gimmick and settings-import passes both compiled `PrimalCharacterNames.cs`
@@ -2380,6 +2953,23 @@ along with everything else without incident), so the toolchain/compile-time risk
 section was first written no longer applies — what's actually unconfirmed now is purely the
 in-game behavior: does `AccessTools.Field` actually find `difficultyLabel`/`infoLabel` at runtime,
 and does the screen show the expected text. See Outstanding items for the exact checklist.
+
+**2026-09-15, later the same day: the remaining six characters given a "Primal" label too.**
+Requested plainly: "for all characters that arent the 4 I have written descriptions for (inv,
+artificer, gourmand, spearmaster) rename them to Primal (their normal name) followed by a
+description that is 'Primal version not implemented'." Added six more `else if` branches --
+Survivor (`SlugcatStats.Name.White`) → **PRIMAL SURVIVOR**, Monk (`Yellow`) → **PRIMAL MONK**,
+Hunter (`Red`) → **PRIMAL HUNTER**, Rivulet → **PRIMAL RIVULET**, Saint → **PRIMAL SAINT**, and
+Watcher (guarded by `ModManager.Watcher`, since it's a separate DLC from MSC) → **PRIMAL WATCHER**
+-- each set to a single new `const string NotImplementedDescription = "Primal version not
+implemented";`, deliberately **not** routed through `BuildDescription` (no "Active traits" line
+appended): these six have no gimmicks of their own to report, and the request asked for that exact
+literal text, not a dynamic one. The old catch-all `else { return; }` branch (which used to leave
+every character but the original four completely vanilla) now only applies to a hypothetical future
+DLC character this mod hasn't accounted for at all -- every currently-known character is handled by
+one of the ten branches above it. Same container limitation as every other entry in this file (no
+`.NET` toolchain here) -- the change is six mechanically similar string-literal branches mirroring
+already-proven ones, so risk is low, but still unconfirmed in-game.
 
 ## Character-select portrait art, in detail (relevant if an artist edits these)
 
@@ -2430,6 +3020,86 @@ explanation, not something this session watched render; if editing the layer-1 p
 doesn't show up, check the game's graphics quality option (`Options.Quality`, referenced alongside
 `flatIllustrations` in the same file) in case this particular install has it forced to a low/flat
 setting.
+
+## Primal character portraits, in detail (blacking out the six "not implemented" characters)
+
+**The request:** immediately after asking for the six "not implemented" name/description branches
+above, in the same message: "look into how the character art seen in the selection menu is loaded
+and filter it to be completely black - this should mean you need to black out the '-1' image in
+the characters associated image folder." Implemented in the new `PrimalUnimplementedPortraits.cs`.
+
+**How the portrait is actually loaded, traced properly this time** (the section above, "Character-
+select portrait art, in detail," already covers the high-level mechanism -- multi-layer
+`MenuDepthIllustration`s per character, not a single flat image -- but this round needed the exact
+construction code, which is now available in `reference/GameSource/Menu/MenuScene.cs` where it
+wasn't before). `MenuScene.BuildMSCScene`/`BuildScene` build each character's select-screen scene
+via a dedicated method (`BuildSpearScene`, `BuildGourmandScene`, the base-game
+`Slugcat_White`/`Slugcat_Yellow`/`Slugcat_Red` branches, etc.), each calling
+`AddIllustration(new MenuDepthIllustration(menu, this, sceneFolder, "<fileName>", pos, depth,
+shader))` once per layer. For Spearmaster: `"Spearmaster Background - 4"`,
+`"Spearmaster Pipes - 3"`, `"Spearmaster Vines - 2"`, then `"Spearmaster Slugcat - 1"` (or
+`"...- 1 - Dark"` if locked) added last, on top -- that last one is the actual character portrait.
+
+**The "-1" shorthand doesn't generalize, but a different pattern does.** Checking every
+character's own scene-builder found the numeric suffix on the portrait layer varies -- Spearmaster
+and Monk (`"Yellow Slugcat - 1"`) are both "- 1", but Survivor's is `"White Slugcat - 2"` and
+Hunter's is `"Red Slugcat - 1"` again, with no consistent rule. What *is* consistent: every
+decoration/background layer is named after what it depicts (Background, Vines, Pipes, Haze,
+Specks, BkgPlants, FgPlants, Spears...), and only the actual character-portrait layer's filename
+contains the literal word "Slugcat" -- confirmed across every character's builder method in
+`MenuScene.cs`. So the implementation matches on `fileName.Contains("Slugcat")` rather than parsing
+out a number, which correctly generalizes across every character checked rather than special-
+casing Spearmaster's own "- 1" as if it were universal (a mistake in the same spirit as the
+`standardVoidSea` naming trap from the Slugpup ending work earlier the same day -- a shorthand the
+user reached for to describe one concrete example isn't necessarily the general rule, so it's
+worth checking against more than one character before committing to a pattern).
+
+**Why a Postfix on `GrafUpdate`, not a one-time color set.** `MenuIllustration` (the base class)
+exposes a plain `Color color` property that wraps `sprite.color` — trivial to set to black. The
+complication: `MenuDepthIllustration.GrafUpdate` (the override actually used at render time)
+recomputes `sprite.color` itself every frame from the illustration's size/depth (feeding a custom
+blur shader, unrelated to literal display color) -- but only `if (shader != MenuShader.Basic)`.
+Every MSC character's own portrait layer is built with `MenuShader.Basic` (see `BuildSpearScene`
+above), so for those a one-time color set would have actually been fine. But the three base-game
+portraits (`"White Slugcat - 2"`, `"Yellow Slugcat - 1"`, `"Red Slugcat - 1"`) use
+`ModManager.MMF ? MenuShader.Basic : MenuShader.LightEdges` -- on any install without the MMF mod,
+that's `LightEdges`, and the per-frame recompute *would* silently overwrite a one-time black back
+to its own encoded value, the exact same "quiet, no visible effect" failure mode this project has
+hit before (Gotcha #6-style). Postfixing `GrafUpdate` itself and re-applying black *after* the base
+method runs sidesteps the question of which shader a given character happens to use entirely --
+correct either way, with no need to special-case shader type or guess whether MMF is installed.
+
+**Scope and guards:** only fires while `PrimalSlot.IsActive`, and only for the illustration whose
+`owner` (a `MenuScene`) has one of the six target characters' own `SceneID`s
+(`MenuScene.SceneID.Slugcat_White/Yellow/Red`; `MoreSlugcatsEnums.MenuSceneID
+.Slugcat_Rivulet(_Cell)/Slugcat_Saint(_Max)`, guarded by `ModManager.MSC`; `Watcher.WatcherEnums
+.MenuSceneID.Slugcat_Watcher`, guarded by `ModManager.Watcher`). Since this hooks the illustration's
+own render call rather than a specific screen, it applies equally to the "choose your character"
+(new-game) screen and the "continue" screen for an existing save on one of these characters, with
+no extra work -- both reuse the same scene-building code and the same portrait assets.
+
+**Deliberately not handled:** `flatMode`/`flatIllustrations` (the pre-flattened single-image
+fallback mentioned in "Character-select portrait art, in detail" above) -- confirmed in that
+earlier investigation to be off under normal graphics settings, so a second code path just for that
+rare case was judged not worth adding without a concrete reason to think it's reachable in practice.
+
+**Not yet built or tested — same container limitation as everything else in this file (no `.NET`
+toolchain here).** Every new member access (`MenuDepthIllustration`/`MenuIllustration`'s
+`fileName`/`sprite`/`color`, `MenuObject.owner`, `MenuScene.sceneID`/`.menu`) was checked against
+`reference/GameSource/Menu/MenuScene.cs`, `MenuIllustration.cs`, and `MenuDepthIllustration.cs`
+rather than guessed -- all plain `public` members on ordinary, widely-reused vanilla menu classes,
+consistent with the same judgment call already made for `SlugcatPageNewGame`'s labels (Gotcha #1).
+Next, in-game, in order: (1) it compiles; (2) on the alt slot, each of the six "not implemented"
+characters' portrait renders as a solid black silhouette (shape preserved via alpha, color
+zeroed), with the surrounding background/vines/pipes/plants layers still visible and unmodified;
+(3) Gourmand/Spearmaster/Artificer/Sofanthiel's own portraits are completely untouched; (4) off the
+alt slot, every character's portrait (including these six) renders completely normally; (5) if any
+of the three base-game portraits (Survivor/Monk/Hunter) still show their real color, check whether
+MMF is installed and confirm the `LightEdges`-shader per-frame overwrite theory above by testing
+whether the *other* two (MSC-only) base-game-adjacent characters (Rivulet/Saint, both `Basic`-
+shaded) blacked out correctly while these three didn't -- that would confirm the shader-dependent
+timing issue precisely, the same way this project has isolated similar "some cases work, some
+don't" bugs before.
 
 ## Slugpup gimmick stats rescaling, in detail (fix for "Primal Gourmand looks a little thin")
 
@@ -2592,6 +3262,309 @@ real stats (...)` log line. Given the track record above (four rounds, each with
 failure mode), don't be surprised if this needs a fifth — see "Outstanding items" below for exactly
 what to check next.
 
+## Slugpup gimmick: SlugCatClass-flip rewrite, in detail (fix for "not fat enough" / "looks like a slugpup")
+
+**The report:** with the stats and color fixes above already in place and tested, the user reported
+back: "he had the right color, but wasn't fat enough, for lack of a better word... currently primal
+gourmand looks like a slugpup but he should look like a more fat version, like what pupify does."
+This is a *third*, distinct bug from the two already fixed above — proof the "keep expecting more
+of the same" warning at the top of the stats-rescaling section was well-founded.
+
+**Root cause: the original architecture itself, not a missing rescale.** `SlugpupGimmick` flipped
+`Player.SlugCatClass` to `SlugcatStatsName.Slugpup` outright. That successfully routes
+`Player.slugcatStats` through the rescaled `npcCharacterStats` (fixing weight/speed/etc.), but
+`SlugCatClass` is *also* the exact field `PlayerGraphics.DrawSprites` branches on directly to decide
+body-fatness sprite scale — confirmed by reading `reference/GameSource/PlayerGraphics.cs` around its
+head/body `scaleX` assignments: `if (SlugCatClass == Gourmand) scaleX = 1.4f + ...` (head) / `1.6f +
+...` (body); `else if (SlugCatClass == Spear) scaleX = 0.76f + ...`; `else if (SlugCatClass ==
+Slugpup) scaleX = 0.9f + 0.2f*Wideness + ...` (a much narrower 0.9–1.1 range, keyed off the random
+personality stat, nothing to do with the real character at all). Once `SlugCatClass` becomes
+`Slugpup`, the `Gourmand` branch (1.4×/1.6×, the actual source of Gourmand's signature fatness) can
+never be reached again — the pup renders using the generic Slugpup formula instead, which is exactly
+"looks like a slugpup" rather than "a fatter version of Gourmand." The same `SlugCatClass` field
+also gates unrelated per-character abilities and behavior throughout the codebase (diet/food-value
+lookups, and any other `SlugCatClass ==` check anywhere in the game), meaning the original
+implementation was silently breaking *all* of those too for as long as a character was pup-ified —
+directly contradicting the user's own original framing of this gimmick when first requested: "play
+as a slugpup while also changing behavior so that you can use that character's abilities as a
+slugpup." The original file-map bullet's claim that the flip "alone is confirmed working" was true
+only in the narrow sense that the character *becomes pup-sized and pup-behaving* — it was never
+actually checked against "and still looks/acts like the real character," because nobody had reason
+to suspect the flip cost anything until this specific report.
+
+**The fix: re-read Pupify's own actual mechanism instead of re-deriving the trick from scratch.**
+This container has a committed, already-decompiled copy of Pupify at
+`reference/ExampleMods/Pupify/Pupify.decompiled.cs` (3,545 lines — no live disassembly needed this
+round). Grepping it specifically for `PlayerGraphics` and `isSlugpup` (a question the original
+stats-rescaling investigation never asked, since it was only looking for the stats-constructor hook
+at the time) found `PlayerHooks.Player_isSlugpup` (~line 2679): a hook on `Player.isSlugpup`'s
+*getter itself* — `if (!__instance.isNPC && !Plugin.MakeChanges(__instance)) return true; __result =
+true; return false;` — that forces the getter to `true` for a pup-ified player *without ever writing
+to `SlugCatClass`*. Cross-checked against `PlayerHooks.Player_GetInitialSlugcatClass` (~line 1982),
+which explicitly guards `!...Room.world.game.IsStorySession` and otherwise just calls
+`orig.Invoke(self)` (vanilla's own unmodified logic) — confirming Pupify deliberately leaves
+`SlugCatClass` alone in ordinary single-player story sessions and gets "is a pup" entirely from the
+`isSlugpup` override instead. This is the actual reason a Pupify companion pup looks like a smaller
+version of their own real character rather than a generic slugpup: every `SlugCatClass ==`-gated
+system (fatness scale, diet, abilities) keeps seeing the real identity, while every `isSlugpup`-gated
+system (stats routing, jump height, grabbing rules, AI perception — all confirmed via
+`reference/GameSource/Player.cs` to key off `Player.isSlugpup` directly, not `SlugCatClass`) still
+correctly treats the player as a pup.
+
+**Applied to this codebase:** `SlugpupGimmick` now patches `Player.isSlugpup`'s getter
+(`MethodType.Getter` — the same pattern already proven in this codebase by `MiseryGimmick`'s
+`PainJumps` hook) with a Postfix that ORs in `true` when the real character has the gimmick
+assigned, and never touches `SlugCatClass`. `SlugpupStatsGimmick`'s own logic didn't need to change
+conceptually (it was already keying off `playerState.slugcatCharacter`, not `SlugCatClass`) — just
+one now-permanently-false guard removed (`if (self.SlugCatClass != Slugpup) return;`, which would
+never pass once the flip stopped happening). `SlugpupColorGimmick` needed the least conceptual
+change of the three but the most explanation: with `SlugCatClass` never flipped,
+`PlayerGraphics.ApplyPalette`'s own `SlugCatClass == Slugpup` branch (the thing this class was
+originally built to work around) is simply never taken anymore, so the *main body color* is already
+correct for free — but `Player.ShortCutColor()` (used separately for actual shortcut/pipe-transition
+tinting) branches on `!isSlugpup` in its own body, confirmed by reading
+`reference/GameSource/Player.cs` directly, so once `isSlugpup` is forced `true` that one narrower
+case still needs the same fix, just with its guard changed from `SlugCatClass != Slugpup` to
+`!isSlugpup`.
+
+**A second, previously-undiscovered bug found in the same pass, unrelated to the flip:**
+`Player.SetMalnourished(bool, bool)` — called by vanilla any time a player's malnourished status
+actually changes, a routine and frequent in-game event, not an edge case — when `isSlugpup` is true,
+unconditionally replaces `npcCharacterStats` outright: `npcCharacterStats = new
+SlugcatStats(SlugCatClass, flag);`. That is a fresh, un-rescaled `SlugcatStats`, discarding whatever
+`SlugpupStatsGimmick`'s own `NPCStats`-constructor Postfix had carefully rescaled at spawn time — so
+the very first malnourishment change after spawning would silently revert the rescale for the rest
+of that cycle. This bug existed in every previous round of this gimmick (both under the old
+`SlugCatClass`-flip architecture and would have persisted under the new one too) and was only found
+now because this round traced `SetMalnourished` line-by-line for an unrelated reason. Fixed with a
+new `SlugpupMalnourishmentStatsGimmick` (Postfix on `Player.SetMalnourished`) that re-applies the
+identical rescale; the rescale logic itself was extracted into a shared `SlugpupStatsScaling.Rescale`
+helper so `SlugpupStatsGimmick` and this new class can't silently drift apart from each other.
+
+**Not yet built or tested — same container limitation as every other entry in this file (no `.NET`
+toolchain here).** Every new member access (`Player.isSlugpup`'s getter, `Player.SetMalnourished`)
+was checked against `reference/GameSource/Player.cs` rather than guessed, and the overall approach is
+now independently validated against Pupify's own actual, working implementation rather than being a
+fresh guess — but given this gimmick's track record (three real, distinct bugs found across three
+separate rounds, none of them caught by compilation), don't assume this round is exhaustive either.
+Next, in-game, in order: (1) it compiles; (2) Primal Gourmand, pup-ified, now shows the same visibly
+fat head/body proportions a normal (non-pup) Gourmand does, just smaller — not the plain, narrow
+Slugpup shape; (3) still renders in Gourmand's own tan/pink color (both main body and, more subtly,
+brief shortcut/pipe-transition tint); (4) still has pup-scale physical stats (mass/speed/etc. — cross
+-check the `[Slugpup] ... npcCharacterStats rescaled from real stats (...)` log line); (5) eat enough
+to become malnourished (or start malnourished and eat enough to recover), then confirm the pup-scale
+stats are *still* correctly rescaled afterward (not reverted to full-adult or generic-pup sizing) —
+the specific case the new `SlugpupMalnourishmentStatsGimmick` patch exists for; (6) Gourmand's own
+abilities/behaviors that key off `SlugCatClass == Gourmand` elsewhere in vanilla (if any are
+noticeably different while pup-ified vs. not) now work correctly, matching "use that character's
+abilities as a slugpup" from the gimmick's original request.
+
+## Slugpup gimmick: ends at Outer Expanse, in detail
+
+**The request:** "now look into a setting for the slugpup gimmick - if a given character with this
+setting reaches the ending sequence in outer expanse, after the credits if they come back to the
+run, they will stop being a slugpup - the gimmick will effectively be removed. its still applied,
+just doesnt do anything. make this effect a default setting." Requested as a follow-up to the
+SlugCatClass-flip rewrite above, but this one is a new feature, not a bugfix. Went through two
+rounds of direct user correction before landing on the right mechanism — documented in full below
+rather than smoothed over, per this file's own standing practice for this gimmick.
+
+**Round 1 (wrong): hooked the ascension ending, not the standard one.** The first pass targeted
+`RainWorldGame.BeatGameMode(RainWorldGame game, bool standardVoidSea)`'s `standardVoidSea: true`
+branch, reasoning that its one call site (`RainWorldGame.ExitToVoidSeaSlideShow()`, from
+`VoidSea/VoidSeaScene.cs`'s rising-water sequence) was "the" Outer Expanse ending. The user
+corrected this immediately and specifically: **"the standard outer expanse ending is them reaching
+the outer expanse region and heading all the way to the left. what you described is the void or
+ascencion ending - that is why its called standardVoidSea. look for a different ending."** So
+`standardVoidSea` names a *separate*, specific ascension/void-sea outcome — not "the generic Outer
+Expanse ending" the name superficially suggested. Lesson: a method name that *sounds* like it
+matches a user's plain-language description isn't confirmation — trace the actual room-level
+behavior it's meant to describe.
+
+**Round 2 (also wrong, but closer): hooked a room-specific class instead of the shared method,
+then found it didn't generalize.** Re-traced `MoreSlugcats/MSCRoomSpecificScript.cs` for what
+actually happens when a character walks to Outer Expanse's western edge. Room `"OE_FINAL03"` is
+hooked unconditionally for any `IsStorySession` (no character restriction at the hookup site) and
+spawns `OE_GourmandEnding` — a misleadingly-named class (presumably built for Gourmand first, then
+generalized) whose `Update` tracks *any* story character's `firstChunk.pos.x` dropping below a
+threshold as they walk left, explicitly special-cases `SlugcatStats.Name.White` (Survivor) inside
+the same method, and only then calls `RainWorldGame.BeatGameMode(room.game, standardVoidSea:
+false)`. This matched "walking to the far west of Outer Expanse" correctly, so the second version
+Postfixed `OE_GourmandEnding.Update` directly (guarded by a `ConditionalWeakTable` against
+re-firing every frame once `doneFinalSave` was set). **The user then asked directly whether this
+generalizes: "if it gets placed on some other character, say artificer, and they beat the game with
+standardVoidSea: false then that should also remove the slugpup effect. Same goes for any character
+that beats standardVoidSea false."** It didn't — `OE_GourmandEnding.Update` only ever fires for the
+Outer Expanse walk-ending specifically. Rivulet's Sky Islands resolution, Artificer's `LC_FINAL`,
+Saint's own ascension, and Spearmaster's `SI_A07` pearl sequence all call
+`BeatGameMode(..., standardVoidSea: false)` too, from completely different rooms/regions that
+`OE_GourmandEnding` has no way to see.
+
+**Round 3 (the actual fix): hook `BeatGameMode` after all, but check the right boolean.** Since the
+user wants *any* "standard" (non-ascension) ending to count, regardless of which region or
+character-specific room triggers it, the right hook was `BeatGameMode` all along — round 1 just had
+the boolean backwards. Checking `!standardVoidSea` (rather than `standardVoidSea`) is exactly "any
+standard ending," covering the Outer Expanse walk-ending, Gourmand's own alt/food-completionist
+branch, and Rivulet/Artificer/Saint/Spearmaster's respective alt endings all at once, while leaving
+`standardVoidSea: true` (the ascension) deliberately untouched — matching the user's own
+distinction from round 1. This also turned out simpler than round 2: `BeatGameMode` is a plain
+static method invoked once per ending event (not a per-frame `Update`), so the
+`ConditionalWeakTable` re-fire guard round 2 needed is unnecessary here.
+
+**Confirmed this doesn't end the save file** (matching the user's own framing, "after the credits
+if they come back to the run"): none of `BeatGameMode`'s branches delete or lock the save — picking
+the same character on the same slot again afterward resumes from the same den, same as vanilla's
+own well-known "keep playing after the ending" behavior.
+
+**Implementation, in three pieces, all in `Gimmicks/SlugpupGimmick.cs`:**
+
+1. **`SlugpupEndingHook`** — a Postfix on `RainWorldGame.BeatGameMode`. Guards, in order:
+   `!standardVoidSea` (skip the ascension ending entirely), `game.IsStorySession`,
+   `PrimalSlot.IsActive`, the gimmick actually assigned to `game.StoryCharacter`, and the new
+   setting (below) enabled for that character. If all pass, it permanently records the marker.
+2. **`SlugpupEndingMarker`** — a plain existence-only marker (`"PRIMAL_SLUGPUP_ENDED<dpB>" +
+   characterID`), written into the same `DeathPersistentSaveData.unrecognizedSaveStrings`
+   passthrough list `OneSpearGimmick` and the Kill List gimmick already use for their own save
+   markers — the established pattern in this codebase for "a fact about this save file vanilla
+   itself doesn't know how to store." Unlike `OneSpearGimmick`'s *indexed, counted* markers (it
+   needs to know *how many* pulls have been used), this only ever needs a yes/no, so it's a single
+   un-indexed key, checked with a plain `.Contains(...)`.
+3. **`SlugpupEndingSettings`** — one new `Configurable<bool> EndsOnBeatingGame`, **default true**
+   (per the user's explicit "make this effect a default setting"), shown as a single `OpCheckBox`
+   in the Slugpup gimmick's settings sub-view (which didn't exist before this — Slugpup previously
+   had `BindSettings`/`BuildSettingsUI` both left `null`, per the "no obvious knob" note in the
+   config-menu section above; that's now out of date). Named/labeled around "beats the game"
+   rather than "Outer Expanse" specifically, since round 3's generalization made the narrower name
+   inaccurate.
+
+**Where the marker is actually read — and why nothing else in this file needed to change.**
+`SlugpupGimmick`'s own `isSlugpup`-getter Postfix (the single choke point this whole gimmick was
+already rebuilt around earlier the same day) is the *only* place that checks
+`SlugpupEndingMarker.HasEnded(...)`: if the marker is present, it simply doesn't force `__result`
+to `true` anymore, so `isSlugpup` goes back to returning its real, original value. Everything else
+in this file already depends on that one property rather than re-deriving "is this gimmick active"
+independently:
+- `SlugpupStatsGimmick` only ever runs because `Player`'s own constructor gates `NPCStats`
+  construction on `if (isSlugpup) npcStats = new NPCStats(this);` — once `isSlugpup` goes back to
+  false, `NPCStats` (and this Postfix) simply never fires again for this player.
+- `SlugpupMalnourishmentStatsGimmick` similarly only matters because `Player.SetMalnourished`'s own
+  rebuild is itself gated on `if (isSlugpup)` — same story.
+- `SlugpupColorGimmick` has its own explicit `if (!self.isSlugpup) return;` guard, which now
+  naturally resolves to "return" once the marker is set.
+
+So this feature needed exactly one new `if` check in one place (`SlugpupGimmick`'s own Postfix),
+not four — a direct, deliberate payoff of that same-day rewrite having centralized "is this
+character currently being treated as a pup" onto a single property instead of scattering separate
+`SlugCatClass`/assignment checks across every patch, the way the *pre-rewrite* version would have
+required touching every single class individually to get this right.
+
+**"Still applied, just doesn't do anything," precisely:** `GimmickAssignments.IsEnabled` is never
+touched by any of this — the Remix checkbox for this character stays checked forever, exactly
+matching the user's own phrasing. Only the *effect* turns off, via the save marker, independent of
+the assignment itself.
+
+**Not yet built or tested — same container limitation as everything else in this file.** Every new
+member access (`RainWorldGame.BeatGameMode`, `RainWorldGame.StoryCharacter`,
+`RainWorldGame.IsStorySession`) was checked against `reference/GameSource/RainWorldGame.cs` rather
+than guessed — all plain `public` members on an ordinary, widely-used class, not a
+tightly-encapsulated simulation object, so no reflection was used (consistent with this codebase's
+usual Gotcha #1 judgment call). Next, in-game, in order: (1) it compiles; (2) assign Slugpup to a
+character, verify the new checkbox appears in that character's settings sub-view, defaulted to
+checked, labeled around "beats the game" rather than "Outer Expanse"; (3) walk that character all
+the way to Outer Expanse's western edge (not the void sea/ascension route) with the checkbox
+checked, and confirm the BepInEx log shows the `[Slugpup] ... beat the game` line; (4) **assign
+Slugpup to a different character (e.g. Artificer) and have them reach their own alt ending
+(`LC_FINAL`) instead — confirm the same log line appears and the gimmick stops for them too, the
+specific generalization the user asked to verify**; (5) continue playing either character
+afterward and confirm they render/behave as their normal adult self, not a pup, for the rest of
+that save; (6) uncheck the setting for a character *before* they beat the game, confirm the gimmick
+keeps working afterward (the marker should never get written); (7) reach the void-sea/ascension
+ending (`standardVoidSea: true`) on a Slugpup-assigned character and confirm the gimmick is *not*
+affected by that specific ending, per the user's own true/false distinction; (8) beat the game a
+second time on an already-ended character (if reachable) and confirm nothing breaks.
+
+## Shared helpers and the 2026-09-15 refactor, in detail
+
+**Why this happened.** The user asked for a full review of the codebase ("review all of the code
+for potential improvements, micro and macro refactorings or even potential architectural changes")
+and then for every proposal to be implemented in one pass, explicitly accepting that none of it can
+be built or tested here: *"im already 15 commits deep without testing. we'll just have to test
+everything at the same time, bit by bit, to bring it back probably, so a large rewrite is fine."*
+So this is a large, deliberately-untested change touching almost every file — treat the whole thing
+as suspect until a build and a play session say otherwise, and see Outstanding items for the
+testing order that isolates each piece.
+
+**The two real defects it fixed** (both shipping-affecting, both invisible from inside this
+container):
+
+1. **A hard dependency on SlugBase that the mod hasn't used since early 2026-09.** `Plugin.cs`
+   carried `[BepInDependency("slime-cubed.slugbase")]` and `mod/modinfo.json` listed it under
+   `requirements`. A bare `BepInDependency` defaults to `HardDependency`, so **BepInEx refused to
+   load Primal at all unless SlugBase was also installed** — for zero functionality: nothing in the
+   assembly references SlugBase in any form (only doc comments *saying* there are no SlugBase
+   characters), and `Primal.csproj` doesn't even reference it. Pure leftover from the two abandoned
+   custom-character designs in History below. Both declarations removed.
+2. **`modinfo.json` described the abandoned design** — "Alternate versions of vanilla, Downpour, and
+   Watcher slugcats with custom abilities (gimmicks), reached via a toggle on the character select
+   screen", tagged `"Custom Slugcat"`. That is the design that was rejected twice, and it's the text
+   players actually read in the mod manager. Rewritten to describe the reserved-slot design, tagged
+   `"Gameplay"`.
+
+**The three per-frame hot paths it fixed.** All three were introduced innocently and only became
+expensive in combination with something added later:
+
+1. **The Slugpup ending flag was being re-scanned from `Player.isSlugpup`'s getter.** The 2026-09-15
+   "ends on beating the game" feature added a `SlugpupEndingMarker.HasEnded` call to
+   `SlugpupGimmick`'s Postfix — which hangs off `isSlugpup`'s *getter*, a property vanilla reads
+   **53 separate times in `Player.cs` alone**, many per tick. `HasEnded` built a marker string
+   (allocation) and then did a linear `List<string>.Contains` over `unrecognizedSaveStrings` — a
+   list the Kill List gimmick can add 55 more entries to. Gourmand with both gimmicks late in a save
+   was doing a ~56-entry scan dozens of times per frame. Now: per-character marker strings are built
+   once and cached, and membership goes through `PrimalSaveMarkers`' per-save-data `HashSet`. O(1),
+   no allocation.
+2. **`ChainsHuntedModeHook` checked the cheapest gate last.** It Postfixes
+   `ArtificialIntelligence.Update` — every AI-driven creature, every realized room, every tick, so
+   dozens of calls per tick in a busy room. `PrimalSlot.IsActive` sat *inside* the per-player loop,
+   after resolving the room and iterating the whole player list. Hoisted to a single comparison at
+   the top of the Postfix, so off-slot (and off-gimmick) it short-circuits immediately.
+3. **Both threat gimmicks ran the same reflection chain independently, twice per tick.**
+   `ThreatSlowdown` and `ThreatPanic` both Postfix `Player.checkInput`, and each called
+   `GetCurrentThreat` (3–5 nested `FieldInfo.GetValue` calls, each boxing) for the same *global*
+   number. Monk has both assigned by default. Now both read `ThreatReader.ThreatFraction`, memoized
+   per `Time.frameCount` — one lookup per frame no matter how many gimmicks or players ask.
+
+**The macro refactor: `GimmickGate`.** Every gimmick needed the same four steps in the same order
+(resolve `RainWorld` → `PrimalSlot.IsActive` → real character ID → `GimmickAssignments.IsEnabled`),
+and that block was copy-pasted into roughly twenty patch bodies. `MiseryEffect.IsActiveFor` had
+already factored it out perfectly — but its name made it look Misery-specific, so nothing else
+reused it. It's now `GimmickGate`, and `MiseryEffect.IsActiveFor` is a thin alias over it.
+
+That consolidation also fixed a real inconsistency: **eight** gimmicks reached `RainWorld` through
+`player.room.game.rainWorld` while **three** (Chains, OneSpear, Slugpup) used
+`player.abstractCreature.world.game.rainWorld`. The second is strictly more robust — `Player.room`
+is null while the `Player` is still being constructed, which is exactly why Slugpup and OneSpear
+*had* to use it (both hook methods that run mid-constructor) — and the eight room-based ones would
+have silently no-opped rather than degraded if their patched method ever fired with no room.
+`GimmickGate.GameFor` tries the abstract-creature path first and falls back to `room`, so every
+caller gets the robust behavior without having to know any of this.
+
+**Everything else.** Three separate bespoke implementations of the save-marker pattern collapsed
+into `PrimalSaveMarkers` (which also turned the Kill List dialog's 55 separate linear scans into 55
+`HashSet` lookups); three separate cached `AccessTools.Field(KarmaLadderScreen, "saveState")`
+handles collapsed into `PrimalMenuAccess`; `GimmickRegistry` now takes each ID from the owning
+class's own `ID` const instead of re-typing the literal (a typo there used to be a silent, no-error
+way to unwire a gimmick — all 13 were verified to match before the change); `PrimalOptions` dropped
+its duplicate `_enabledConfigs` dictionary and `EnabledKey` helper in favour of
+`GimmickAssignments.GetConfigurable`; and the slot-switch key became configurable
+(`PrimalSettings`), shown as an `OpKeyBinder` in the Remix screen's title row.
+
+**Watch out for, when this is finally tested:** the `PrimalSaveMarkers` cache is keyed per
+`DeathPersistentSaveData` instance and validated by comparing the cached entry count against the
+live list's `Count` on every read, so loading a different save or anything else mutating the list
+self-heals. The one mutation it can't see is one that replaces an entry *without* changing the
+list's length — nothing does that to this list in practice, but if kill-list progress or a spear-pull
+count ever reads as stale, that's the first place to look.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
@@ -2623,6 +3596,36 @@ file). When in doubt, prefer the smaller patch that rides on an existing vanilla
 larger one that reimplements it.
 
 ## Outstanding items
+
+### Status at a glance (2026-09-15)
+
+Everything below the table is the long-form history for each item; the table is the "what do I test
+next" summary. **Nothing since the Chains core mechanic has been confirmed in-game** — roughly 16
+commits of unbuilt, untested work, by explicit user decision ("we'll just have to test everything
+at the same time, bit by bit, to bring it back probably").
+
+| Area | State | First thing to check |
+| --- | --- | --- |
+| **Whole-codebase refactor (2026-09-15)** | Unbuilt | Does it compile at all? It touches ~20 files. Then: does any gimmick still fire? |
+| SlugBase dependency removed | Unbuilt | Mod loads with SlugBase *uninstalled* |
+| Primal character names + "not implemented" labels | Unbuilt | All 10 names on the character-select screen |
+| Blacked-out portraits (6 characters) | Unbuilt | Survivor/Monk/Hunter vs Rivulet/Saint — different shaders, may diverge |
+| Slugpup rewrite (isSlugpup, not SlugCatClass) | Unbuilt | Gourmand looks fat *and* pup-sized |
+| Slugpup "ends on beating the game" | Unbuilt | Also fires for a non-Gourmand character's own alt ending |
+| Kill List gimmick | Unbuilt | Kill → shelter → button on cycle-end screen |
+| Threat Slowdown / Threat Panic | Unbuilt | Monk, with threat rising |
+| Chains gimmick | **Core confirmed in-game**; settings import unbuilt | The ported banlist/preset settings |
+| Primal Slot tab-switch | **Confirmed in-game** through round 3 | Rounds 4–5 (character preservation, multiple Primal slots) |
+| Config menu (grid + detail panel) | **Confirmed in-game** 2026-09-13 | The new slot-switch key binder in the title row |
+
+**Suggested testing order for the refactor specifically**, since it's the change most likely to
+break everything at once and the hardest to bisect: (1) does it build; (2) does the mod load with
+SlugBase uninstalled; (3) does the Remix screen still open and still show/save assignments (that
+exercises `GimmickAssignments`' new key struct, `PrimalOptions`' dropped dictionary, and the new key
+binder); (4) does any one simple gimmick still fire — Misery on Gourmand is the cheapest check, and
+it exercises `GimmickGate` end to end; (5) then the save-marker features (OneSpear's pull count,
+Kill List progress, Slugpup's ending flag), which all now share `PrimalSaveMarkers`; (6) then the
+per-frame ones (Chains, both threat gimmicks) for behavior *and* frame rate.
 
 *(Status as of this doc's last update: the user confirmed BOTH previously-outstanding drill-down
 bugs are resolved — the character grid overflow fix (5x2 layout) and the Gotcha #4
@@ -2723,6 +3726,62 @@ in it.)
   thin as a pup AND renders in Gourmand's own tan/pink color, and check the BepInEx log for
   `[Slugpup] Gourmand: npcCharacterStats rescaled from real stats (bodyWeightFac X -> Y)` (X should
   be noticeably larger than Y) to confirm the stats patch actually ran.
+- **New, not yet built or tested (2026-09-15, fifth Slugpup round — see "Slugpup gimmick:
+  SlugCatClass-flip rewrite, in detail" above for the full account): the stats/color fixes above
+  got tested in-game and confirmed the color was now correct, but Gourmand still "wasn't fat
+  enough... looks like a slugpup" instead of a fatter version of himself. Root cause: the
+  `SlugCatClass`-flip architecture itself, not a missing rescale — flipping `SlugCatClass` away
+  from `Gourmand` meant `PlayerGraphics`' own Gourmand-specific 1.4×/1.6× fatness scale could never
+  fire. Rewrote the whole gimmick to match how the reference "Pupify" mod actually does it (found by
+  re-reading `reference/ExampleMods/Pupify/Pupify.decompiled.cs`, already committed in this repo, no
+  live disassembly needed this round): force `Player.isSlugpup`'s getter to `true` directly, and
+  never touch `SlugCatClass` at all. Also found and fixed a second, independent, previously-missed
+  bug in the same pass: `Player.SetMalnourished` unconditionally rebuilds `npcCharacterStats` from
+  scratch any time malnourishment changes, silently undoing the rescale — fixed with a new
+  `SlugpupMalnourishmentStatsGimmick` Postfix. **When retesting, check all of, in order: (1) it
+  compiles; (2) pup-ified Gourmand shows the same fat head/body proportions a normal adult Gourmand
+  does, just smaller, not the plain narrow Slugpup shape; (3) still renders in Gourmand's own
+  tan/pink for both main body color and shortcut/pipe-transition tint; (4) pup-scale physical stats
+  are still correctly applied (check the `[Slugpup] ...` log line); (5) eat until malnourished (or
+  recover from it) and confirm the pup-scale stats are STILL correctly rescaled afterward, not
+  reverted to full-adult or generic-pup sizing — the new, specific regression case found this round;
+  (6) any of Gourmand's own `SlugCatClass`-gated behaviors/abilities that used to break under the
+  old flip now work correctly while pup-ified.**
+- **New, not yet built or tested (2026-09-15, sixth Slugpup round, a feature not a bugfix, revised
+  twice after two separate user corrections — see "Slugpup gimmick: ends at Outer Expanse, in
+  detail" above for the full three-round account): beating the game via any "standard" (non-
+  ascension) ending now permanently stops the Slugpup gimmick for that character on that save file
+  (still shown assigned in Remix -- just inert), gated by a new `Configurable<bool>`
+  (`SlugpupEndingSettings.EndsOnBeatingGame`) that **defaults to on**, per explicit request.
+  **Round 1 hooked the wrong thing** (`RainWorldGame.BeatGameMode`'s `standardVoidSea: true`
+  branch, actually the separate void-sea/ascension ending -- caught by the user: "that is why its
+  called standardVoidSea. look for a different ending"). **Round 2 hooked a Postfix on
+  `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding.Update`** (a misleadingly-named but
+  genuinely generic "reached Outer Expanse's western edge" handler), which matched but didn't
+  generalize -- the user asked directly: "if it gets placed on some other character, say
+  artificer, and they beat the game with standardVoidSea: false then that should also remove the
+  slugpup effect," and it didn't, since that class only ever fires for the Outer Expanse
+  walk-ending, never Rivulet/Artificer/Saint/Spearmaster's own alt endings elsewhere. **Round 3
+  (the fix): back to a Postfix on `RainWorldGame.BeatGameMode` after all, but checking
+  `!standardVoidSea`** (any standard ending) instead of `standardVoidSea` (round 1's mistake) --
+  this correctly covers every character's own alt ending plus the Outer Expanse walk-ending in one
+  hook, while still leaving the ascension ending untouched. Simpler than round 2 too: no
+  `ConditionalWeakTable` needed, since `BeatGameMode` only ever fires once per ending event. New
+  `SlugpupEndingMarker` (a permanent per-character `unrecognizedSaveStrings` marker, same mechanism
+  `OneSpearGimmick` already uses). Needed no changes to `SlugpupStatsGimmick`,
+  `SlugpupMalnourishmentStatsGimmick`, or `SlugpupColorGimmick` -- they all key off
+  `Player.isSlugpup` (directly or via vanilla's own `NPCStats`-construction gate), so the one new
+  check in `SlugpupGimmick`'s own Postfix is enough to turn the whole gimmick off from a single
+  choke point. **When testing: (1) it compiles; (2) the new checkbox shows up in Slugpup's settings
+  sub-view, checked by default, labeled around "beats the game"; (3) walking to Outer Expanse's
+  western edge (not the void sea route) with it checked logs `[Slugpup] ... beat the game` and the
+  character plays as their normal adult self from then on, for the rest of that save; (4)
+  **assign Slugpup to a different character (e.g. Artificer), have them reach their own alt ending
+  (LC_FINAL), and confirm the same effect -- the specific generalization the user asked to
+  verify**; (5) unchecking the setting for a character before they beat the game means the gimmick
+  keeps working after they do; (6) reaching the void-sea/ascension ending specifically does *not*
+  trigger this (confirming the true/false distinction from round 1 stuck); (7) beating the game
+  twice on an already-ended character doesn't break anything.**
 - **New, built, deploy-gap already found and fixed, not yet tested in-game (2026-09-12): the Chains
   gimmick.** Requested by the user as "find the artificer chains mod and turn that into a gimmick"
   — turned out to be a **local, not-on-the-Workshop** mod already installed on the user's machine
@@ -3076,11 +4135,26 @@ in it.)
     "Config menu UI, in detail" above for the full report and an unconfirmed hypothesis.
   - **New, highest priority:** `PrimalCharacterNames.cs` (see "Primal character names, in detail"
     above) — has compiled clean in every build since it was written, so just needs in-game
-    confirmation: on the alt slot, Gourmand, Spearmaster, and (as of 2026-09-12) Artificer show
-    "PRIMAL GOURMAND"/"PRIMAL SPEARMASTER"/"PRIMAL ARTIFICER" with a description listing their
-    currently-assigned gimmicks on the "choose your character" (new-game) screen; every other
-    character, and all three of these off the alt slot, are unaffected; and toggling a gimmick in
-    Remix changes the wording next time that screen is shown.
+    confirmation: on the alt slot, Gourmand, Spearmaster, Artificer (2026-09-12), and Sofanthiel
+    (2026-09-15) show "PRIMAL GOURMAND"/"PRIMAL SPEARMASTER"/"PRIMAL ARTIFICER"/"PRIMAL ???" with a
+    description listing their currently-assigned gimmicks (Sofanthiel's will just read the generic
+    placeholder, since it has none); **and (added later the same day) Survivor, Monk, Hunter,
+    Rivulet, Saint, and Watcher show "PRIMAL SURVIVOR"/"PRIMAL MONK"/"PRIMAL HUNTER"/"PRIMAL
+    RIVULET"/"PRIMAL SAINT"/"PRIMAL WATCHER" with the literal static description "Primal version not
+    implemented"** — on the "choose your character" (new-game) screen; every one of these ten
+    characters off the alt slot is unaffected; and toggling a gimmick in Remix changes the wording
+    next time that screen is shown for the four characters whose description is gimmick-driven. As
+    of 2026-09-15 Gourmand's and Spearmaster's intro lines are the user's own rewrites (see "Primal
+    character names, in detail"), not the original generic "changed by something primal" placeholder
+    text.
+  - **New, highest priority:** `PrimalUnimplementedPortraits.cs` (see "Primal character portraits,
+    in detail" above) — the six "not implemented" characters' select-screen portraits should render
+    as solid black silhouettes on the alt slot, with everything else (background/vines/pipes/
+    plants, the other four characters' own portraits, every character off the alt slot) unaffected.
+    Specifically worth checking whether the three base-game portraits (Survivor/Monk/Hunter, whose
+    shader depends on whether the MMF mod is installed) black out correctly the same as the three
+    MSC ones (Rivulet/Saint, always `MenuShader.Basic`) — see that section's own doc comment for
+    why this could plausibly diverge and how to tell if it does.
   - Master Spear's (OneSpear's) now-configurable pull limit — confirm raising it above 1 in the
     settings sub-view actually grants more than one pull, and that the save-marker format change
     doesn't break anything on a save file that already has old-format markers on it (see the
@@ -3174,6 +4248,80 @@ in it.)
   usual way, and re-check closely if anything about either gimmick seems off. **Not yet built or
   tested** — see the checklist at the end of "Threat Slowdown and Threat Panic gimmicks, in detail"
   above.
+- **New, not yet built or tested (2026-09-15): per-gimmick settings sub-view made scrollable.**
+  Reported directly: some gimmicks' settings sub-view — Chains on Artificer, notably — don't fit
+  the available space. `GimmickDef.cs`, `GimmickRegistry.cs`, and `PrimalOptions.cs` all touched;
+  see "Per-gimmick settings sub-view made scrollable" under "Config menu UI, in detail" above for
+  the full account. This session's container has no `.NET` toolchain at all (see "Container
+  environment notes" below), so none of this could be compiled or run here — written by close
+  analogy to the already-shipped, already-working add-gimmick-picker scroll box, but genuinely
+  unverified. Next: `dotnet build`, then in-game confirm (1) it compiles; (2) Chains' settings for
+  Artificer now scroll to reach every control (escape timer, both toggles, preset picker, all 12
+  banlist checkboxes) instead of clipping; (3) every other gimmick's settings sub-view
+  (TimeLimit/NoSpears/OneSpear/ThreatPanic) looks and behaves completely unchanged; (4) no visual
+  collision between the new scroll box's slide bar and anything at the settings screen's right edge.
+- **New, not yet built or tested (2026-09-15): gimmick buttons colored by home character.**
+  Requested directly: color-code each gimmick's button by whichever character it's thematically
+  tied to (Chains ↔ Artificer, ThreatPanic ↔ Monk, etc.), using that character's own vanilla color.
+  `GimmickDef.cs`, `GimmickRegistry.cs`, and `PrimalOptions.cs` all touched; see "Gimmick buttons
+  colored by their home character" under "Config menu UI, in detail" above for the full account,
+  including why `PlayerGraphics.DefaultSlugcatColor` was used over the already-present
+  `SlugcatColor` reflection call in `SlugpupGimmick.cs`. Same container limitation as the entry
+  above (no `.NET` toolchain here to compile/test against) — both new member accesses
+  (`OpSimpleButton.colorEdge`, `PlayerGraphics.DefaultSlugcatColor`) were confirmed against
+  `reference/GameSource` rather than guessed, and the reflection call is wrapped in its own
+  try/catch specifically so a failure here can't crash the whole Remix screen open, but none of it
+  has actually run yet. Next: `dotnet build`, then in-game confirm (1) it compiles; (2) every
+  gimmick's button (in both the assigned-gimmicks table and the add-gimmick picker) shows its home
+  character's real color as a border+text tint, and NoPassages' button looks completely default/
+  untinted; (3) tinted text stays legible against the button's black fill for every character,
+  especially darker ones (Spearmaster, Sofanthiel/Inv); (4) check `BepInEx/LogOutput.log` for a
+  `PlayerGraphics.DefaultSlugcatColor threw` line -- if present, every button fell back to
+  uncolored and the reflection lookup needs a fix.
+- **New, not yet built or tested (2026-09-15, revised four times same day): Kill List gimmick.**
+  Requested as a completionist tracker -- kill every one of a fixed, curated 55-species roster,
+  tracking only for now (no goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`;
+  `GimmickRegistry.cs` updated (no default assignment, no home-character color tag, no settings
+  sub-view at all -- not requested). See "Kill List gimmick, in detail" above for the full account.
+  Round 5 ("your list doesnt include the small spiders"): a real curation miss caught by the user --
+  plain `CreatureTemplate.Type.Spider` (distinct from the already-tracked `BigSpider`/`SpitterSpider`)
+  was silently dropped during the very first curation pass instead of being flagged as unmatched.
+  Confirmed via `Spider.cs` (each spider belongs to a `Flock`/`SpiderMass`, periodically merging with
+  others via `Merge(SpiderMass otherFlock)`) rather than guessed, then added as
+  `new KillListEntry(CreatureTemplate.Type.Spider, "Small Spider")` per the user's chosen display
+  name -- 54 entries up to 55, every roster-count reference elsewhere updated to match.
+  Round 4: `Yeek` and `SlugNPC` ("Slugpup") removed from the roster outright, no reason given --
+  56 entries down to 54, `KillListRegistry.All` and every roster-count reference elsewhere updated
+  to match.
+  Round 2: (1) kills are now only banked permanently if the cycle actually ends in a successful
+  sleep (`RainWorldGame.Win`, confirmed to fire only from `ShelterDoor.cs`) -- a cycle ending in
+  death (`RainWorldGame.GameOver`, confirmed to fire only from real death paths) discards that
+  cycle's kills instead; (2) progress is no longer shown in the Remix menu at all -- instead a
+  "KILL LIST" button on the cycle-end screen (`Menu.SleepAndDeathScreen`) opens a popup listing
+  not-yet-killed species, then killed. Round 2 also traced attribution in full (13 total
+  `SetKillTag(` call sites) and flagged, but didn't fix, a suspected throw-impact gap.
+  Round 3 ("double check the leech kill path too") **confirmed and fixed a real gap**: `Leech.cs`
+  isn't `IPlayerEdible`, so the "grab and eat" attribution path never applies to it at all, and its
+  actual, everyday death mechanism -- an `airDrown` (out-of-water) timer that calls `Die()` directly
+  with zero `SetKillTag` anywhere in that path -- would never have been counted. Fixed with a new,
+  general fallback (`CreatureKillListHandlerHook`, a Postfix on `PhysicalObject.Grabbed`) that
+  records "who last grabbed this creature" and lets `Die()`'s Postfix use that instead, but only
+  when `killTag` is entirely absent (never overriding a `killTag` that's set to something else).
+  Same container limitation as the entries above (no `.NET` toolchain here) -- every new member
+  access was checked against `reference/GameSource/` rather than guessed, but none of it has
+  compiled or run once. Next: `dotnet build`, then in-game, in order: (1) it compiles; (2) assign
+  Kill List to a character, kill a tracked species by grabbing and eating it, reach a shelter, and
+  confirm the "KILL LIST" button on the sleep screen shows it under KILLED; (3) kill a *different*
+  species, then deliberately die before reaching a shelter, and confirm that cycle's kill was
+  discarded; (4) fully quit/relaunch, reload the same character, reach a shelter, and confirm the
+  earlier banked kill survived; (5) **highest priority: pull a leech off, throw it somewhere dry,
+  wait ~22.5 seconds for it to die of `airDrown`, and confirm it's still attributed correctly** --
+  this is the specific gap this round fixed; (6) test a throw-into-wall kill for some other species
+  now that the handler-fallback exists, and a slow multi-second spear-stab kill (never grabbing the
+  target directly), to check the two attribution gaps still flagged as open; (7) kill something NOT
+  on the list (e.g. a Watcher creature) and confirm nothing is recorded and nothing throws; (8)
+  confirm the "KILL LIST" button only appears for a character that actually has the gimmick
+  assigned.
 
 ## Container environment notes
 

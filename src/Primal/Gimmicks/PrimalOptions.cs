@@ -139,14 +139,12 @@ namespace Primal.Gimmicks
         // changes, without touching the grid, the title, or the subtitle above it.
         private readonly List<UIelement> _detailItems = new List<UIelement>();
 
-        // Every (character, gimmick) "is this assigned" Configurable<bool>, bound once up front
-        // in Initialize -- same objects GimmickAssignments.Register hands to the runtime patches,
-        // kept here too so the detail views can flip them directly (the "x" button and the
-        // add-gimmick picker) without needing new lookup surface on GimmickAssignments.
-        private readonly Dictionary<string, Configurable<bool>> _enabledConfigs = new Dictionary<string, Configurable<bool>>();
-
-        private static string EnabledKey(string characterID, string gimmickID) => characterID + "|" + gimmickID;
-
+        // This class used to keep its own parallel Dictionary<string, Configurable<bool>> of every
+        // (character, gimmick) assignment flag, keyed by a private EnabledKey() helper that was a
+        // verbatim duplicate of GimmickAssignments' own composite-key format -- two copies of the
+        // same objects under two copies of the same key scheme, in the same assembly. Removed
+        // 2026-09-15: GimmickAssignments.GetConfigurable is now the single lookup for both the
+        // runtime patches and this screen's own "x"/add-gimmick buttons.
         private DetailView _detailView = DetailView.None;
         private string _charID;
         private string _gimmickID;
@@ -174,6 +172,19 @@ namespace Primal.Gimmicks
                 new OpLabel(10f, TitleY, "Primal -- Gimmicks", true),
                 new OpLabel(10f, SubtitleY, "Select a character to edit its gimmicks:", false)
             };
+
+            // Mod-wide slot-switch key, parked on the title row's right-hand side -- the only
+            // setting on this screen that isn't per (character, gimmick), so it deliberately sits
+            // outside the grid/detail structure everything else uses.
+            OpKeyBinder slotSwitchBinder = PrimalSettings.BuildSlotSwitchBinder(
+                new Vector2(ContentLeft + ContentWidth - 120f, TitleY - 4f),
+                new Vector2(120f, 30f));
+            if (slotSwitchBinder != null)
+            {
+                permanentItems.Add(new OpLabel(ContentLeft + ContentWidth - 260f, TitleY, "Slot switch key:", false));
+                permanentItems.Add(slotSwitchBinder);
+            }
+
             permanentItems.AddRange(BuildCharacterGrid());
             _tab.AddItems(permanentItems.ToArray());
 
@@ -243,6 +254,11 @@ namespace Primal.Gimmicks
             }
             _configBound = true;
 
+            // Mod-wide settings (currently just the slot-switch key) bind here too, for exactly
+            // the same reason everything else does -- see Gotcha #7: an unbound Configurable is
+            // skipped by Remix's own config-load pass, so its saved value never survives a restart.
+            PrimalSettings.Bind(this);
+
             foreach (CharacterEntry character in AllCharacters)
             {
                 foreach (GimmickDef gimmick in GimmickRegistry.All)
@@ -255,7 +271,6 @@ namespace Primal.Gimmicks
                         new ConfigurableInfo(gimmick.DisplayName + " on " + character.DisplayName + ". " + gimmick.Description));
 
                     GimmickAssignments.Register(character.ID, gimmick.ID, configurable);
-                    _enabledConfigs[EnabledKey(character.ID, gimmick.ID)] = configurable;
 
                     // Bind this gimmick's own extra settings (if it has any) for this character,
                     // eagerly, same as the plain enabled/disabled flag above -- so the values
@@ -293,9 +308,66 @@ namespace Primal.Gimmicks
             return null;
         }
 
+        // ---- home-character coloring for gimmick buttons ------------------------------------
+
+        // PlayerGraphics.DefaultSlugcatColor(SlugcatStats.Name) -- vanilla's own plain,
+        // state-free per-character palette (Gourmand's tan/pink, Rivulet's blue, etc.; see
+        // "Slugpup gimmick stats rescaling, in detail" in AI_CONTEXT.md for several of these
+        // literal values, traced there for an unrelated fix). Deliberately NOT
+        // PlayerGraphics.SlugcatColor -- that one also factors in the player's own Jolly Co-op
+        // custom/auto color settings, which would make a gimmick's color tag drift depending on
+        // unrelated Options rather than just reflecting the character's own identity color.
+        // Resolved via reflection rather than a direct call, same as every other gameplay-class
+        // member this codebase touches -- see Gotcha #1 in AI_CONTEXT.md: showing "public" in the
+        // compile-time (publicized) reference assembly proves nothing about the real one.
+        private static readonly MethodInfo DefaultSlugcatColorMethod =
+            AccessTools.Method(typeof(PlayerGraphics), "DefaultSlugcatColor", new Type[] { typeof(SlugcatStats.Name) });
+
+        private static readonly Dictionary<string, Color> _homeCharacterColorCache = new Dictionary<string, Color>();
+
+        // Null if this gimmick has no GimmickDef.HomeCharacter (e.g. NoPassages) or the color
+        // lookup fails for any reason (unresolved method, unrecognized character) -- callers
+        // should just leave the button's own default color alone in that case rather than force
+        // one.
+        private static Color? GetHomeCharacterColor(GimmickDef gimmick)
+        {
+            if (gimmick.HomeCharacter == null)
+            {
+                return null;
+            }
+
+            string key = gimmick.HomeCharacter.value;
+            if (_homeCharacterColorCache.TryGetValue(key, out Color cached))
+            {
+                return cached;
+            }
+
+            // Wrapped in try/catch, unlike this codebase's other AccessTools reflection calls --
+            // this one runs while building the Remix menu itself (not a per-tick gameplay patch),
+            // so an uncaught MethodAccessException here (same failure mode Gotcha #1 already
+            // documents for ConfigHolder.Save()) would take the whole screen down with Remix's own
+            // error screen instead of just leaving this one gimmick's button uncolored.
+            try
+            {
+                object boxed = DefaultSlugcatColorMethod?.Invoke(null, new object[] { gimmick.HomeCharacter });
+                if (!(boxed is Color color))
+                {
+                    return null;
+                }
+
+                _homeCharacterColorCache[key] = color;
+                return color;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"PlayerGraphics.DefaultSlugcatColor threw while coloring {gimmick.ID}'s button for {key} -- leaving it uncolored: {ex}");
+                return null;
+            }
+        }
+
         private bool IsEnabledFor(string characterID, string gimmickID)
         {
-            return _enabledConfigs.TryGetValue(EnabledKey(characterID, gimmickID), out Configurable<bool> c) && c.Value;
+            return GimmickAssignments.IsEnabled(characterID, gimmickID);
         }
 
         // Every assignment change goes through here (both AddGimmick and RemoveGimmick call it),
@@ -305,7 +377,8 @@ namespace Primal.Gimmicks
         // button.
         private void SetEnabledFor(string characterID, string gimmickID, bool value)
         {
-            if (!_enabledConfigs.TryGetValue(EnabledKey(characterID, gimmickID), out Configurable<bool> c))
+            Configurable<bool> c = GimmickAssignments.GetConfigurable(characterID, gimmickID);
+            if (c == null)
             {
                 return;
             }
@@ -527,6 +600,15 @@ namespace Primal.Gimmicks
                 {
                     description = gimmick.Description
                 };
+                Color? homeColor = GetHomeCharacterColor(gimmick);
+                if (homeColor.HasValue)
+                {
+                    // colorEdge drives both the button's border AND its label text color (see
+                    // OpSimpleButton.GrafUpdate) -- coloring just this, not colorFill, tags the
+                    // gimmick by its home character without turning the whole button into a
+                    // possibly-hard-to-read solid color block.
+                    nameButton.colorEdge = homeColor.Value;
+                }
                 nameButton.OnClick += _ => OpenGimmickSettings(capturedCharID, capturedGimmickID);
                 items.Add(nameButton);
 
@@ -563,6 +645,19 @@ namespace Primal.Gimmicks
 
         // ---- detail sub-view: one gimmick's settings for the selected character ---------------
 
+        // Fixed on-screen viewport for the settings scroll box below -- same footprint the
+        // settings content used to be placed at directly (DetailTopY - 84f down to a small bottom
+        // margin), now the fixed *viewport* a scrollable content area sits inside instead.
+        private const float SettingsViewportTop = DetailTopY - 84f;
+        private const float SettingsViewportBottom = 10f;
+        private const float SettingsViewportHeight = SettingsViewportTop - SettingsViewportBottom;
+        // A little narrower than the full content width (unlike AddGimmickListWidth below, which
+        // is narrow because its buttons are a single column by design) to leave clearance at the
+        // right edge for the scroll box's own slide bar, since settings content -- Chains'
+        // two-column banlist grid especially -- otherwise uses close to the full content width.
+        private const float SettingsViewportWidth = ContentWidth - 40f;
+        private const float SettingsContentTopPadding = 20f;
+
         private void RenderGimmickSettings()
         {
             if (!TryFindCharacter(_charID, out CharacterEntry character))
@@ -593,16 +688,40 @@ namespace Primal.Gimmicks
                 description = gimmick.Description
             });
 
-            if (gimmick.HasSettings)
+            if (!gimmick.HasSettings)
             {
-                items.AddRange(gimmick.BuildSettingsUI(character.ID, DetailTopY - 84f));
-            }
-            else
-            {
-                items.Add(new OpLabel(20f, DetailTopY - 84f, "This gimmick has no additional settings.", false));
+                items.Add(new OpLabel(20f, SettingsViewportTop, "This gimmick has no additional settings.", false));
+                ShowDetail(items);
+                return;
             }
 
+            // Wrapped in a scrollable OpScrollBox (added 2026-09-15) -- some gimmicks' settings
+            // (Chains, notably: a 12-checkbox banlist plus a preset picker and two toggles) lay
+            // out well past 400px tall, badly overflowing the ~241px actually available below the
+            // heading -- those rows used to render off the bottom of the Remix window with no way
+            // to reach them. Same OpScrollBox pattern already established for the add-gimmick
+            // picker below (RenderAddGimmick) -- see that method's own comment for the exact
+            // constructor arguments and the two-step-commit ordering OpScrollBox requires (it must
+            // already be attached to the OpTab before AddItems is called on it, confirmed the hard
+            // way in-game there). For a gimmick whose settings already fit (TimeLimit, NoSpears,
+            // OneSpear, ThreatPanic -- GimmickDef.SettingsContentHeight left at its default of 0),
+            // Mathf.Max clamps the content size up to the viewport's own height, so this is a
+            // no-op wrapper for them, not a visible behavior change.
+            float contentHeight = Mathf.Max(SettingsViewportHeight, gimmick.SettingsContentHeight);
+            float contentTopY = contentHeight - SettingsContentTopPadding;
+
+            OpScrollBox scrollBox = new OpScrollBox(
+                new Vector2(ContentLeft, SettingsViewportBottom),
+                new Vector2(SettingsViewportWidth, SettingsViewportHeight),
+                contentHeight,
+                false,  // horizontal
+                false,  // hasBack -- no visible frame, matches this screen's plain look elsewhere
+                true    // hasSlideBar
+            );
+            items.Add(scrollBox);
+
             ShowDetail(items);
+            scrollBox.AddItems(gimmick.BuildSettingsUI(character.ID, contentTopY).ToArray());
         }
 
         // ---- detail sub-view: add-a-gimmick picker for the selected character ------------------
@@ -706,6 +825,11 @@ namespace Primal.Gimmicks
                 {
                     description = gimmick.Description
                 };
+                Color? homeColor = GetHomeCharacterColor(gimmick);
+                if (homeColor.HasValue)
+                {
+                    addButton.colorEdge = homeColor.Value;
+                }
                 addButton.OnClick += _ => AddGimmick(capturedCharID, capturedGimmickID);
                 scrollItems.Add(addButton);
 

@@ -4,8 +4,15 @@ using HarmonyLib;
 
 namespace Primal
 {
+    // No [BepInDependency] on purpose. This mod used to declare a hard dependency on SlugBase
+    // ("slime-cubed.slugbase"), left over from the two abandoned designs that tried to create
+    // custom SlugBase characters (see AI_CONTEXT.md's History -- both were scrapped by explicit
+    // user decision). Nothing in this assembly has referenced SlugBase in any form since; the
+    // csproj doesn't even reference it. A bare BepInDependency defaults to HardDependency, so
+    // that leftover attribute meant BepInEx refused to load Primal at all unless the player also
+    // had SlugBase installed -- a real install requirement for zero functionality. Removed
+    // 2026-09-15 along with the matching "requirements" entry in mod/modinfo.json.
     [BepInPlugin(PluginInfo.GUID, PluginInfo.Name, PluginInfo.Version)]
-    [BepInDependency("slime-cubed.slugbase")]
     public class Plugin : BaseUnityPlugin
     {
         private Harmony _harmony;

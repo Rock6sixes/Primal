@@ -13,8 +13,9 @@ namespace Primal.Gimmicks
     /// disassembly) even run. In other words, mauling is already exclusively an Artificer ability
     /// in vanilla; this gimmick only ever does anything for a character currently playing under
     /// Artificer's own SlugCatClass (whether that's really Artificer, or another character
-    /// gimmick-swapped into Artificer's class the way SlugpupGimmick swaps into Slugpup's), and is
-    /// a silent no-op for anyone SlugcatCanMaul already says no to.
+    /// gimmick-swapped into Artificer's class the way OneSpearGimmick swaps into Spear's -- see
+    /// that file's own doc comment; Slugpup no longer works this way as of its 2026-09-15 rewrite,
+    /// see SlugpupGimmick.cs), and is a silent no-op for anyone SlugcatCanMaul already says no to.
     ///
     /// Postfixes CanMaulCreature and forces the result to false whenever the asking player has
     /// this gimmick active -- vanilla's own eligibility checks still run first and can
@@ -35,20 +36,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            Player self = __instance;
-            if (self?.playerState == null)
-            {
-                return;
-            }
-
-            RainWorld rainWorld = self.room?.game?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            if (!GimmickGate.IsActiveFor(__instance, ID))
             {
                 return;
             }

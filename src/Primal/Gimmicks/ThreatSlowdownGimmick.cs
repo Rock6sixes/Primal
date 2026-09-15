@@ -60,13 +60,15 @@ namespace Primal.Gimmicks
     /// pin down the real threshold rather than eyeballing it: it computes
     /// `Mathf.InverseLerp(0f, 1.1f, rawThreat) * circles.Length` (circles.Length is a hardcoded 5,
     /// see the ctor) to decide how many of the 5 circles are lit/filling. One full circle lit means
-    /// that expression equals 1, i.e. `rawThreat == 1.1f / 5f` (ThreatLevelOneThreshold below,
-    /// 0.22). Both the 1.1 and the 5 are vanilla's own literal constants baked into that rendering
+    /// that expression equals 1, i.e. `rawThreat == 1.1f / 5f` (ThreatReader
+    /// .ThreatLevelOneThreshold, 0.22).
+    /// Both the 1.1 and the 5 are vanilla's own literal constants baked into that rendering
     /// method (not anything configurable), so this is a real derived threshold, not a guess.
     ///
     /// THE EFFECT (moved here from the old ThreatPanicGimmick.cs, unchanged): every tick, the
     /// chance of that tick's already-assembled real input being wiped entirely is
-    /// `panicFraction = Clamp01(rawThreat / ThreatLevelOneThreshold)` -- 0% at no threat, ramping
+    /// `panicFraction = Clamp01(rawThreat / ThreatReader.ThreatLevelOneThreshold)` -- 0% at no
+    /// threat, ramping
     /// to 100% (permanent lockout) right as the first circle finishes filling. In between, control
     /// visibly stutters/drops with increasing frequency as threat climbs -- a graduated "losing
     /// control", not a single threshold flip. See WHICH INPUT FIELDS GET ZEROED and the
@@ -97,12 +99,11 @@ namespace Primal.Gimmicks
     /// for the change to actually reach the live array Player.Update goes on to read. Both steps
     /// are required; skipping the `SetValue` write-back would silently do nothing.
     ///
-    /// SHARED WITH ThreatPanicGimmick.cs: `ThreatLevelOneThreshold` and `GetCurrentThreat` below
-    /// are `internal`, not `private`, specifically so ThreatPanicGimmick.cs -- a different facet of
-    /// the exact same "how close is threat to level 1" question -- reuses these instead of
-    /// re-deriving its own copy of the same threshold and lookup. This actually is the same fact,
-    /// needed by two gimmicks, so sharing it avoids a real risk of the two drifting out of sync if
-    /// the threshold is ever retuned.
+    /// SHARED WITH ThreatPanicGimmick.cs: the threat threshold and the lookup itself used to live
+    /// here as `internal` members that ThreatPanicGimmick.cs reached across to call. As of
+    /// 2026-09-15 both moved to ThreatReader.cs -- see that file for why (same fact needed by two
+    /// gimmicks doesn't belong inside one of them, and the lookup was running twice per tick
+    /// whenever both gimmicks were active, which is the default on Monk).
     ///
     /// GOTCHA #1 (see AI_CONTEXT.md): `Player.input` (a property), every `Player.InputPackage`
     /// field touched below, `ProcessManager.musicPlayer`, `Music.MusicPlayer.threatTracker`,
@@ -121,14 +122,6 @@ namespace Primal.Gimmicks
     internal static class ThreatSlowdownGimmick
     {
         public const string ID = "ThreatSlowdown";
-
-        /// <summary>Raw currentMusicAgnosticThreat value at which vanilla's ThreatPulser HUD shows
-        /// exactly one full circle lit -- "threat level 1" in the user's own words. Derived from
-        /// ThreatPulser's own hardcoded `InverseLerp(0f, 1.1f, threat) * circles.Length` (5) --
-        /// see this file's header comment for the full trace. `internal`: shared with
-        /// ThreatPanicGimmick.cs -- see this file's header comment, SHARED WITH
-        /// ThreatPanicGimmick.cs.</summary>
-        internal const float ThreatLevelOneThreshold = 1.1f / 5f;
 
         private static readonly PropertyInfo InputProperty =
             AccessTools.Property(typeof(Player), "input");
@@ -153,33 +146,16 @@ namespace Primal.Gimmicks
         private static readonly FieldInfo DownDiagonalField =
             AccessTools.Field(typeof(Player.InputPackage), "downDiagonal");
 
-        private static readonly FieldInfo MusicPlayerField =
-            AccessTools.Field(typeof(ProcessManager), "musicPlayer");
-        private static readonly FieldInfo ThreatTrackerField =
-            AccessTools.Field(typeof(Music.MusicPlayer), "threatTracker");
-        private static readonly FieldInfo CurrentMusicAgnosticThreatField =
-            AccessTools.Field(typeof(Music.PlayerThreatTracker), "currentMusicAgnosticThreat");
-        private static readonly FieldInfo FallbackThreatDeterminationField =
-            AccessTools.Field(typeof(ProcessManager), "fallbackThreatDetermination");
-        private static readonly FieldInfo ThreatDeterminationCurrentField =
-            AccessTools.Field(typeof(ThreatDetermination), "currentMusicAgnosticThreat");
-
         private static void Postfix(Player __instance)
         {
             Player self = __instance;
-            if (self?.playerState == null)
+            if (!GimmickGate.IsActiveFor(self, ID))
             {
                 return;
             }
 
-            RainWorld rainWorld = self.room?.game?.rainWorld;
-            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
-            {
-                return;
-            }
-
-            string characterID = self.playerState.slugcatCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, ID))
+            RainWorld rainWorld = GimmickGate.RainWorldFor(self);
+            if (rainWorld == null)
             {
                 return;
             }
@@ -192,8 +168,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            float threat = GetCurrentThreat(rainWorld);
-            float panicFraction = Mathf.Clamp01(threat / ThreatLevelOneThreshold);
+            float panicFraction = ThreatReader.ThreatFraction(rainWorld);
             if (panicFraction <= 0f)
             {
                 return;
@@ -234,50 +209,5 @@ namespace Primal.Gimmicks
             }
         }
 
-        /// <summary>Mirrors ThreatPulser.get_Threat()'s own lookup+fallback (see this file's
-        /// header comment) -- except it never lazily constructs a missing fallback the way
-        /// vanilla's own getter does, since side-effecting ProcessManager state isn't this
-        /// gimmick's job; that specific edge case just reads as 0 (no debuff) instead. `internal`:
-        /// shared with ThreatPanicGimmick.cs -- see this file's header comment, SHARED WITH
-        /// ThreatPanicGimmick.cs.</summary>
-        internal static float GetCurrentThreat(RainWorld rainWorld)
-        {
-            ProcessManager processManager = rainWorld.processManager;
-            if (processManager == null)
-            {
-                return 0f;
-            }
-
-            try
-            {
-                if (MusicPlayerField != null)
-                {
-                    object musicPlayer = MusicPlayerField.GetValue(processManager);
-                    if (musicPlayer != null && ThreatTrackerField != null && CurrentMusicAgnosticThreatField != null)
-                    {
-                        object threatTracker = ThreatTrackerField.GetValue(musicPlayer);
-                        if (threatTracker != null)
-                        {
-                            return (float)CurrentMusicAgnosticThreatField.GetValue(threatTracker);
-                        }
-                    }
-                }
-
-                if (FallbackThreatDeterminationField != null && ThreatDeterminationCurrentField != null)
-                {
-                    object fallback = FallbackThreatDeterminationField.GetValue(processManager);
-                    if (fallback != null)
-                    {
-                        return (float)ThreatDeterminationCurrentField.GetValue(fallback);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Plugin.Log?.LogWarning($"ThreatSlowdownGimmick.GetCurrentThreat threw -- treating threat as 0 for this tick: {ex.Message}");
-            }
-
-            return 0f;
-        }
     }
 }

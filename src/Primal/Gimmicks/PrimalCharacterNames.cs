@@ -7,14 +7,19 @@ using MoreSlugcats;
 namespace Primal.Gimmicks
 {
     /// <summary>
-    /// While playing on this mod's reserved alt slot (PrimalSlot.ReservedSlot), Gourmand and
-    /// Spearmaster show up on the "choose your character" screen as "PRIMAL GOURMAND" /
-    /// "PRIMAL SPEARMASTER" instead of their vanilla names, with a description that lists
-    /// whichever of this mod's gimmicks are currently assigned to them (see GimmickAssignments).
-    /// Off the alt slot, both characters are shown completely unmodified -- this only ever
-    /// touches how they're *labeled* on this one screen; nothing about SlugcatStats.Name,
-    /// StoryGameSession identity, or actual gameplay changes because of it (same "no faked
-    /// identity" rule the gimmicks themselves follow -- see PrimalSlot.cs).
+    /// While playing on this mod's reserved alt slot (PrimalSlot.ReservedSlot), every character
+    /// shows up on the "choose your character" screen as "PRIMAL &lt;NAME&gt;" instead of their
+    /// vanilla name. Gourmand, Spearmaster, Sofanthiel, and Artificer -- the four this mod
+    /// currently has real content for -- get a written intro line plus a description that lists
+    /// whichever of this mod's gimmicks are currently assigned to them (see GimmickAssignments;
+    /// Sofanthiel has no gimmick of its own as of this writing, so its description will just read
+    /// "No primal traits assigned yet"). Every other character (Survivor, Monk, Hunter, Rivulet,
+    /// Saint, Watcher -- added 2026-09-15) gets the same "PRIMAL X" name treatment but a plain,
+    /// static description: "Primal version not implemented". Off the alt slot, every character is
+    /// shown completely unmodified -- this only ever touches how they're *labeled* on this one
+    /// screen; nothing about SlugcatStats.Name, StoryGameSession identity, or actual gameplay
+    /// changes because of it (same "no faked identity" rule the gimmicks themselves follow -- see
+    /// PrimalSlot.cs).
     ///
     /// Only Menu.SlugcatSelectMenu.SlugcatPageNewGame shows a name/description at all (the
     /// "continue" page for a character that already has save data on this slot,
@@ -51,6 +56,12 @@ namespace Primal.Gimmicks
     [HarmonyPatch(typeof(Menu.SlugcatSelectMenu.SlugcatPageNewGame), MethodType.Constructor, typeof(Menu.Menu), typeof(Menu.MenuObject), typeof(int), typeof(SlugcatStats.Name))]
     internal static class PrimalCharacterNameHook
     {
+        // 2026-09-15: added for the six characters with no Primal-specific writeup (Survivor, Monk,
+        // Hunter, Rivulet, Saint, Watcher) -- a plain, static description, deliberately not run
+        // through BuildDescription (no "Active traits" line): these characters have no gimmicks of
+        // their own to report, and the request was for this exact literal text.
+        private const string NotImplementedDescription = "Primal version not implemented";
+
         private static readonly FieldInfo DifficultyLabelField =
             AccessTools.Field(typeof(Menu.SlugcatSelectMenu.SlugcatPageNewGame), "difficultyLabel");
 
@@ -72,14 +83,24 @@ namespace Primal.Gimmicks
                 name = "PRIMAL GOURMAND";
                 description = BuildDescription(
                     slugcatNumber.value,
-                    "This Gourmand has been changed by something primal -- their old habits no longer tell the whole story.");
+                    "A glutton reduced to the simplest pleasures of life. Capable only of sluggish rolling, one must seek out their home to regain some semblance of power.");
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Spear)
             {
                 name = "PRIMAL SPEARMASTER";
                 description = BuildDescription(
                     slugcatNumber.value,
-                    "This Spearmaster has been changed by something primal -- their old habits no longer tell the whole story.");
+                    "A deteriorating abnormality with its crucial needles running out. A traveller from a very far away land; A feeling in your hollow depths rushes you, messenger...");
+            }
+            else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel)
+            {
+                // Added 2026-09-15 per user rewrite -- vanilla's own name for this character is
+                // "???" rather than "THE X", so the Primal label follows that same convention
+                // instead of forcing a "PRIMAL SOFANTHIEL" that vanilla itself never uses.
+                name = "PRIMAL ???";
+                description = BuildDescription(
+                    slugcatNumber.value,
+                    "Thanks Rockman.");
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Artificer)
             {
@@ -90,13 +111,42 @@ namespace Primal.Gimmicks
                     slugcatNumber.value,
                     "A violent combatant, master of explosives, cursed to seek out any prey in sight. A journey of endless bloodshed and warfare.");
             }
+            else if (slugcatNumber == SlugcatStats.Name.White)
+            {
+                name = "PRIMAL SURVIVOR";
+                description = NotImplementedDescription;
+            }
+            else if (slugcatNumber == SlugcatStats.Name.Yellow)
+            {
+                name = "PRIMAL MONK";
+                description = NotImplementedDescription;
+            }
+            else if (slugcatNumber == SlugcatStats.Name.Red)
+            {
+                name = "PRIMAL HUNTER";
+                description = NotImplementedDescription;
+            }
+            else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Rivulet)
+            {
+                name = "PRIMAL RIVULET";
+                description = NotImplementedDescription;
+            }
+            else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Saint)
+            {
+                name = "PRIMAL SAINT";
+                description = NotImplementedDescription;
+            }
+            else if (ModManager.Watcher && slugcatNumber == Watcher.WatcherEnums.SlugcatStatsName.Watcher)
+            {
+                name = "PRIMAL WATCHER";
+                description = NotImplementedDescription;
+            }
             else
             {
-                // Every other character (Survivor, Monk, Hunter, Rivulet, Saint, Watcher) keeps
-                // its ordinary vanilla name/description on the alt slot too -- only Gourmand,
-                // Spearmaster, and Artificer have gimmicks assigned by default, and only they were
-                // asked for here. If a gimmick is ever added for another character, extend this
-                // switch rather than assuming every character should get a "Primal" name.
+                // Every character this mod actually has something to say about is handled by one
+                // of the branches above. Anything else (a future DLC character not accounted for
+                // yet, say) keeps its ordinary vanilla name/description rather than guessing at a
+                // "Primal" label for it.
                 return;
             }
 

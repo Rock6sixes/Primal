@@ -1,7 +1,0 @@
-C:\Users\rokas\Documents\RWMods\src\Primal\bin\Debug\Primal.dll
-C:\Users\rokas\Documents\RWMods\src\Primal\bin\Debug\Primal.pdb
-C:\Users\rokas\Documents\RWMods\src\Primal\obj\Debug\Primal.csproj.AssemblyReference.cache
-C:\Users\rokas\Documents\RWMods\src\Primal\obj\Debug\Primal.GeneratedMSBuildEditorConfig.editorconfig
-C:\Users\rokas\Documents\RWMods\src\Primal\obj\Debug\Primal.csproj.CoreCompileInputs.cache
-C:\Users\rokas\Documents\RWMods\src\Primal\obj\Debug\Primal.dll
-C:\Users\rokas\Documents\RWMods\src\Primal\obj\Debug\Primal.pdb

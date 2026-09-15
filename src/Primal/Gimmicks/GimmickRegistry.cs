@@ -17,40 +17,56 @@ namespace Primal.Gimmicks
         /// lowered exhaustion threshold.
         /// </summary>
         public static readonly GimmickDef Misery = new GimmickDef(
+            MiseryEffect.ID,
             "Misery",
-            "Misery",
-            "Every jump or wall-jump instantly maxes out exhaustion and comes out weak -- you have to let stamina recover between jumps, and even then jumps stay short."
+            "Every jump or wall-jump instantly maxes out exhaustion and comes out weak -- you have to let stamina recover between jumps, and even then jumps stay short.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Gourmand
         );
 
         /// <summary>
-        /// Based on Player.SlugCatClass -- the single field vanilla itself uses everywhere
-        /// (physics, jump height, grabbing, AI perception, and every visual in PlayerGraphics)
-        /// to decide "is this player currently a slugpup". Vanilla already flips this per-slot
-        /// for Jolly Co-op's own "make this player a pup" option; this gimmick reuses the exact
-        /// same switch for a single-player story character instead.
+        /// As of its 2026-09-15 rewrite, based on Player.isSlugpup (forced true via a Postfix on
+        /// its getter) rather than Player.SlugCatClass -- see SlugpupGimmick.cs for the full
+        /// account of why the original SlugCatClass-flip approach was wrong (it broke the real
+        /// character's own SlugCatClass-gated abilities and visual fatness while pup-ified) and
+        /// how forcing isSlugpup alone, the way the reference "Pupify" mod actually does it,
+        /// fixes that: physics/jump height/grabbing/AI-perception all read isSlugpup and still
+        /// correctly treat the player as a pup, while everything that reads SlugCatClass directly
+        /// (PlayerGraphics' per-character body shape, diet, other abilities) keeps seeing the real
+        /// character.
+        ///
+        /// Has one setting (added 2026-09-15, default ON): once this character reaches the
+        /// standard Outer Expanse ending, the gimmick permanently stops applying to them for the
+        /// rest of that save file -- still shown as assigned in Remix, it just no longer does
+        /// anything. See SlugpupEndingHook/SlugpupEndingSettings in SlugpupGimmick.cs.
         /// </summary>
         public static readonly GimmickDef Slugpup = new GimmickDef(
+            SlugpupGimmick.ID,
             "Slugpup",
-            "Slugpup",
-            "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat."
+            "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat.",
+            SlugpupEndingSettings.Bind,
+            SlugpupEndingSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Gourmand
         );
 
         /// <summary>
         /// Grants Spearmaster's real tail spear-pull -- his only way of producing a weapon,
         /// since his diet gives negative food from everything -- by flipping Player.SlugCatClass
-        /// to vanilla Spear (the same trick Slugpup uses), which is what every one of vanilla's
-        /// hardcoded Spearmaster checks in Player.Update() gates on. Unlike vanilla Spearmaster,
-        /// though, the pull can only succeed a limited number of times per save file (default 1,
+        /// to vanilla Spear (see OneSpearGimmick.cs; Slugpup used to use this same trick but no
+        /// longer does as of its 2026-09-15 rewrite -- see SlugpupGimmick.cs), which is what every
+        /// one of vanilla's hardcoded Spearmaster checks in Player.Update() gates on. Unlike
+        /// vanilla Spearmaster, though, the pull can only succeed a limited number of times per
+        /// save file (default 1,
         /// configurable -- see OneSpearGimmick.OneSpearSettings) before it stops working for
         /// good. Shown in the UI as "Master Spear" -- the internal ID/class name stayed "OneSpear"
         /// to avoid disturbing existing default assignments and save markers.
         /// </summary>
         public static readonly GimmickDef OneSpear = new GimmickDef(
-            "OneSpear",
+            OneSpearGimmick.ID,
             "Master Spear",
             "Gains Spearmaster's tail spear-pull, his sole means of ever producing a weapon -- but it can only be pulled off a limited number of times for the whole save file; after that, the charge-up never quite finishes again.",
             OneSpearSettings.Bind,
-            OneSpearSettings.BuildUI
+            OneSpearSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
         /// <summary>
@@ -61,11 +77,12 @@ namespace Primal.Gimmicks
         /// tick -- no warning yet, that's a later step.
         /// </summary>
         public static readonly GimmickDef TimeLimit = new GimmickDef(
-            "TimeLimit",
+            TimeLimitGimmick.ID,
             "Time Limit",
             "The character dies once the configured amount of time has passed, measured either for the whole run or per cycle.",
             TimeLimitSettings.Bind,
-            TimeLimitSettings.BuildUI
+            TimeLimitSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
         /// <summary>
@@ -76,11 +93,12 @@ namespace Primal.Gimmicks
         /// types are still allowed can be configured -- see NoSpearsGimmick.NoSpearsSettings.
         /// </summary>
         public static readonly GimmickDef NoSpears = new GimmickDef(
-            "NoSpears",
+            NoSpearsGimmick.ID,
             "No Spears",
             "Spears become impossible to pick up -- they act as if they were never grabbable objects at all (individual spear types can be re-allowed in this gimmick's settings).",
             NoSpearsSettings.Bind,
-            NoSpearsSettings.BuildUI
+            NoSpearsSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
         /// <summary>
@@ -93,11 +111,17 @@ namespace Primal.Gimmicks
         /// is dead (or a configurable escape timer runs out; see ChainsGimmick.ChainsSettings).
         /// </summary>
         public static readonly GimmickDef Chains = new GimmickDef(
-            "Chains",
+            ChainsGimmick.ID,
             "Chains",
             "Entering a room with living creatures in it seals every exit shut -- chained in place by void-chains -- until everything in the room is dead (or a configurable escape timer runs out).",
             ChainsSettings.Bind,
-            ChainsSettings.BuildUI
+            ChainsSettings.BuildUI,
+            // ChainsSettings.BuildUI lays out an escape-timer row, two toggles, a preset picker,
+            // and a 6-row/2-column, 12-checkbox banlist grid -- well over 400px tall, badly
+            // overflowing the plain ~241px settings viewport (see PrimalOptions.RenderGimmickSettings).
+            // 480 gives it room to scroll instead of clipping/being unreachable.
+            settingsContentHeight: 480f,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -107,9 +131,10 @@ namespace Primal.Gimmicks
         /// to sub-select.
         /// </summary>
         public static readonly GimmickDef NoYeeks = new GimmickDef(
-            "NoYeeks",
+            NoYeeksGimmick.ID,
             "No Yeeks",
-            "Yeeks become impossible to pick up -- they act as if they were never grabbable objects at all."
+            "Yeeks become impossible to pick up -- they act as if they were never grabbable objects at all.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -119,9 +144,10 @@ namespace Primal.Gimmicks
         /// ChainsGimmick's excludeSquids preset flag.
         /// </summary>
         public static readonly GimmickDef NoCicadas = new GimmickDef(
-            "NoCicadas",
+            NoCicadasGimmick.ID,
             "No Squidcadas",
-            "Squidcadas (cicadas) become impossible to pick up -- they act as if they were never grabbable objects at all."
+            "Squidcadas (cicadas) become impossible to pick up -- they act as if they were never grabbable objects at all.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -132,9 +158,10 @@ namespace Primal.Gimmicks
         /// playing under Artificer's own SlugCatClass.
         /// </summary>
         public static readonly GimmickDef NoMauling = new GimmickDef(
-            "NoMauling",
+            NoMaulingGimmick.ID,
             "No Mauling",
-            "Disables the instant-kill maul grab outright (only ever relevant to a character playing under Artificer's own class in the first place)."
+            "Disables the instant-kill maul grab outright (only ever relevant to a character playing under Artificer's own class in the first place).",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -143,10 +170,12 @@ namespace Primal.Gimmicks
         /// NoPassagesGimmick.cs, which Postfixes AddPassageButton and sets the real vanilla
         /// button's own ButtonBehavior.greyedOut flag (the same "visible but inert" mechanism
         /// vanilla itself uses elsewhere) rather than hiding or removing anything. No default
-        /// assignment as of this doc -- not requested for any specific character.
+        /// assignment as of this doc -- not requested for any specific character. No homeCharacter
+        /// either, for the same reason (see GimmickDef.HomeCharacter) -- its button in the Remix
+        /// menu keeps OpSimpleButton's own default color instead of being tagged.
         /// </summary>
         public static readonly GimmickDef NoPassages = new GimmickDef(
-            "NoPassages",
+            NoPassagesGimmick.ID,
             "No Passages",
             "Passages are still shown on the cycle-complete/death screen, but the button to actually use one is disabled."
         );
@@ -169,9 +198,10 @@ namespace Primal.Gimmicks
         /// assignment while testing, not a hardcoded default in GimmickDefaults.cs.
         /// </summary>
         public static readonly GimmickDef ThreatSlowdown = new GimmickDef(
-            "ThreatSlowdown",
+            ThreatSlowdownGimmick.ID,
             "Threat Slowdown",
-            "Every tick has a rising chance of the character's real input being dropped entirely as vanilla's own threat meter rises, reaching guaranteed lockout once one pulse-circle is lit (\"threat level 1\")."
+            "Every tick has a rising chance of the character's real input being dropped entirely as vanilla's own threat meter rises, reaching guaranteed lockout once one pulse-circle is lit (\"threat level 1\").",
+            homeCharacter: SlugcatStats.Name.Yellow
         );
 
         /// <summary>
@@ -190,11 +220,31 @@ namespace Primal.Gimmicks
         /// ThreatPanicGimmick.cs's header comment, for the full account of the swap.
         /// </summary>
         public static readonly GimmickDef ThreatPanic = new GimmickDef(
-            "ThreatPanic",
+            ThreatPanicGimmick.ID,
             "Threat Panic",
             "As threat rises, the character starts involuntarily firing off random inputs -- a direction, grab, throw, or jump, held briefly -- on top of the player's own real input (which is never blocked), reaching maximum frequency at threat level 1.",
             PanicSettings.Bind,
-            PanicSettings.BuildUI
+            PanicSettings.BuildUI,
+            homeCharacter: SlugcatStats.Name.Yellow
+        );
+
+        /// <summary>
+        /// Tracks every one of a fixed, 55-species roster (see KillListRegistry.All in
+        /// CreatureKillListGimmick.cs) that the assigned character personally kills -- via
+        /// vanilla's own Creature.killTag attribution, not just "died somewhere nearby" -- and
+        /// only banks a cycle's kills permanently if that cycle actually ends in a successful
+        /// sleep (RainWorldGame.Win); a cycle that ends in death discards that cycle's kills
+        /// instead (RainWorldGame.GameOver). No goal/reward logic yet -- purely a tracker for now,
+        /// per the user's own request. No default assignment and no homeCharacter -- not tied to
+        /// any specific character, same reasoning as NoPassages above. No settings sub-view either
+        /// -- progress is shown via a "KILL LIST" button this gimmick adds to the cycle-end screen
+        /// instead (KillListButtonHook/KillListSignalHook in CreatureKillListGimmick.cs), not the
+        /// Remix menu, per explicit request.
+        /// </summary>
+        public static readonly GimmickDef CreatureKillList = new GimmickDef(
+            CreatureKillListGimmick.ID,
+            "Kill List",
+            "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );
 
         public static readonly GimmickDef[] All =
@@ -211,6 +261,7 @@ namespace Primal.Gimmicks
             NoPassages,
             ThreatSlowdown,
             ThreatPanic,
+            CreatureKillList,
         };
     }
 }
