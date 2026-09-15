@@ -259,6 +259,17 @@ was tried twice and rejected both times for good reasons (see History).
   file originally implemented the input-drop mechanic now in `ThreatSlowdownGimmick.cs`; see that
   bullet and the detail section below for the full account. **Not yet built or tested since the
   swap.**
+- `Gimmicks/CreatureKillListGimmick.cs` (new, 2026-09-15) — the Kill List gimmick: tracks every one
+  of a fixed, curated 56-species roster (`KillListRegistry.All`) the assigned character personally
+  kills, persisted for the rest of the save file — tracking only, no goal/reward logic yet. Contains
+  four pieces: `CreatureKillListGimmick` itself (a Postfix on `Creature.Die()`, reading vanilla's own
+  `Creature.killTag` for attribution rather than reimplementing "who killed this"), `KillListRegistry`
+  (the roster), `KillListTracker` (the `DeathPersistentSaveData.unrecognizedSaveStrings` persistence,
+  same marker mechanism `OneSpearGimmick.cs` already established), and `KillListSettings` (a
+  read-only progress readout in the Remix menu, showing real data only when the character being
+  viewed matches whichever save is actually currently mounted — see **Kill List gimmick, in detail**
+  below for why it can't reliably show every character's progress at once). **Brand new, never built
+  or tested as of this doc.**
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -2434,6 +2445,163 @@ as too dim, revisit whether some minimum-brightness floor is worth adding, since
 here; (6) check `BepInEx/LogOutput.log` for a `PlayerGraphics.DefaultSlugcatColor threw` line, which
 would mean every gimmick fell back to uncolored and the reflection lookup needs a fix.
 
+## Kill List gimmick, in detail (brand new, never built or tested)
+
+Requested 2026-09-15: "creature kill list — once the gimmick is enabled, the game begins tracking
+killed creatures across the entire run and your goal becomes to kill every type of creature. for
+now the goal will be to track every creature." Explicitly staged as tracking-only for this pass —
+no win condition, no reward, no UI enforcing anything — matching how this project has approached
+every other multi-round feature (ship the mechanism first, layer behavior on top once it's
+confirmed working).
+
+**Building the roster came first, deliberately, before any code.** Per the user's own instruction
+("before code changes, output this list of creatures to this chat"), every registered
+`CreatureTemplate.Type` was enumerated directly from `reference/GameSource/` rather than guessed —
+three files register them (`CreatureTemplate.cs` for the 47 vanilla ones, `DLCSharedEnums.cs` for
+13 shared across DLCs, `MoreSlugcatsEnums.cs` for 5 MSC-only, `Watcher/WatcherEnums.cs` for 27
+Watcher-only — 92 total). The user then supplied their own curated list of community/wiki names to
+track and asked for each to be matched to its internal type, flagging anything confusing rather
+than guessing. Most matched cleanly; a handful needed real disambiguation, resolved with actual
+ground truth rather than assumption:
+- **"Caramel Lizard" → `SpitLizard`, "Strawberry Lizard" → `ZoopLizard`** — not a guess: found the
+  literal in-game display-name strings in `MoreSlugcats/MoreSlugcatsCreatures.cs`
+  (`creatureNames[(int)DLCSharedEnums.CreatureTemplateType.SpitLizard] = "Caramel Lizards"`, same
+  for `ZoopLizard`/"Strawberry Lizards") — these are the game's own official names, not community
+  nicknames, and they directly resolved what would otherwise have been an unverifiable guess.
+- **"Coalescipede"** — not found anywhere in the game's code, comments, or asset names (grepped the
+  whole decompiled source for `coalesc`, zero hits). Asked the user directly rather than guessing;
+  confirmed as `AquaCenti` ("Aquapede" in `MoreSlugcatsCreatures.cs`'s own official name — the
+  aquatic centipede-like DLC-shared creature).
+- **Centipede growth stages** — the user's list named four stages (Infant/Youth/Mature/Overgrown
+  Centipede) plus Red Centipede separately, but code only registers three centipede types total
+  (`SmallCentipede`, `Centipede`, `RedCentipede`) — confirmed by grepping the whole decompiled
+  source for "youth"/"overgrown"/"infant centipede"/"mature centipede" and finding nothing; the
+  size gradient within the plain `Centipede` type is purely visual/community-described, not a code
+  distinction. Asked the user rather than guessing which stage-name maps to which of the two
+  remaining types; resolved by just using all three types as found — `SmallCentipede` → "Small
+  Centipede", `Centipede` → "Centipede", `RedCentipede` → "Red Centipede" — dropping the four-stage
+  framing entirely rather than forcing an arbitrary mapping.
+- **"Slugpup"** — flagged as structurally different from everything else on the list (a slugpup is
+  normally a `Player` instance with `SlugCatClass == SlugcatStatsName.Slugpup`, not a
+  `CreatureTemplate.Type` at all, per this mod's own `SlugpupGimmick.cs`). The user resolved this
+  by simply pointing it at `SlugNPC` instead (MSC's own "Slugcat NPC" type, official name "Slugcat
+  NPC"/"Slugcats") — a real, ordinary `CreatureTemplate.Type`, sidestepping the special-case
+  entirely. `KillListEntry`/`KillListRegistry` therefore need no special handling for this one.
+- **"Chieftain Scavenger" → `ScavengerKing`** — the game's own official name is actually "King
+  Scavenger" (confirmed via the same `MoreSlugcatsCreatures.cs` lookup), not "Chieftain" — presented
+  to the user as a probable match with the official name flagged, not silently substituted.
+
+**What's deliberately NOT on the list**, confirmed unlisted rather than assumed excluded (the user
+never responded to this specific question, and moved on to resolving the ambiguous names instead —
+worth re-raising if a future session or the user wants the roster expanded): a handful of MSC/DLC
+types (`HunterDaddy`, `FireBug`, `TrainLizard`, `TerrorLongLegs`, `BigJelly`) and nearly all of
+Watcher's own roster (`DrillCrab`, `TowerCrab`, `Barnacle`, `SandGrub`, `BigSandGrub`, `BigMoth`,
+`SmallMoth`, `BoxWorm`, `FireSprite`, `Rattler`, `SkyWhale`, `ScavengerTemplar`,
+`ScavengerDisciple`, `Loach`, `RotLoach`, `BlizzardLizard`, `BasiliskLizard`, `IndigoLizard`,
+`PeachLizard`, `Rat`, `Frog`, `Tardigrade`, `GrappleSnake`, `Angler`, `RippleSpider`, `MothGrub`) —
+plus the three internal-only "ancestor" types (`Slugcat`, `LizardTemplate`,
+`StandardGroundCreature`) confirmed, by checking their actual usages in the decompiled source, to
+be generic category markers (`creatureTemplate.TopAncestor().type == CreatureTemplate.Type.X`) that
+no real spawned creature is ever actually typed as. Final roster: **56 entries** — see
+`KillListRegistry.All` in `Gimmicks/CreatureKillListGimmick.cs` for the exact list with display
+names.
+
+**"Killed by [character]", precisely.** Rather than reimplementing kill attribution from scratch
+(fragile territory — Rain World's damage system varies a lot by creature and death cause), this
+reuses a mechanism vanilla already has: `Creature.killTag` (an `AbstractCreature`), set by the
+attacker's own code — `Player.cs`'s melee/grab paths, `Weapon.cs` (thrown weapons), `Explosion.cs`,
+`FlareBomb.cs`, `SporeCloud.cs` all call `target.SetKillTag(attacker)` — and already read by
+`Creature.Die()`'s own base implementation at the very top of its body (for Arena scoring and
+social-event bookkeeping — confirmed by decompiling both `SetKillTag` and the start of `Die()`).
+This means a creature that dies from something other than direct player action (starvation,
+drowning, eaten by another creature, environmental hazards) has no `killTag` pointing at a player
+and is correctly not counted — a "you killed it" list, not a "this died somewhere near you" one.
+
+**Why `Creature.Die()` and not `Creature.Violence()`.** `Violence()` looked like the more obvious
+patch point at first (it's literally where damage happens), but checking first (this codebase's
+usual discipline) found `grep -rl "public override void Violence(" reference/GameSource/` returns
+**35 files** — including `Lizard.cs` (covering all 8 lizard color variants), `Scavenger.cs`,
+`Vulture.cs`, and most other common creatures — and spot-checking `Lizard.Violence` specifically
+found it's a **full reimplementation that never calls `base.Violence(...)`** (different creatures
+need completely different damage-resistance math, so each subclass just replaces the whole method).
+A Harmony patch on `Creature.Violence` would only ever fire for whichever creatures *don't*
+override it — missing most of the tracked roster silently, the exact "looks reasonable, is
+actually broken" trap this project's Gotchas exist to catch before shipping. `Die()` overrides, by
+contrast, were spot-checked across ~15 of the ~36 files that have one (`Fly`, `BigSpider`,
+`Spider`, `Centipede`, `EggBug`, `Snail`, `Vulture`, `TempleGuard`, `DropBug`, `Overseer`, `Leech`,
+`TubeWorm`, `Hazer`, `LanternMouse`, `GarbageWorm`, `Deer`, `DaddyLongLegs`, `JetFish`, `Cicada`,
+`SmallNeedleWorm`, `BigEel`) and every single one calls `base.Die()` (`Overseer.cs`'s override
+does too, just further down its body than the others — also incidentally confirms Overseers really
+are killable in vanilla, resolving an earlier open question from when this roster was first being
+discussed). One base-class patch on `Die()` therefore gets real, broad coverage; a lizard, a
+scavenger, and a vulture all still fire the same Postfix, unlike `Violence()`.
+
+**Persistence** follows `OneSpearGimmick.cs`'s own established pattern exactly:
+`DeathPersistentSaveData.unrecognizedSaveStrings` (a save-file-persisted `List<string>` the game
+itself doesn't recognize, round-tripping through save/load forever via that class's own
+designed-for-this passthrough) gets one marker per (character, creature-type) pair the first time
+it's recorded — `"PRIMAL_KILLLIST<dpB>" + characterID + "<dpB>" + creatureTypeID`. Unlike
+OneSpear's indexed per-use markers (which track a repeatable count), this only ever needs one
+marker per pair: a kill either happened by now or it didn't, so `KillListTracker.RecordKill` is
+simply idempotent (checks `IsKilled` first, no-ops if already recorded).
+
+**The settings-view limitation, and why it's there.** `KillListSettings.BuildUI` shows a live,
+read-only checklist (`[X]`/`[ ]` per creature) rather than the usual `Configurable<T>`-backed
+controls every other gimmick's settings sub-view has — there's nothing here for the player to
+*set*, just something to *see*. This surfaced a real architectural wrinkle: the Remix menu's
+character grid lets you click through all 10 characters, but a save slot's `PlayerProgression`
+only ever keeps **one** character's `SaveState` loaded at a time (`PlayerProgression.
+currentSaveState`, confirmed via decompilation — switching characters on the select screen swaps
+which state is loaded, they aren't all held simultaneously), so there is no reliable way to read
+"Gourmand's kill progress" from the Remix menu while a completely different character's save is
+what's actually mounted. Rather than show stale, cached, or (worse) some OTHER character's progress
+mislabeled as the one being viewed, `KillListSettings.BuildUI` checks whether `currentSaveState`
+actually matches the character whose row was clicked (comparing `SaveState.saveStateNumber.value`
+against the `characterID` argument) and shows the real checklist only then — otherwise a plain
+"load into a run on this character... to see kill progress here" placeholder. This means the
+progress view is only ever useful for whichever character you're actually currently playing, opened
+from the pause menu mid-run — not a way to audit every character's progress at once from the main
+menu. Revisit if that turns out to matter; the underlying `KillListTracker.IsKilled`/`RecordKill`
+data itself has no such limitation, only this particular display of it does.
+
+**New reflection surface (Gotcha #1):** `Creature.killTag` (nothing else in this codebase reads it),
+`PlayerProgression.currentSaveState`, and `SaveState.saveStateNumber` are all genuinely new member
+accesses, resolved via `AccessTools.Field(...).GetValue(...)` rather than trusted directly.
+`SaveState.deathPersistentSaveData`, by contrast, is NOT new — `OneSpearGimmick.cs` already reads
+it directly via a different path (`game.GetStorySession.saveState.deathPersistentSaveData`) and is
+treated as already-proven, so `KillListSettings` reads it directly too once it has a `SaveState` in
+hand. The whole `TryGetCurrentSaveData` lookup is wrapped in its own try/catch (same reasoning as
+`PrimalOptions.GetHomeCharacterColor` from the coloring feature above) — this runs while building
+the Remix menu itself, so a failed reflection lookup should just fall back to the placeholder
+message, not crash the whole screen open.
+
+**Layout, not yet verified in-game:** the progress grid is 4 columns × 14 rows (56 entries exactly,
+no remainder), `colWidth = 130f`, `rowH = 20f`, wrapped in the same settings `OpScrollBox` every
+other gimmick's settings sub-view now uses (`GimmickDef.SettingsContentHeight` set to `300f` for
+this gimmick). Whether the longest display names (`"Chieftain Scavenger"`, `"Strawberry Lizard"`)
+clip against the next column at that width is unconfirmed, same honest caveat as Chains' own
+banlist grid when it first shipped.
+
+**Not built or tested in any way** — this container has no `.NET` toolchain (see "Container
+environment notes" below), so this is written entirely from decompiled ground truth, not compiled
+or run once. No default assignment and no `HomeCharacter` (Remix-menu color tag) — not requested
+for any specific character, same as `NoPassages`. When this next reaches a real build+test cycle,
+check, in order: (1) it compiles — three touched files (`GimmickDef.cs` unchanged this round
+actually, only `GimmickRegistry.cs` and the new `CreatureKillListGimmick.cs`), several brand-new
+type references (`DLCSharedEnums.CreatureTemplateType.*`, `MoreSlugcatsEnums.CreatureTemplateType.
+ScavengerKing`/`.SlugNPC`) never used elsewhere in this codebase before, worth double-checking
+spelling against `reference/GameSource/` if anything doesn't resolve; (2) assign Kill List to some
+character via Remix, kill one of the tracked species with that character on the Primal slot, and
+confirm `BepInEx/LogOutput.log` shows a `[CreatureKillList] ... killed a ... for the first time`
+line; (3) reopen that same character's Kill List settings sub-view (from the pause menu, mid-run,
+without quitting to the main menu) and confirm the checklist now shows that one species checked;
+(4) fully quit and relaunch, reload that same character, and confirm the checkmark survived (proves
+the `DeathPersistentSaveData` marker round-tripped through a real save/load, not just held in
+memory); (5) kill something NOT on the 56-species list (e.g. a Watcher creature) and confirm
+nothing is recorded and no exception is logged; (6) open Kill List's settings from a DIFFERENT
+character than whichever save is currently mounted and confirm it shows the placeholder message
+instead of the wrong character's progress.
+
 ## Primal character names, in detail
 
 Requested by the user right after deprioritizing the config-menu UI merge above (2026-09-11):
@@ -3329,6 +3497,32 @@ in it.)
   especially darker ones (Spearmaster, Sofanthiel/Inv); (4) check `BepInEx/LogOutput.log` for a
   `PlayerGraphics.DefaultSlugcatColor threw` line -- if present, every button fell back to
   uncolored and the reflection lookup needs a fix.
+- **New, not yet built or tested (2026-09-15): Kill List gimmick.** Requested as a completionist
+  tracker -- kill every one of a fixed, curated 56-species roster, tracking only for now (no
+  goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`; `GimmickRegistry.cs` updated
+  (no default assignment, no home-character color tag -- not requested for a specific character).
+  See "Kill List gimmick, in detail" above for the full account -- the roster-curation back-and-
+  forth, why `Creature.Die()` was patched instead of `Creature.Violence()` (the latter is fully
+  reimplemented by ~35 creature subclasses without ever calling base, which would have silently
+  missed most kills), the `Creature.killTag`-based attribution (reusing vanilla's own Arena-scoring
+  mechanism rather than reinventing "who killed this"), and the settings-view's one real
+  limitation (can only show live progress for whichever character's save is actually currently
+  mounted, not any character clicked in the grid, since `PlayerProgression` only ever keeps one
+  character's `SaveState` loaded at a time). Same container limitation as the two entries above (no
+  `.NET` toolchain here) -- every new member access (`Creature.killTag`,
+  `PlayerProgression.currentSaveState`, `SaveState.saveStateNumber`, plus several never-before-used
+  `DLCSharedEnums.CreatureTemplateType.*`/`MoreSlugcatsEnums.CreatureTemplateType.*` type
+  references) was checked against `reference/GameSource/` rather than guessed, but none of it has
+  compiled or run once. Next: `dotnet build`, then in-game, in order: (1) it compiles; (2) assign
+  Kill List to a character, kill one of the 56 tracked species with them on the Primal slot, and
+  confirm a `[CreatureKillList] ... killed a ... for the first time` line in
+  `BepInEx/LogOutput.log`; (3) reopen that character's Kill List settings mid-run and confirm the
+  checklist shows that species checked; (4) fully quit/relaunch, reload the same character, and
+  confirm the checkmark survived (proves the save-file round-trip, not just an in-memory flag); (5)
+  kill something NOT on the list (e.g. a Watcher creature) and confirm nothing is recorded and
+  nothing throws; (6) open Kill List's settings for a DIFFERENT character than whichever save is
+  currently mounted and confirm it shows the "load into a run..." placeholder rather than the wrong
+  character's data.
 
 ## Container environment notes
 
