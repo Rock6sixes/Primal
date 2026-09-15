@@ -217,23 +217,21 @@ namespace Primal.Gimmicks
 
         /// <summary>
         /// Tracks every one of a fixed, 56-species roster (see KillListRegistry.All in
-        /// CreatureKillListGimmick.cs) that the assigned character personally kills, persisted for
-        /// the rest of the save file -- "personally kills" via vanilla's own Creature.killTag
-        /// attribution, not just "died somewhere nearby". No goal/reward logic yet -- purely a
-        /// tracker for now, per the user's own request. No default assignment and no homeCharacter
-        /// -- not tied to any specific character, same reasoning as NoPassages above.
-        /// KillListSettings.BuildUI supplies a read-only progress readout (no BindSettings at all,
-        /// since nothing here is a player-editable Configurable -- it's a live status display, not
-        /// a setting), so settingsContentHeight covers its 4-column x 14-row grid (56 entries
-        /// exactly).
+        /// CreatureKillListGimmick.cs) that the assigned character personally kills -- via
+        /// vanilla's own Creature.killTag attribution, not just "died somewhere nearby" -- and
+        /// only banks a cycle's kills permanently if that cycle actually ends in a successful
+        /// sleep (RainWorldGame.Win); a cycle that ends in death discards that cycle's kills
+        /// instead (RainWorldGame.GameOver). No goal/reward logic yet -- purely a tracker for now,
+        /// per the user's own request. No default assignment and no homeCharacter -- not tied to
+        /// any specific character, same reasoning as NoPassages above. No settings sub-view either
+        /// -- progress is shown via a "KILL LIST" button this gimmick adds to the cycle-end screen
+        /// instead (KillListButtonHook/KillListSignalHook in CreatureKillListGimmick.cs), not the
+        /// Remix menu, per explicit request.
         /// </summary>
         public static readonly GimmickDef CreatureKillList = new GimmickDef(
             "CreatureKillList",
             "Kill List",
-            "Tracks every kill this character personally lands against a fixed 56-species roster, persisted for the whole save file. No goal/reward yet -- just the tracker.",
-            bindSettings: null,
-            buildSettingsUI: KillListSettings.BuildUI,
-            settingsContentHeight: 300f
+            "Tracks every kill this character personally lands against a fixed 56-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );
 
         public static readonly GimmickDef[] All =

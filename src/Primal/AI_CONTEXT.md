@@ -259,17 +259,25 @@ was tried twice and rejected both times for good reasons (see History).
   file originally implemented the input-drop mechanic now in `ThreatSlowdownGimmick.cs`; see that
   bullet and the detail section below for the full account. **Not yet built or tested since the
   swap.**
-- `Gimmicks/CreatureKillListGimmick.cs` (new, 2026-09-15) — the Kill List gimmick: tracks every one
-  of a fixed, curated 56-species roster (`KillListRegistry.All`) the assigned character personally
-  kills, persisted for the rest of the save file — tracking only, no goal/reward logic yet. Contains
-  four pieces: `CreatureKillListGimmick` itself (a Postfix on `Creature.Die()`, reading vanilla's own
-  `Creature.killTag` for attribution rather than reimplementing "who killed this"), `KillListRegistry`
-  (the roster), `KillListTracker` (the `DeathPersistentSaveData.unrecognizedSaveStrings` persistence,
-  same marker mechanism `OneSpearGimmick.cs` already established), and `KillListSettings` (a
-  read-only progress readout in the Remix menu, showing real data only when the character being
-  viewed matches whichever save is actually currently mounted — see **Kill List gimmick, in detail**
-  below for why it can't reliably show every character's progress at once). **Brand new, never built
-  or tested as of this doc.**
+- `Gimmicks/CreatureKillListGimmick.cs` (new, 2026-09-15; revised same day) — the Kill List gimmick:
+  tracks every one of a fixed, curated 56-species roster (`KillListRegistry.All`) the assigned
+  character personally kills — tracking only, no goal/reward logic yet. `CreatureKillListGimmick`
+  itself (a Postfix on `Creature.Die()`) reads vanilla's own `Creature.killTag` for attribution
+  rather than reimplementing "who killed this", and records into `KillListTracker`'s in-memory
+  "pending" set (not the save file directly). `CreatureKillListCycleWinHook`/
+  `CreatureKillListCycleGameOverHook` (Postfixes on `RainWorldGame.Win`/`.GameOver`) decide each
+  cycle's fate: `Win` (confirmed via decompilation to fire only from `ShelterDoor.cs`, i.e. only on
+  a genuine successful shelter-reach) commits a character's pending kills to
+  `DeathPersistentSaveData.unrecognizedSaveStrings` (same marker mechanism `OneSpearGimmick.cs`
+  already established); `GameOver` (confirmed to fire only from real death paths in `Player.cs`)
+  discards them instead — "if character dies, then it should not get counted," per explicit
+  request. `KillListButtonHook`/`KillListSignalHook` (Postfixes on `Menu.SleepAndDeathScreen`'s
+  `AddSubObjects`/`Singal`) add a "KILL LIST" button to the cycle-end screen that opens a
+  `Menu.DialogNotify` listing not-yet-killed species, then killed — replacing an earlier
+  Remix-settings-based progress view entirely, per explicit request. See **Kill List gimmick, in
+  detail** below for the full account, including a real attribution gap found (and not yet closed)
+  for kills by pure throw-impact rather than bite/weapon/explosion. **Brand new, never built or
+  tested as of this doc.**
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -2509,13 +2517,12 @@ names.
 **"Killed by [character]", precisely.** Rather than reimplementing kill attribution from scratch
 (fragile territory — Rain World's damage system varies a lot by creature and death cause), this
 reuses a mechanism vanilla already has: `Creature.killTag` (an `AbstractCreature`), set by the
-attacker's own code — `Player.cs`'s melee/grab paths, `Weapon.cs` (thrown weapons), `Explosion.cs`,
-`FlareBomb.cs`, `SporeCloud.cs` all call `target.SetKillTag(attacker)` — and already read by
-`Creature.Die()`'s own base implementation at the very top of its body (for Arena scoring and
-social-event bookkeeping — confirmed by decompiling both `SetKillTag` and the start of `Die()`).
-This means a creature that dies from something other than direct player action (starvation,
-drowning, eaten by another creature, environmental hazards) has no `killTag` pointing at a player
-and is correctly not counted — a "you killed it" list, not a "this died somewhere near you" one.
+attacker's own code, and already read by `Creature.Die()`'s own base implementation at the very
+top of its body (for Arena scoring and social-event bookkeeping — confirmed by decompiling both
+`SetKillTag` and the start of `Die()`). This means a creature that dies from something other than
+direct player action (starvation, drowning, eaten by another creature, environmental hazards) has
+no `killTag` pointing at a player and is correctly not counted — a "you killed it" list, not a
+"this died somewhere near you" one.
 
 **Why `Creature.Die()` and not `Creature.Violence()`.** `Violence()` looked like the more obvious
 patch point at first (it's literally where damage happens), but checking first (this codebase's
@@ -2536,71 +2543,143 @@ are killable in vanilla, resolving an earlier open question from when this roste
 discussed). One base-class patch on `Die()` therefore gets real, broad coverage; a lizard, a
 scavenger, and a vulture all still fire the same Postfix, unlike `Violence()`.
 
-**Persistence** follows `OneSpearGimmick.cs`'s own established pattern exactly:
-`DeathPersistentSaveData.unrecognizedSaveStrings` (a save-file-persisted `List<string>` the game
-itself doesn't recognize, round-tripping through save/load forever via that class's own
-designed-for-this passthrough) gets one marker per (character, creature-type) pair the first time
-it's recorded — `"PRIMAL_KILLLIST<dpB>" + characterID + "<dpB>" + creatureTypeID`. Unlike
-OneSpear's indexed per-use markers (which track a repeatable count), this only ever needs one
-marker per pair: a kill either happened by now or it didn't, so `KillListTracker.RecordKill` is
-simply idempotent (checks `IsKilled` first, no-ops if already recorded).
+**Attribution, traced in full (2026-09-15, second round — the user asked to "double check
+attribution works for stuff like batflies").** Enumerated every `SetKillTag(` call site in the
+whole decompiled source rather than trusting the first handful found: **13 total**, across
+`Player.cs` (5: a proximity weapon-attack effect, Gourmand's roll attack "SLUGROLLED", the fall-slam
+"SLUGSMASH", `BiteEdibleObject` — biting/eating something you're holding — and Artificer's maul),
+`Weapon.cs` (2: a thrown weapon's first creature collision, and `HitSomethingWithoutStopping`),
+`Explosion.cs`, `Pomegranate.cs`, `FlareBomb.cs`, `SporeCloud.cs`, `LocustSystem.cs`, and
+`Watcher/SandGrub.cs`. Separately, `Creature.Violence`'s own **base implementation** (the one ~35
+subclasses never call, per above) *also* auto-sets `killTag` whenever the attacking `BodyChunk`'s
+owner is itself a `Creature` (`if (source.owner is Creature) SetKillTag(...)`) — a second,
+redundant safety net for ordinary creature-vs-creature contact damage.
 
-**The settings-view limitation, and why it's there.** `KillListSettings.BuildUI` shows a live,
-read-only checklist (`[X]`/`[ ]` per creature) rather than the usual `Configurable<T>`-backed
-controls every other gimmick's settings sub-view has — there's nothing here for the player to
-*set*, just something to *see*. This surfaced a real architectural wrinkle: the Remix menu's
-character grid lets you click through all 10 characters, but a save slot's `PlayerProgression`
-only ever keeps **one** character's `SaveState` loaded at a time (`PlayerProgression.
-currentSaveState`, confirmed via decompilation — switching characters on the select screen swaps
-which state is loaded, they aren't all held simultaneously), so there is no reliable way to read
-"Gourmand's kill progress" from the Remix menu while a completely different character's save is
-what's actually mounted. Rather than show stale, cached, or (worse) some OTHER character's progress
-mislabeled as the one being viewed, `KillListSettings.BuildUI` checks whether `currentSaveState`
-actually matches the character whose row was clicked (comparing `SaveState.saveStateNumber.value`
-against the `characterID` argument) and shows the real checklist only then — otherwise a plain
-"load into a run on this character... to see kill progress here" placeholder. This means the
-progress view is only ever useful for whichever character you're actually currently playing, opened
-from the pause menu mid-run — not a way to audit every character's progress at once from the main
-menu. Revisit if that turns out to matter; the underlying `KillListTracker.IsKilled`/`RecordKill`
-data itself has no such limitation, only this particular display of it does.
+For batflies (`Fly`, an `IPlayerEdible`) and leeches specifically: the dominant, iconic way players
+actually eliminate small prey in this game — grab it, then eat it — goes through
+`Player.BiteEdibleObject`, which explicitly calls `SetKillTag` before consuming. **High confidence
+this path is correctly attributed.**
 
-**New reflection surface (Gotcha #1):** `Creature.killTag` (nothing else in this codebase reads it),
-`PlayerProgression.currentSaveState`, and `SaveState.saveStateNumber` are all genuinely new member
-accesses, resolved via `AccessTools.Field(...).GetValue(...)` rather than trusted directly.
-`SaveState.deathPersistentSaveData`, by contrast, is NOT new — `OneSpearGimmick.cs` already reads
-it directly via a different path (`game.GetStorySession.saveState.deathPersistentSaveData`) and is
-treated as already-proven, so `KillListSettings` reads it directly too once it has a `SaveState` in
-hand. The whole `TryGetCurrentSaveData` lookup is wrapped in its own try/catch (same reasoning as
-`PrimalOptions.GetHomeCharacterColor` from the coloring feature above) — this runs while building
-the Remix menu itself, so a failed reflection lookup should just fall back to the placeholder
-message, not crash the whole screen open.
+**One real gap found, not yet closed:** killing something by **throwing it into a wall/floor**
+(pure impact damage, no bite/maul/weapon/explosion involved) does not appear to be covered by any
+of the 13 call sites above. Traced why: `Creature.TerrainImpact` (the method that fires on a hard
+landing) only ever spawns cosmetic water-drip particles in its base implementation — it never calls
+`Violence()` or `Die()` itself, so it can't be *where* such a death happens; a creature-specific
+override would have to do it instead, and checking every one of those individually (potentially
+different for each of the 56 tracked species) was judged out of scope for this pass. Separately,
+even a **spear stab** — the single most common Lizard-killing method — is worth a second look:
+`Spear.cs`'s own per-tick stab damage calls `Violence(base.firstChunk, ...)` directly, where
+`base.firstChunk.owner` is the *spear itself* (a `Weapon`, not a `Creature`), so neither of the two
+attribution mechanisms above fires from the stab tick itself — a stab-killed creature relies
+entirely on `Weapon.cs`'s own `SetKillTag` call from the *initial* thrown-weapon collision having
+already tagged it, and that tag decays after `killTagCounter` reaches 0 (~200 ticks / 5 seconds,
+per `Creature.SetKillTag`'s own body) with nothing found that re-refreshes it on each subsequent
+stab tick while a spear stays embedded. Whether a slow multi-second stab-kill can outlast that
+5-second window in practice is a real, live question this container has no way to test. **Flagged
+for an explicit in-game check**, not fixed blind — see the checklist at the end of this section.
 
-**Layout, not yet verified in-game:** the progress grid is 4 columns × 14 rows (56 entries exactly,
-no remainder), `colWidth = 130f`, `rowH = 20f`, wrapped in the same settings `OpScrollBox` every
-other gimmick's settings sub-view now uses (`GimmickDef.SettingsContentHeight` set to `300f` for
-this gimmick). Whether the longest display names (`"Chieftain Scavenger"`, `"Strawberry Lizard"`)
-clip against the next column at that width is unconfirmed, same honest caveat as Chains' own
-banlist grid when it first shipped.
+**Only banked on a successful cycle end — a deliberate change from the first pass.** Originally
+this wrote straight to `DeathPersistentSaveData` the instant a kill landed. Requested to change:
+"if character dies, then it should not get counted... keep the memory of what got killed as you
+are now, but only save it on successful cycle ending." `KillListTracker` now has two tiers: an
+in-memory-only "pending" set per character (`RecordPendingKill`, called from the `Die()` Postfix,
+same as before except it no longer touches the save file directly), and the real permanent record.
+Two new Harmony patches decide which way a cycle's pending kills go:
+- `CreatureKillListCycleWinHook` — Postfix on `RainWorldGame.Win(bool malnourished, bool
+  fromWarpPoint)`. Confirmed via `grep -rn "\.Win(" reference/GameSource/*.cs` that this method has
+  **exactly two callers, both in `ShelterDoor.cs`**, both firing at the exact moment a character
+  successfully reaches and closes a shelter door — i.e. this genuinely only ever means "the cycle
+  just ended in success," not some other, looser notion of winning. Merges every assigned,
+  currently-in-session character's pending set into the real save data (`CommitPending`), then
+  clears it.
+- `CreatureKillListCycleGameOverHook` — Postfix on `RainWorldGame.GameOver(Creature.Grasp
+  dependentOnGrasp)`. Confirmed via the same technique that all **4 callers, all in `Player.cs`**,
+  are genuine character deaths (`PermaDie()`, a predator's den-drag "danger grasp" timing out at
+  exactly 60 ticks, or an ordinary `Die()` immediately followed by `GameOver(null)` twice more).
+  Discards (`DiscardPending`) rather than commits — a cycle ending in death loses that cycle's kills
+  entirely, per the request. Deliberately does not try to second-guess Jolly Co-op's own more
+  elaborate `JollyGameOverEvaluator` logic (whether GameOver "really" means everyone's dead in a
+  multiplayer session) — this mod has no other Jolly-specific handling anywhere, and worst case a
+  spurious call just clears an already-empty pending set (`DiscardPending` on a character with
+  nothing pending is a safe no-op).
+
+Persistence within `CommitPending` still follows `OneSpearGimmick.cs`'s own established marker
+pattern: `DeathPersistentSaveData.unrecognizedSaveStrings` gets one marker per (character,
+creature-type) pair the first time it's actually banked — `"PRIMAL_KILLLIST<dpB>" + characterID +
+"<dpB>" + creatureTypeID`. Unlike OneSpear's indexed per-use markers (tracking a repeatable count),
+this only ever needs one marker per pair, so the private `RecordKill` helper is simply idempotent.
+
+**Progress display moved out of the Remix menu entirely — a second deliberate change.** The first
+pass showed a live checklist in the gimmick's own Remix settings sub-view, which surfaced a real
+limitation (a save slot's `PlayerProgression` only ever keeps one character's `SaveState` loaded at
+a time, so the Remix character grid couldn't reliably show every character's progress). Requested
+instead: "dont show it in the settings — put a button in the cycle ending screen that opens up a
+window that lists all of the creatures killed — at the top list creatures that havent been killed,
+then a separator, then the ones that have been killed." This actually *resolves* the earlier
+limitation for free: the cycle-end screen (`Menu.SleepAndDeathScreen`) already has direct,
+unambiguous access to the correct character's own `SaveState` via `KarmaLadderScreen.saveState` (no
+guessing about which character is "currently mounted" needed at all). `GimmickDef.BuildSettingsUI`
+is now left `null` for this gimmick — opening its Remix settings sub-view just shows the ordinary
+"no additional settings" message every other settings-less gimmick shows.
+
+Implementation, two new Harmony patches on `Menu.SleepAndDeathScreen` (the same screen
+`NoPassagesGimmick.cs` already patches, reusing its exact `saveState`-reflection approach):
+`KillListButtonHook` (Postfix on `AddSubObjects`, which runs once per screen right after vanilla's
+own Continue/Exit/Passage buttons already exist) adds a "KILL LIST" button, positioned by
+recomputing the same X/Y formula vanilla's own `exitButton` uses (`ContinueAndExitButtonsXPos`,
+`SafeScreenOffset` — both plain public, already relied on by the very method being patched) rather
+than reading `exitButton.pos` back, so it needs no additional new member access. `KillListSignalHook`
+(Postfix on `Singal(MenuObject sender, string message)`) reacts to the click the same way every
+other vanilla button on this screen works — `SleepAndDeathScreen.Singal` itself starts with
+`base.Singal(sender, message)` then branches per-message for its own extra cases (confirmed via
+decompilation), so a Postfix here runs after all of that regardless of which branch fired and can't
+interfere with any real signal.
+
+The popup itself is a plain `Menu.DialogNotify` (shown via `ProcessManager.ShowDialog`, the same
+mechanism vanilla uses everywhere from `OptionsMenu` to `ExpeditionMenu` for "show some text, OK to
+dismiss"), sized via `Menu.DialogBoxNotify.CalculateDialogBoxSize` — which grows to fit whatever
+text it's given with **no built-in cap or scrolling**. A custom scrollable in-game `Page` was
+considered and rejected for this pass: unlike a broken Remix tab (contained to the mod's own menu),
+a broken cycle-end screen could block ordinary play entirely, and this container has no way to test
+a hand-built Page-based UI before shipping it. Names are comma-joined into two paragraphs (not one
+line per creature) specifically so `DialogNotify`'s own word-wrap keeps the box more reasonably
+proportioned than ~56 forced line breaks would — but with up to 56 names across two sections, the
+box can still plausibly run taller than the visible screen. Flagged as a known, unverified layout
+risk rather than a solved problem.
+
+**New reflection surface (Gotcha #1) this round:** nothing beyond what the first pass already
+used (`Creature.killTag`, plus `KarmaLadderScreen.saveState` which `NoPassagesGimmick.cs` had
+already established). `RainWorldGame.Players`/`AbstractCreature.state`/`PlayerState.
+slugcatCharacter`/`PlayerState.dead` and `KarmaLadderScreen.ContinueAndExitButtonsXPos`/
+`Options.SafeScreenOffset` are all trusted directly, judged the same low-risk "plain, ubiquitous,
+obviously-meant-to-be-public data property" category as `Creature.dead`/`.creatureTemplate.type`
+already are elsewhere in this codebase — not the narrow, easy-to-get-wrong utility-method category
+`ConfigHolder.Save()`/`PlayerProgression.currentSaveState` turned out to be (the latter is no
+longer used at all now that the settings-view approach is gone).
 
 **Not built or tested in any way** — this container has no `.NET` toolchain (see "Container
 environment notes" below), so this is written entirely from decompiled ground truth, not compiled
 or run once. No default assignment and no `HomeCharacter` (Remix-menu color tag) — not requested
 for any specific character, same as `NoPassages`. When this next reaches a real build+test cycle,
-check, in order: (1) it compiles — three touched files (`GimmickDef.cs` unchanged this round
-actually, only `GimmickRegistry.cs` and the new `CreatureKillListGimmick.cs`), several brand-new
-type references (`DLCSharedEnums.CreatureTemplateType.*`, `MoreSlugcatsEnums.CreatureTemplateType.
-ScavengerKing`/`.SlugNPC`) never used elsewhere in this codebase before, worth double-checking
-spelling against `reference/GameSource/` if anything doesn't resolve; (2) assign Kill List to some
-character via Remix, kill one of the tracked species with that character on the Primal slot, and
-confirm `BepInEx/LogOutput.log` shows a `[CreatureKillList] ... killed a ... for the first time`
-line; (3) reopen that same character's Kill List settings sub-view (from the pause menu, mid-run,
-without quitting to the main menu) and confirm the checklist now shows that one species checked;
-(4) fully quit and relaunch, reload that same character, and confirm the checkmark survived (proves
-the `DeathPersistentSaveData` marker round-tripped through a real save/load, not just held in
-memory); (5) kill something NOT on the 56-species list (e.g. a Watcher creature) and confirm
-nothing is recorded and no exception is logged; (6) open Kill List's settings from a DIFFERENT
-character than whichever save is currently mounted and confirm it shows the placeholder message
-instead of the wrong character's progress.
+check, in order: (1) it compiles; (2) assign Kill List to a character, kill one of the tracked
+species **by grabbing and eating it** on the Primal slot, and confirm
+`BepInEx/LogOutput.log` shows nothing alarming (no `[CreatureKillList]` log line exists anymore --
+this round removed that log statement along with the old immediate-persist path; check via the
+dialog instead, next step); (3) reach a shelter successfully, then open the "KILL LIST" button on
+the sleep screen and confirm that one species now shows under "KILLED"; (4) start a fresh cycle,
+kill another tracked species, then deliberately **die** before reaching a shelter — open "KILL
+LIST" on the death screen and confirm that cycle's kill was NOT added (still only the
+previously-banked one shows); (5) fully quit and relaunch, reload the same character, reach a
+shelter, and confirm the previously-banked kill survived the restart; (6) **specifically test a
+kill via throwing a creature into a wall/floor** (no biting, no spear, no explosion) and confirm
+whether it's attributed correctly — this is the one gap flagged above as unconfirmed, and a
+negative result here means `Creature.TerrainImpact`-driven deaths need their own explicit
+`SetKillTag` call added, per-species or via some other hook not yet identified; (7) similarly test
+a **slow spear-stab kill** (hold a lizard down and stab repeatedly for several seconds rather than
+a single quick throw) to check whether the ~5-second killTag decay window causes a miss; (8) kill
+something NOT on the 56-species list (e.g. a Watcher creature) and confirm nothing is recorded and
+nothing throws; (9) confirm the "KILL LIST" button only appears for a character that actually has
+the gimmick assigned, and doesn't appear (or doesn't break anything) for one that doesn't.
 
 ## Primal character names, in detail
 
@@ -3497,32 +3576,35 @@ in it.)
   especially darker ones (Spearmaster, Sofanthiel/Inv); (4) check `BepInEx/LogOutput.log` for a
   `PlayerGraphics.DefaultSlugcatColor threw` line -- if present, every button fell back to
   uncolored and the reflection lookup needs a fix.
-- **New, not yet built or tested (2026-09-15): Kill List gimmick.** Requested as a completionist
-  tracker -- kill every one of a fixed, curated 56-species roster, tracking only for now (no
-  goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`; `GimmickRegistry.cs` updated
-  (no default assignment, no home-character color tag -- not requested for a specific character).
-  See "Kill List gimmick, in detail" above for the full account -- the roster-curation back-and-
-  forth, why `Creature.Die()` was patched instead of `Creature.Violence()` (the latter is fully
-  reimplemented by ~35 creature subclasses without ever calling base, which would have silently
-  missed most kills), the `Creature.killTag`-based attribution (reusing vanilla's own Arena-scoring
-  mechanism rather than reinventing "who killed this"), and the settings-view's one real
-  limitation (can only show live progress for whichever character's save is actually currently
-  mounted, not any character clicked in the grid, since `PlayerProgression` only ever keeps one
-  character's `SaveState` loaded at a time). Same container limitation as the two entries above (no
-  `.NET` toolchain here) -- every new member access (`Creature.killTag`,
-  `PlayerProgression.currentSaveState`, `SaveState.saveStateNumber`, plus several never-before-used
-  `DLCSharedEnums.CreatureTemplateType.*`/`MoreSlugcatsEnums.CreatureTemplateType.*` type
-  references) was checked against `reference/GameSource/` rather than guessed, but none of it has
-  compiled or run once. Next: `dotnet build`, then in-game, in order: (1) it compiles; (2) assign
-  Kill List to a character, kill one of the 56 tracked species with them on the Primal slot, and
-  confirm a `[CreatureKillList] ... killed a ... for the first time` line in
-  `BepInEx/LogOutput.log`; (3) reopen that character's Kill List settings mid-run and confirm the
-  checklist shows that species checked; (4) fully quit/relaunch, reload the same character, and
-  confirm the checkmark survived (proves the save-file round-trip, not just an in-memory flag); (5)
-  kill something NOT on the list (e.g. a Watcher creature) and confirm nothing is recorded and
-  nothing throws; (6) open Kill List's settings for a DIFFERENT character than whichever save is
-  currently mounted and confirm it shows the "load into a run..." placeholder rather than the wrong
-  character's data.
+- **New, not yet built or tested (2026-09-15, revised same day): Kill List gimmick.** Requested as
+  a completionist tracker -- kill every one of a fixed, curated 56-species roster, tracking only
+  for now (no goal/reward yet). New file `Gimmicks/CreatureKillListGimmick.cs`; `GimmickRegistry.cs`
+  updated (no default assignment, no home-character color tag, no settings sub-view at all -- not
+  requested). See "Kill List gimmick, in detail" above for the full account. Same-day revision, two
+  explicit changes from the first pass: (1) kills are now only banked permanently if the cycle
+  actually ends in a successful sleep (`RainWorldGame.Win`, confirmed to fire only from
+  `ShelterDoor.cs`) -- a cycle ending in death (`RainWorldGame.GameOver`, confirmed to fire only
+  from real death paths) discards that cycle's kills instead; (2) progress is no longer shown in
+  the Remix menu at all -- instead a "KILL LIST" button on the cycle-end screen
+  (`Menu.SleepAndDeathScreen`) opens a popup listing not-yet-killed species, then killed. Also
+  traced attribution in full this round (13 total `SetKillTag(` call sites across the whole
+  codebase) and found one real, unclosed gap: a kill by pure throw-impact (no bite/weapon/
+  explosion) may not be attributed at all, since `Creature.TerrainImpact`'s base implementation
+  never calls `Violence()`/`Die()` itself. Same container limitation as the entries above (no
+  `.NET` toolchain here) -- every new member access was checked against `reference/GameSource/`
+  rather than guessed, but none of it has compiled or run once. Next: `dotnet build`, then in-game,
+  in order: (1) it compiles; (2) assign Kill List to a character, kill a tracked species by
+  grabbing and eating it (the one attribution path checked with high confidence), reach a shelter,
+  and confirm the "KILL LIST" button on the sleep screen shows it under KILLED; (3) kill a
+  *different* species, then deliberately die before reaching a shelter, and confirm that cycle's
+  kill was discarded (not shown on the death screen's own Kill List, and still absent next cycle);
+  (4) fully quit/relaunch, reload the same character, reach a shelter, and confirm the earlier
+  banked kill survived (proves the save-file round-trip); (5) specifically test a kill by
+  **throwing a creature into a wall** with no other damage involved, and a **slow multi-second
+  spear-stab kill**, to check the one flagged attribution gap and the killTag's ~5-second decay
+  window; (6) kill something NOT on the list (e.g. a Watcher creature) and confirm nothing is
+  recorded and nothing throws; (7) confirm the "KILL LIST" button only appears for a character that
+  actually has the gimmick assigned.
 
 ## Container environment notes
 

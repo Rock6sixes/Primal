@@ -1,33 +1,30 @@
-using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
-using Menu.Remix.MixedUI;
 using MoreSlugcats;
-using RWCustom;
 using UnityEngine;
 
 namespace Primal.Gimmicks
 {
     /// <summary>
     /// The "Kill List" gimmick: once assigned to a character, every creature that character
-    /// personally kills is checked off a fixed, curated roster of 56 tracked species, persisted
-    /// for the rest of that save file. For now this only tracks progress -- there's no win
-    /// condition or reward yet, per the user's own framing ("for now the goal will be to track
-    /// every creature"). See KillListRegistry.All below for the full roster, and AI_CONTEXT.md's
-    /// "Kill List gimmick, in detail" for how it was assembled (curated by the user from every
-    /// CreatureTemplate.Type this game registers, cross-checked against the game's own in-game
-    /// display-name strings for anything ambiguous) and exactly what was deliberately left off it.
+    /// personally kills is checked off a fixed, curated roster of 56 tracked species. For now this
+    /// only tracks progress -- there's no win condition or reward yet, per the user's own framing
+    /// ("for now the goal will be to track every creature"). See KillListRegistry.All below for the
+    /// full roster, and AI_CONTEXT.md's "Kill List gimmick, in detail" for how it was assembled
+    /// (curated by the user from every CreatureTemplate.Type this game registers, cross-checked
+    /// against the game's own in-game display-name strings for anything ambiguous) and exactly
+    /// what was deliberately left off it.
     ///
     /// "Killed by [character]", precisely: vanilla's OWN Creature.killTag mechanism -- the same
     /// field the game itself already uses for Arena scoring and social-event bookkeeping (see
     /// Creature.SetKillTag/Die, both read from the decompiled reference source for this feature)
     /// -- rather than reimplementing kill attribution from scratch. It's set by the attacker's own
-    /// code (Player.cs's melee/grab/thrown-weapon paths, Weapon.cs, Explosion.cs, SporeCloud.cs --
-    /// all call target.SetKillTag(attacker)) shortly before Die() runs, and is read here from a
-    /// Postfix on Die() itself, which already reads killTag at the very top of its own body for
-    /// the same reason (confirmed via decompilation, not guessed). A creature that dies from
+    /// code shortly before Die() runs (see CreatureKillListGimmick's own Postfix below for the full
+    /// list of code paths that set it, and the one gap found and not yet closed), and is read here
+    /// from a Postfix on Die() itself, which already reads killTag at the very top of its own body
+    /// for the same reason (confirmed via decompilation, not guessed). A creature that dies from
     /// something other than direct player action -- starvation, drowning, eaten by another
     /// creature, environmental hazards -- has no killTag pointing at a player and is correctly NOT
     /// counted: this is a "you killed it" list, not a "this died somewhere near you" list.
@@ -40,12 +37,17 @@ namespace Primal.Gimmicks
     /// (spot-checked ~15 of the ~36 files that override it) -- so a single patch on the base
     /// method gets real, broad coverage instead of needing one patch per creature subclass.
     ///
-    /// Persisted the same way OneSpearGimmick.cs persists its pull count: one marker per
-    /// (character, creature type) added to DeathPersistentSaveData.unrecognizedSaveStrings the
-    /// first time that pair is recorded, round-tripping through save/load forever after via that
-    /// class's own designed-for-this passthrough mechanism. Unlike OneSpear's indexed markers
-    /// (which track a repeatable count), this only ever needs one marker per pair -- a kill either
-    /// happened by now or it didn't.
+    /// Kills are held in memory for the rest of the current cycle (KillListTracker's "pending"
+    /// set) rather than written to the save file the instant they happen, and are only committed
+    /// to DeathPersistentSaveData -- permanently, for the rest of that save file -- if the
+    /// character actually reaches a shelter and the cycle ends successfully (see
+    /// CreatureKillListCycleWinHook, a Postfix on RainWorldGame.Win). If the character dies first
+    /// (CreatureKillListCycleGameOverHook, a Postfix on RainWorldGame.GameOver), that cycle's
+    /// pending kills are discarded outright, per explicit request: "if character dies, then it
+    /// should not get counted." Persistence itself follows OneSpearGimmick.cs's own established
+    /// pattern -- one marker per (character, creature type) added to
+    /// DeathPersistentSaveData.unrecognizedSaveStrings the first time it's committed, round-tripping
+    /// through save/load forever after via that class's own designed-for-this passthrough mechanism.
     /// </summary>
     [HarmonyPatch(typeof(Creature), nameof(Creature.Die))]
     internal static class CreatureKillListGimmick
@@ -106,21 +108,86 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            DeathPersistentSaveData saveData = player.room.game.GetStorySession?.saveState?.deathPersistentSaveData;
+            _recorded.Add(__instance, null);
+            KillListTracker.RecordPendingKill(characterID, type.value);
+        }
+    }
+
+    /// <summary>
+    /// Postfix on RainWorldGame.Win -- the exact method ShelterDoor.cs calls (its only two call
+    /// sites, confirmed via decompilation) the instant a character successfully reaches and closes
+    /// a shelter door, ending the cycle in success. This is where each assigned character's
+    /// pending-this-cycle kills actually become permanent.
+    /// </summary>
+    [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.Win))]
+    internal static class CreatureKillListCycleWinHook
+    {
+        private static void Postfix(RainWorldGame __instance)
+        {
+            if (__instance?.Players == null || !__instance.IsStorySession)
+            {
+                return;
+            }
+
+            if (!PrimalSlot.IsActive(__instance.rainWorld))
+            {
+                return;
+            }
+
+            DeathPersistentSaveData saveData = __instance.GetStorySession?.saveState?.deathPersistentSaveData;
             if (saveData == null)
             {
                 return;
             }
 
-            // Marked recorded regardless of whether this was actually a new kill (RecordKill is
-            // itself idempotent) -- the point of this guard is purely "don't do this whole lookup
-            // twice for the same Die() call ever firing more than once", not to gate the save
-            // write itself.
-            _recorded.Add(__instance, null);
-
-            if (KillListTracker.RecordKill(saveData, characterID, type.value))
+            foreach (AbstractCreature abstractPlayer in __instance.Players)
             {
-                Plugin.Log?.LogInfo($"[CreatureKillList] {characterID} killed a {type.value} for the first time");
+                if (!(abstractPlayer?.state is PlayerState playerState))
+                {
+                    continue;
+                }
+                string characterID = playerState.slugcatCharacter?.value;
+                if (characterID == null || !GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID))
+                {
+                    continue;
+                }
+                KillListTracker.CommitPending(saveData, characterID);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Postfix on RainWorldGame.GameOver -- confirmed via decompilation that every one of its 4
+    /// call sites (all in Player.cs) is a real character death (PermaDie, a predator's den-drag
+    /// "danger grasp" timing out, or an ordinary Die() immediately followed by GameOver(null)).
+    /// Discards -- does NOT persist -- whichever dead player(s)' pending-this-cycle kills, per
+    /// explicit request: a cycle that ends in death doesn't bank any of that cycle's kills.
+    /// </summary>
+    [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.GameOver))]
+    internal static class CreatureKillListCycleGameOverHook
+    {
+        private static void Postfix(RainWorldGame __instance)
+        {
+            if (__instance?.Players == null)
+            {
+                return;
+            }
+
+            foreach (AbstractCreature abstractPlayer in __instance.Players)
+            {
+                if (!(abstractPlayer?.state is PlayerState playerState) || !playerState.dead)
+                {
+                    continue;
+                }
+                string characterID = playerState.slugcatCharacter?.value;
+                if (characterID == null)
+                {
+                    continue;
+                }
+                // No-op if this character never had anything pending (e.g. gimmick not assigned,
+                // or on a different save slot) -- KillListTracker.DiscardPending is safe to call
+                // unconditionally.
+                KillListTracker.DiscardPending(characterID);
             }
         }
     }
@@ -237,16 +304,65 @@ namespace Primal.Gimmicks
         }
     }
 
-    /// <summary>Read/write access to which (character, creature type) kills have been recorded so
-    /// far on the current save file. See CreatureKillListGimmick's own header comment for the
-    /// persistence mechanism.</summary>
+    /// <summary>
+    /// Read/write access to which (character, creature type) kills have been recorded so far.
+    /// Two tiers: a permanent record on the save file (DeathPersistentSaveData), and an in-memory
+    /// "pending" record of kills landed so far THIS cycle that haven't been committed to the save
+    /// yet -- see CreatureKillListGimmick's own header comment for why the split exists (a cycle
+    /// that ends in death shouldn't bank that cycle's kills).
+    /// </summary>
     internal static class KillListTracker
     {
         private const string SaveMarkerKey = "PRIMAL_KILLLIST";
 
+        // In-memory only, per characterID -- never itself persisted. Populated by
+        // RecordPendingKill (from CreatureKillListGimmick's Die() Postfix) throughout a cycle,
+        // then either merged into the real save data (CommitPending, on a successful cycle end)
+        // or wiped outright (DiscardPending, on death) -- never both. If the game process ends
+        // without either happening (e.g. a crash mid-cycle), whatever's pending here is simply
+        // lost rather than carried into a later cycle -- an accepted, low-stakes edge case rather
+        // than something worth extra bookkeeping for.
+        private static readonly Dictionary<string, HashSet<string>> _pending = new Dictionary<string, HashSet<string>>();
+
         private static string Marker(string characterID, string creatureID)
         {
             return SaveMarkerKey + "<dpB>" + characterID + "<dpB>" + creatureID;
+        }
+
+        public static void RecordPendingKill(string characterID, string creatureID)
+        {
+            if (!_pending.TryGetValue(characterID, out HashSet<string> set))
+            {
+                set = new HashSet<string>();
+                _pending[characterID] = set;
+            }
+            set.Add(creatureID);
+        }
+
+        /// <summary>Merges this character's pending-this-cycle kills into the real, permanent save
+        /// data, then clears the pending set (it's been banked -- nothing left to discard later if
+        /// GameOver somehow also fired for a stale reason).</summary>
+        public static void CommitPending(DeathPersistentSaveData saveData, string characterID)
+        {
+            if (saveData == null || !_pending.TryGetValue(characterID, out HashSet<string> set) || set.Count == 0)
+            {
+                return;
+            }
+            foreach (string creatureID in set)
+            {
+                RecordKill(saveData, characterID, creatureID);
+            }
+            set.Clear();
+        }
+
+        /// <summary>Wipes this character's pending-this-cycle kills without ever writing them to
+        /// the save file.</summary>
+        public static void DiscardPending(string characterID)
+        {
+            if (_pending.TryGetValue(characterID, out HashSet<string> set))
+            {
+                set.Clear();
+            }
         }
 
         public static bool IsKilled(DeathPersistentSaveData saveData, string characterID, string creatureID)
@@ -267,8 +383,11 @@ namespace Primal.Gimmicks
         }
 
         /// <summary>Records the kill if it isn't already recorded. Returns true only the first
-        /// time this exact (character, creature) pair is ever recorded.</summary>
-        public static bool RecordKill(DeathPersistentSaveData saveData, string characterID, string creatureID)
+        /// time this exact (character, creature) pair is ever recorded. Private -- the only way
+        /// into the permanent record from outside this class is via CommitPending, which is what
+        /// enforces the "only on a successful cycle end" rule; nothing else should call this
+        /// directly.</summary>
+        private static bool RecordKill(DeathPersistentSaveData saveData, string characterID, string creatureID)
         {
             if (saveData == null || IsKilled(saveData, characterID, creatureID))
             {
@@ -279,97 +398,135 @@ namespace Primal.Gimmicks
         }
     }
 
-    /// <summary>Read-only progress display for the Kill List gimmick's settings sub-view -- no
-    /// Configurable&lt;T&gt; values at all (nothing here is a player-editable setting, it's a
-    /// live status readout), so BindSettings is left null in GimmickRegistry.cs and this class
-    /// only ever supplies BuildSettingsUI.</summary>
-    internal static class KillListSettings
+    /// <summary>
+    /// Adds a "KILL LIST" button to the cycle-end screen (Menu.SleepAndDeathScreen, shown after
+    /// both a successful sleep and a death) for whichever character has this gimmick assigned --
+    /// opens a popup listing every tracked species, not-yet-killed first, then a separator, then
+    /// killed. Requested explicitly in place of a Remix-menu settings view: "for showing the
+    /// progress, dont show it in the settings -- put a button in the cycle ending screen."
+    ///
+    /// Reuses Menu.SleepAndDeathScreen.AddSubObjects (Postfix, runs once per screen after every
+    /// one of its own buttons -- Continue, Exit, Passage -- already exist) to add the button, and
+    /// Menu.SleepAndDeathScreen.Singal (Postfix) to react to its click -- the same signal-string
+    /// dispatch mechanism every other vanilla button on this screen already uses (confirmed via
+    /// decompilation: SleepAndDeathScreen.Singal itself starts with "base.Singal(sender,
+    /// message);" then branches on message for its own extra cases, e.g. "PASSAGE" -- a Postfix
+    /// here runs after all of that regardless of which branch fired, so it can't interfere with
+    /// any real vanilla signal). `saveState` (KarmaLadderScreen) is read the same reflected way
+    /// NoPassagesGimmick.cs already established for this exact screen; `manager`/`rainWorld` and
+    /// `ContinueAndExitButtonsXPos`/`SafeScreenOffset` (both plain public, used to compute this
+    /// button's position the same way vanilla computes exitButton's own, rather than reading
+    /// exitButton.pos directly -- one fewer new member access) are trusted directly, matching this
+    /// same file's existing precedent.
+    ///
+    /// The popup itself is a plain Menu.DialogNotify (Menu.Dialog's own ordinary "OK to dismiss"
+    /// notification, shown via ProcessManager.ShowDialog -- the same mechanism vanilla itself uses
+    /// everywhere from OptionsMenu to ExpeditionMenu), sized via
+    /// Menu.DialogBoxNotify.CalculateDialogBoxSize, which grows to fit however much text it's
+    /// given with no built-in cap or scrolling. With up to ~56 names across two sections this
+    /// produces a tall box that can run past the visible screen -- there is no scrollable
+    /// alternative in wide vanilla use to reach for instead, and building a fully custom
+    /// scrollable in-game Page was judged too large a risk to the actual gameplay screen (unlike a
+    /// broken Remix tab, a broken cycle-end screen could block ordinary play) for a first pass.
+    /// Names are comma-joined into two paragraphs (not one per line) specifically to let
+    /// DialogNotify's own word-wrap keep the box more reasonably proportioned than 56 forced line
+    /// breaks would. Flagged in AI_CONTEXT.md as unverified layout, same honest treatment as this
+    /// mod's other first-pass UI work.
+    /// </summary>
+    [HarmonyPatch(typeof(Menu.SleepAndDeathScreen), nameof(Menu.SleepAndDeathScreen.AddSubObjects))]
+    internal static class KillListButtonHook
     {
-        // PlayerProgression.currentSaveState and SaveState.saveStateNumber are both genuinely new
-        // surface for this codebase -- resolved via reflection per Gotcha #1 discipline.
-        // SaveState.deathPersistentSaveData, by contrast, is NOT new: OneSpearGimmick.cs already
-        // reads it directly via a different path (game.GetStorySession.saveState.
-        // deathPersistentSaveData) and is treated as proven, so it's read directly here too.
-        private static readonly FieldInfo CurrentSaveStateField = AccessTools.Field(typeof(PlayerProgression), "currentSaveState");
-        private static readonly FieldInfo SaveStateNumberField = AccessTools.Field(typeof(SaveState), "saveStateNumber");
+        internal const string SignalText = "PRIMAL_KILLLIST";
 
-        // Deliberately NOT cached per GimmickDef.BuildSettingsUI's usual "build once, cache
-        // forever" contract (see GimmickDef.cs's own doc comment / Gotcha #4) -- that requirement
-        // exists only for Configurable<T>-backed elements (OpCheckBox, OpUpdown, ...), which can
-        // never be rebound to a second instance. Every element here is a plain OpLabel with no
-        // Configurable behind it at all, so rebuilding fresh on every call is not just safe but
-        // necessary -- it's the only way this view can ever show up-to-date kill progress instead
-        // of a permanent snapshot from whenever it first happened to be opened.
-        public static List<UIelement> BuildUI(string characterID, float topY)
+        private static readonly FieldInfo SaveStateField =
+            AccessTools.Field(typeof(Menu.KarmaLadderScreen), "saveState");
+
+        private static void Postfix(Menu.SleepAndDeathScreen __instance)
         {
-            var items = new List<UIelement>();
-
-            DeathPersistentSaveData saveData = TryGetCurrentSaveData(characterID);
-            if (saveData == null)
+            RainWorld rainWorld = __instance.manager?.rainWorld;
+            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
             {
-                items.Add(new OpLabel(20f, topY, "Load into a run on this character (on the Primal slot) to see kill progress here.", false));
-                return items;
+                return;
             }
 
-            // 4 columns x 14 rows fits exactly 56 -- see AI_CONTEXT.md for the exact column
-            // widths/whether the longest names (e.g. "Chieftain Scavenger") clip, unverified as of
-            // this doc since this container has no way to render it live.
-            const int columns = 4;
-            const float colWidth = 130f;
-            const float rowH = 20f;
-            for (int i = 0; i < KillListRegistry.All.Length; i++)
+            if (!(SaveStateField?.GetValue(__instance) is SaveState saveState))
             {
-                KillListEntry entry = KillListRegistry.All[i];
-                int col = i % columns;
-                int row = i / columns;
-                float x = 20f + col * colWidth;
-                float y = topY - row * rowH;
-                bool killed = KillListTracker.IsKilled(saveData, characterID, entry.ID);
-                items.Add(new OpLabel(x, y, (killed ? "[X] " : "[ ] ") + entry.DisplayName, false));
+                return;
             }
 
-            return items;
+            string characterID = saveState.saveStateNumber?.value;
+            if (!GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID))
+            {
+                return;
+            }
+
+            // Same X/Y formula vanilla's own AddSubObjects already used for exitButton just above
+            // this Postfix fires, stacked one row higher -- deliberately recomputed rather than
+            // reading exitButton.pos back, so this needs no new field access beyond the two plain
+            // public members (ContinueAndExitButtonsXPos, SafeScreenOffset) vanilla's own method
+            // already relies on in this exact context.
+            float x = __instance.ContinueAndExitButtonsXPos - 320f - rainWorld.options.SafeScreenOffset.x;
+            float y = Mathf.Max(rainWorld.options.SafeScreenOffset.y, 15f) + 40f;
+
+            var button = new Menu.SimpleButton(__instance, __instance.pages[0], "KILL LIST", SignalText, new Vector2(x, y), new Vector2(110f, 30f));
+            __instance.pages[0].subObjects.Add(button);
+        }
+    }
+
+    [HarmonyPatch(typeof(Menu.SleepAndDeathScreen), nameof(Menu.SleepAndDeathScreen.Singal))]
+    internal static class KillListSignalHook
+    {
+        private static readonly FieldInfo SaveStateField =
+            AccessTools.Field(typeof(Menu.KarmaLadderScreen), "saveState");
+
+        private static void Postfix(Menu.SleepAndDeathScreen __instance, Menu.MenuObject sender, string message)
+        {
+            if (message != KillListButtonHook.SignalText)
+            {
+                return;
+            }
+
+            if (!(SaveStateField?.GetValue(__instance) is SaveState saveState))
+            {
+                return;
+            }
+
+            string characterID = saveState.saveStateNumber?.value;
+            if (characterID == null)
+            {
+                return;
+            }
+
+            ShowKillListDialog(__instance.manager, characterID, saveState.deathPersistentSaveData);
         }
 
-        // Only ever returns non-null when a save is ACTUALLY currently mounted for this exact
-        // character -- a Rain World save slot holds one SaveState per character, but
-        // PlayerProgression only ever keeps ONE of them loaded at a time (whichever character was
-        // last selected/played), not all of them simultaneously. Returning the wrong character's
-        // data would be actively misleading, so this returns null (falling back to the "load into
-        // a run" placeholder above) rather than guess. Wrapped in try/catch, same reasoning as
-        // PrimalOptions.GetHomeCharacterColor -- this runs while building the Remix menu itself,
-        // so a failed reflection lookup should just fall back to the placeholder, not crash the
-        // whole screen open.
-        private static DeathPersistentSaveData TryGetCurrentSaveData(string characterID)
+        private static void ShowKillListDialog(ProcessManager manager, string characterID, DeathPersistentSaveData saveData)
         {
-            try
+            if (manager == null)
             {
-                RainWorld rainWorld = Custom.rainWorld;
-                PlayerProgression progression = rainWorld?.progression;
-                if (progression == null)
-                {
-                    return null;
-                }
-
-                SaveState saveState = CurrentSaveStateField?.GetValue(progression) as SaveState;
-                if (saveState == null)
-                {
-                    return null;
-                }
-
-                SlugcatStats.Name saveCharacter = SaveStateNumberField?.GetValue(saveState) as SlugcatStats.Name;
-                if (saveCharacter?.value != characterID)
-                {
-                    return null;
-                }
-
-                return saveState.deathPersistentSaveData;
+                return;
             }
-            catch (Exception ex)
+
+            var notKilled = new List<string>();
+            var killed = new List<string>();
+            foreach (KillListEntry entry in KillListRegistry.All)
             {
-                Plugin.Log?.LogError($"KillListSettings.TryGetCurrentSaveData threw while reading progress for {characterID}: {ex}");
-                return null;
+                if (KillListTracker.IsKilled(saveData, characterID, entry.ID))
+                {
+                    killed.Add(entry.DisplayName);
+                }
+                else
+                {
+                    notKilled.Add(entry.DisplayName);
+                }
             }
+
+            string notKilledText = notKilled.Count > 0 ? string.Join(", ", notKilled) : "(none -- every tracked species killed!)";
+            string killedText = killed.Count > 0 ? string.Join(", ", killed) : "(none yet)";
+            string text = $"KILL LIST -- {killed.Count}/{KillListRegistry.All.Length}\n\nNOT YET KILLED:\n{notKilledText}\n\n----------\n\nKILLED:\n{killedText}";
+
+            Vector2 size = Menu.DialogBoxNotify.CalculateDialogBoxSize(text);
+            manager.ShowDialog(new Menu.DialogNotify(text, size, manager));
         }
     }
 }
