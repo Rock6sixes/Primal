@@ -293,6 +293,63 @@ namespace Primal.Gimmicks
             return null;
         }
 
+        // ---- home-character coloring for gimmick buttons ------------------------------------
+
+        // PlayerGraphics.DefaultSlugcatColor(SlugcatStats.Name) -- vanilla's own plain,
+        // state-free per-character palette (Gourmand's tan/pink, Rivulet's blue, etc.; see
+        // "Slugpup gimmick stats rescaling, in detail" in AI_CONTEXT.md for several of these
+        // literal values, traced there for an unrelated fix). Deliberately NOT
+        // PlayerGraphics.SlugcatColor -- that one also factors in the player's own Jolly Co-op
+        // custom/auto color settings, which would make a gimmick's color tag drift depending on
+        // unrelated Options rather than just reflecting the character's own identity color.
+        // Resolved via reflection rather than a direct call, same as every other gameplay-class
+        // member this codebase touches -- see Gotcha #1 in AI_CONTEXT.md: showing "public" in the
+        // compile-time (publicized) reference assembly proves nothing about the real one.
+        private static readonly MethodInfo DefaultSlugcatColorMethod =
+            AccessTools.Method(typeof(PlayerGraphics), "DefaultSlugcatColor", new Type[] { typeof(SlugcatStats.Name) });
+
+        private static readonly Dictionary<string, Color> _homeCharacterColorCache = new Dictionary<string, Color>();
+
+        // Null if this gimmick has no GimmickDef.HomeCharacter (e.g. NoPassages) or the color
+        // lookup fails for any reason (unresolved method, unrecognized character) -- callers
+        // should just leave the button's own default color alone in that case rather than force
+        // one.
+        private static Color? GetHomeCharacterColor(GimmickDef gimmick)
+        {
+            if (gimmick.HomeCharacter == null)
+            {
+                return null;
+            }
+
+            string key = gimmick.HomeCharacter.value;
+            if (_homeCharacterColorCache.TryGetValue(key, out Color cached))
+            {
+                return cached;
+            }
+
+            // Wrapped in try/catch, unlike this codebase's other AccessTools reflection calls --
+            // this one runs while building the Remix menu itself (not a per-tick gameplay patch),
+            // so an uncaught MethodAccessException here (same failure mode Gotcha #1 already
+            // documents for ConfigHolder.Save()) would take the whole screen down with Remix's own
+            // error screen instead of just leaving this one gimmick's button uncolored.
+            try
+            {
+                object boxed = DefaultSlugcatColorMethod?.Invoke(null, new object[] { gimmick.HomeCharacter });
+                if (!(boxed is Color color))
+                {
+                    return null;
+                }
+
+                _homeCharacterColorCache[key] = color;
+                return color;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"PlayerGraphics.DefaultSlugcatColor threw while coloring {gimmick.ID}'s button for {key} -- leaving it uncolored: {ex}");
+                return null;
+            }
+        }
+
         private bool IsEnabledFor(string characterID, string gimmickID)
         {
             return _enabledConfigs.TryGetValue(EnabledKey(characterID, gimmickID), out Configurable<bool> c) && c.Value;
@@ -527,6 +584,15 @@ namespace Primal.Gimmicks
                 {
                     description = gimmick.Description
                 };
+                Color? homeColor = GetHomeCharacterColor(gimmick);
+                if (homeColor.HasValue)
+                {
+                    // colorEdge drives both the button's border AND its label text color (see
+                    // OpSimpleButton.GrafUpdate) -- coloring just this, not colorFill, tags the
+                    // gimmick by its home character without turning the whole button into a
+                    // possibly-hard-to-read solid color block.
+                    nameButton.colorEdge = homeColor.Value;
+                }
                 nameButton.OnClick += _ => OpenGimmickSettings(capturedCharID, capturedGimmickID);
                 items.Add(nameButton);
 
@@ -743,6 +809,11 @@ namespace Primal.Gimmicks
                 {
                     description = gimmick.Description
                 };
+                Color? homeColor = GetHomeCharacterColor(gimmick);
+                if (homeColor.HasValue)
+                {
+                    addButton.colorEdge = homeColor.Value;
+                }
                 addButton.OnClick += _ => AddGimmick(capturedCharID, capturedGimmickID);
                 scrollItems.Add(addButton);
 

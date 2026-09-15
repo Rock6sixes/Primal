@@ -19,7 +19,8 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef Misery = new GimmickDef(
             "Misery",
             "Misery",
-            "Every jump or wall-jump instantly maxes out exhaustion and comes out weak -- you have to let stamina recover between jumps, and even then jumps stay short."
+            "Every jump or wall-jump instantly maxes out exhaustion and comes out weak -- you have to let stamina recover between jumps, and even then jumps stay short.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Gourmand
         );
 
         /// <summary>
@@ -32,7 +33,8 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef Slugpup = new GimmickDef(
             "Slugpup",
             "Slugpup",
-            "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat."
+            "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Gourmand
         );
 
         /// <summary>
@@ -50,7 +52,8 @@ namespace Primal.Gimmicks
             "Master Spear",
             "Gains Spearmaster's tail spear-pull, his sole means of ever producing a weapon -- but it can only be pulled off a limited number of times for the whole save file; after that, the charge-up never quite finishes again.",
             OneSpearSettings.Bind,
-            OneSpearSettings.BuildUI
+            OneSpearSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
         /// <summary>
@@ -65,7 +68,8 @@ namespace Primal.Gimmicks
             "Time Limit",
             "The character dies once the configured amount of time has passed, measured either for the whole run or per cycle.",
             TimeLimitSettings.Bind,
-            TimeLimitSettings.BuildUI
+            TimeLimitSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
         /// <summary>
@@ -80,7 +84,8 @@ namespace Primal.Gimmicks
             "No Spears",
             "Spears become impossible to pick up -- they act as if they were never grabbable objects at all (individual spear types can be re-allowed in this gimmick's settings).",
             NoSpearsSettings.Bind,
-            NoSpearsSettings.BuildUI
+            NoSpearsSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
         /// <summary>
@@ -102,7 +107,8 @@ namespace Primal.Gimmicks
             // and a 6-row/2-column, 12-checkbox banlist grid -- well over 400px tall, badly
             // overflowing the plain ~241px settings viewport (see PrimalOptions.RenderGimmickSettings).
             // 480 gives it room to scroll instead of clipping/being unreachable.
-            settingsContentHeight: 480f
+            settingsContentHeight: 480f,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -114,7 +120,8 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef NoYeeks = new GimmickDef(
             "NoYeeks",
             "No Yeeks",
-            "Yeeks become impossible to pick up -- they act as if they were never grabbable objects at all."
+            "Yeeks become impossible to pick up -- they act as if they were never grabbable objects at all.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -126,7 +133,8 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef NoCicadas = new GimmickDef(
             "NoCicadas",
             "No Squidcadas",
-            "Squidcadas (cicadas) become impossible to pick up -- they act as if they were never grabbable objects at all."
+            "Squidcadas (cicadas) become impossible to pick up -- they act as if they were never grabbable objects at all.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -139,7 +147,8 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef NoMauling = new GimmickDef(
             "NoMauling",
             "No Mauling",
-            "Disables the instant-kill maul grab outright (only ever relevant to a character playing under Artificer's own class in the first place)."
+            "Disables the instant-kill maul grab outright (only ever relevant to a character playing under Artificer's own class in the first place).",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
         );
 
         /// <summary>
@@ -148,7 +157,9 @@ namespace Primal.Gimmicks
         /// NoPassagesGimmick.cs, which Postfixes AddPassageButton and sets the real vanilla
         /// button's own ButtonBehavior.greyedOut flag (the same "visible but inert" mechanism
         /// vanilla itself uses elsewhere) rather than hiding or removing anything. No default
-        /// assignment as of this doc -- not requested for any specific character.
+        /// assignment as of this doc -- not requested for any specific character. No homeCharacter
+        /// either, for the same reason (see GimmickDef.HomeCharacter) -- its button in the Remix
+        /// menu keeps OpSimpleButton's own default color instead of being tagged.
         /// </summary>
         public static readonly GimmickDef NoPassages = new GimmickDef(
             "NoPassages",
@@ -176,7 +187,8 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef ThreatSlowdown = new GimmickDef(
             "ThreatSlowdown",
             "Threat Slowdown",
-            "Every tick has a rising chance of the character's real input being dropped entirely as vanilla's own threat meter rises, reaching guaranteed lockout once one pulse-circle is lit (\"threat level 1\")."
+            "Every tick has a rising chance of the character's real input being dropped entirely as vanilla's own threat meter rises, reaching guaranteed lockout once one pulse-circle is lit (\"threat level 1\").",
+            homeCharacter: SlugcatStats.Name.Yellow
         );
 
         /// <summary>
@@ -199,7 +211,8 @@ namespace Primal.Gimmicks
             "Threat Panic",
             "As threat rises, the character starts involuntarily firing off random inputs -- a direction, grab, throw, or jump, held briefly -- on top of the player's own real input (which is never blocked), reaching maximum frequency at threat level 1.",
             PanicSettings.Bind,
-            PanicSettings.BuildUI
+            PanicSettings.BuildUI,
+            homeCharacter: SlugcatStats.Name.Yellow
         );
 
         public static readonly GimmickDef[] All =

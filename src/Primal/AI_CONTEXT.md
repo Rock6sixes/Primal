@@ -2369,6 +2369,71 @@ visually collide with anything at the settings screen's right edge (a margin cho
 - 40f`, not verified in-game any more than the add-gimmick picker's own analogous margin was when
 it shipped).
 
+### Gimmick buttons colored by their home character (2026-09-15)
+
+Requested directly: gimmicks are already thematically tied to certain characters by default (Chains
+↔ Artificer, ThreatPanic ↔ Monk, etc.), so color-code each gimmick's button in the Remix menu by
+that character's own color, using "a variable [on] each gimmick to reference a character" plus "each
+character... their own color."
+
+**The character reference:** `GimmickDef` gained a new optional field, `HomeCharacter`
+(`SlugcatStats.Name`, default `null`) — a *display-only* tag independent of `GimmickDefaults`' real
+default (character, gimmick) assignments (which can differ or cover multiple characters — NoYeeks/
+NoCicadas/NoMauling default onto both Artificer AND Inv, for instance) and independent of whatever
+a player has actually assigned a gimmick to at runtime. `GimmickRegistry.cs` sets it per gimmick,
+matching each one's own doc comment/History account of which character it was designed around:
+Misery/Slugpup → Gourmand, OneSpear/TimeLimit/NoSpears → Spearmaster, Chains/NoYeeks/NoCicadas/
+NoMauling → Artificer, ThreatSlowdown/ThreatPanic → Monk. `NoPassages` deliberately has none (left
+`null`) — it was never requested for, or thematically tied to, any specific character.
+
+**The character's color:** rather than hand-picking new colors, `PrimalOptions.GetHomeCharacterColor`
+reuses vanilla's own real per-character palette — `PlayerGraphics.DefaultSlugcatColor(SlugcatStats.Name)`
+— the same "History" preference this whole project keeps coming back to (ride on an existing,
+already-tested vanilla system instead of reimplementing one). Deliberately `DefaultSlugcatColor`,
+**not** the "live" `PlayerGraphics.SlugcatColor` already used elsewhere in this codebase
+(`SlugpupColorGimmick`, see "Slugpup gimmick stats rescaling, in detail" above) — `SlugcatColor` also
+factors in the player's own Jolly Co-op custom/auto color settings, which would make a gimmick's
+color tag silently drift based on unrelated Options instead of just reflecting that character's own
+identity color; `DefaultSlugcatColor` is a plain, state-free per-character lookup (confirmed via
+`reference/GameSource/PlayerGraphics.cs` — Gourmand's tan/pink, Rivulet's blue, Artificer's
+maroon, etc., the same literal values already traced in the Slugpup section above for an unrelated
+fix). Resolved via `AccessTools.Method` reflection, same Gotcha #1 discipline as every other
+gameplay-class member this codebase touches (showing `public` in the compile-time/publicized
+reference assembly proves nothing about the real one) — and, since this one runs while the Remix
+menu itself is being built rather than in a per-tick gameplay patch, wrapped in its own try/catch
+(logs and returns "no color" on failure) so a `MethodAccessException` here can't take the whole
+config screen down with Remix's own error screen the way an uncaught one would.
+
+**Where it's applied:** `OpSimpleButton.colorEdge` (confirmed via `reference/GameSource/
+Menu.Remix.MixedUI/OpSimpleButton.cs` — a plain public `Color` field that drives both the button's
+border AND its label text color in `GrafUpdate`, `_label.color = base.bumpBehav.GetColor(colorEdge)`)
+on the gimmick's name button in the assigned-gimmicks table (`RenderCharacterGimmicks`) and on each
+row in the add-gimmick picker (`RenderAddGimmick`) — i.e. every place a gimmick shows up as a
+selectable/clickable item in the Remix menu. Deliberately not `colorFill` (which would recolor the
+whole button as a solid block, risking unreadable text against some characters' lighter colors) —
+just the border+text tint is enough to read as a color tag at a glance without hurting legibility.
+A gimmick with no `HomeCharacter` (`NoPassages`) or a failed color lookup just keeps
+`OpSimpleButton`'s own default `colorEdge` (`MenuColorEffect.rgbMediumGrey`) untouched, same as
+every other unstyled button already on this screen ("x" remove buttons, the "+" button, the
+character grid) — no separate "neutral color" constant needed.
+
+Touched `GimmickDef.cs` (new `HomeCharacter` field/parameter), `GimmickRegistry.cs` (each
+gimmick's `homeCharacter:` argument), and `PrimalOptions.cs` (`GetHomeCharacterColor` plus the two
+`colorEdge` assignments). **Not built or tested at all** — same container limitation as the settings
+scroll box above (no `.NET` toolchain here); written from decompiled ground-truth for both new
+member accesses (`OpSimpleButton.colorEdge`, `PlayerGraphics.DefaultSlugcatColor`) rather than
+guessed, but still genuinely unverified. When this next reaches a real build+test cycle, check: (1)
+it compiles; (2) opening any character's gimmick table shows each assigned gimmick's name button
+tinted (border + text) in its home character's real in-game color — e.g. Chains on Artificer reads
+in Artificer's maroon, Misery/Slugpup on Gourmand read in Gourmand's tan/pink; (3) the add-gimmick
+picker shows the same tint per row; (4) NoPassages' button (wherever it's assigned) looks completely
+unstyled/default, not some fallback gray meant to look intentional; (5) the tinted text is still
+legible against the button's own black fill for every character's color, especially any character
+whose color skews dark (Spearmaster's dark purple, Sofanthiel/Inv's near-black navy) -- if any read
+as too dim, revisit whether some minimum-brightness floor is worth adding, since none was applied
+here; (6) check `BepInEx/LogOutput.log` for a `PlayerGraphics.DefaultSlugcatColor threw` line, which
+would mean every gimmick fell back to uncolored and the reflection lookup needs a fix.
+
 ## Primal character names, in detail
 
 Requested by the user right after deprioritizing the config-menu UI merge above (2026-09-11):
@@ -3246,6 +3311,24 @@ in it.)
   banlist checkboxes) instead of clipping; (3) every other gimmick's settings sub-view
   (TimeLimit/NoSpears/OneSpear/ThreatPanic) looks and behaves completely unchanged; (4) no visual
   collision between the new scroll box's slide bar and anything at the settings screen's right edge.
+- **New, not yet built or tested (2026-09-15): gimmick buttons colored by home character.**
+  Requested directly: color-code each gimmick's button by whichever character it's thematically
+  tied to (Chains ↔ Artificer, ThreatPanic ↔ Monk, etc.), using that character's own vanilla color.
+  `GimmickDef.cs`, `GimmickRegistry.cs`, and `PrimalOptions.cs` all touched; see "Gimmick buttons
+  colored by their home character" under "Config menu UI, in detail" above for the full account,
+  including why `PlayerGraphics.DefaultSlugcatColor` was used over the already-present
+  `SlugcatColor` reflection call in `SlugpupGimmick.cs`. Same container limitation as the entry
+  above (no `.NET` toolchain here to compile/test against) — both new member accesses
+  (`OpSimpleButton.colorEdge`, `PlayerGraphics.DefaultSlugcatColor`) were confirmed against
+  `reference/GameSource` rather than guessed, and the reflection call is wrapped in its own
+  try/catch specifically so a failure here can't crash the whole Remix screen open, but none of it
+  has actually run yet. Next: `dotnet build`, then in-game confirm (1) it compiles; (2) every
+  gimmick's button (in both the assigned-gimmicks table and the add-gimmick picker) shows its home
+  character's real color as a border+text tint, and NoPassages' button looks completely default/
+  untinted; (3) tinted text stays legible against the button's black fill for every character,
+  especially darker ones (Spearmaster, Sofanthiel/Inv); (4) check `BepInEx/LogOutput.log` for a
+  `PlayerGraphics.DefaultSlugcatColor threw` line -- if present, every button fell back to
+  uncolored and the reflection lookup needs a fix.
 
 ## Container environment notes
 

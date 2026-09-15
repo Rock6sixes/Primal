@@ -77,13 +77,29 @@ namespace Primal.Gimmicks
         /// </summary>
         public readonly float SettingsContentHeight;
 
+        /// <summary>
+        /// Optional. The real vanilla character this gimmick is thematically associated with --
+        /// e.g. Chains with Artificer, Misery/Slugpup with Gourmand, ThreatSlowdown/ThreatPanic
+        /// with Monk. Purely a display tag: PrimalOptions uses it to color-code this gimmick's
+        /// button (via that character's own vanilla color, PlayerGraphics.DefaultSlugcatColor) in
+        /// the Remix menu's gimmick table and add-gimmick picker, so it reads at a glance which
+        /// character's "vein" a gimmick belongs to. Completely independent of GimmickDefaults'
+        /// actual default (character, gimmick) assignments, and of which character(s) currently
+        /// have this gimmick assigned -- a gimmick can be assigned to any character regardless of
+        /// its home character here. Leave null for a gimmick with no specific character
+        /// association (e.g. NoPassages) -- its button just keeps OpSimpleButton's own default
+        /// color instead of being tagged.
+        /// </summary>
+        public readonly SlugcatStats.Name HomeCharacter;
+
         public GimmickDef(
             string id,
             string displayName,
             string description,
             Action<OptionInterface, string> bindSettings = null,
             Func<string, float, List<UIelement>> buildSettingsUI = null,
-            float settingsContentHeight = 0f)
+            float settingsContentHeight = 0f,
+            SlugcatStats.Name homeCharacter = null)
         {
             ID = id;
             DisplayName = displayName;
@@ -91,6 +107,7 @@ namespace Primal.Gimmicks
             BindSettings = bindSettings;
             BuildSettingsUI = buildSettingsUI;
             SettingsContentHeight = settingsContentHeight;
+            HomeCharacter = homeCharacter;
         }
 
         /// <summary>Whether this gimmick has a settings sub-view at all (vs. a plain "no
