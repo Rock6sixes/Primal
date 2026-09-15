@@ -203,16 +203,19 @@ was tried twice and rejected both times for good reasons (see History).
   physical stats from the real character's own stats. `SlugpupColorGimmick` (Postfix on
   `Player.ShortCutColor()`) shrank in scope now that the main body color is automatically correct
   once `SlugCatClass` isn't flipped, but still fixes the narrower shortcut/pipe-transition-tint
-  case, which reads `isSlugpup` directly. **Added the same day, a fourth feature, not a bugfix:**
-  `SlugpupEndingHook` (Postfix on `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding.Update` --
-  **not** `RainWorldGame.BeatGameMode`'s `standardVoidSea: true`, which was a real, user-corrected
-  wrong turn on the first attempt; see "Slugpup gimmick: ends at Outer Expanse, in detail" below)
-  plus `SlugpupEndingMarker` (a permanent per-character save marker, same
-  `unrecognizedSaveStrings` mechanism as `OneSpearGimmick`) and `SlugpupEndingSettings` (a new
-  `Configurable<bool>`, default **on**) — once a character reaches the standard Outer Expanse
-  ending (walking to the region's western edge), the gimmick permanently stops applying to them
-  (still shown assigned in Remix, just inert) for the rest of that save file. This needed no
-  changes to `SlugpupStatsGimmick`,
+  case, which reads `isSlugpup` directly. **Added the same day, a fourth feature, not a bugfix,
+  revised twice after direct user corrections:** `SlugpupEndingHook` (Postfix on
+  `RainWorldGame.BeatGameMode`, checking `!standardVoidSea` -- i.e. any "standard" ending, not the
+  separate void-sea/ascension outcome; see "Slugpup gimmick: ends at Outer Expanse, in detail"
+  below for both corrections that got it here, including an intermediate version that wrongly
+  hooked `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding.Update` and only caught the Outer
+  Expanse walk-ending, not Rivulet/Artificer/Saint/Spearmaster's own alt endings) plus
+  `SlugpupEndingMarker` (a permanent per-character save marker, same `unrecognizedSaveStrings`
+  mechanism as `OneSpearGimmick`) and `SlugpupEndingSettings` (a new `Configurable<bool>
+  EndsOnBeatingGame`, default **on**) — once a character beats the game via any standard ending
+  (Outer Expanse's walk-ending, or any character's own alt ending), the gimmick permanently stops
+  applying to them (still shown assigned in Remix, just inert) for the rest of that save file. This
+  needed no changes to `SlugpupStatsGimmick`,
   `SlugpupMalnourishmentStatsGimmick`, or `SlugpupColorGimmick` at all — they (and vanilla's own
   `NPCStats`-construction gate) all key off `Player.isSlugpup`, so making `SlugpupGimmick`'s own
   Postfix the single place that checks the ending marker is enough to turn the whole gimmick's
@@ -2278,9 +2281,9 @@ Current settings, concretely:
   — nothing obvious to expose yet. If asked for ideas later: could expose the exhaustion multiplier
   or which of the two effects (instant-max-exhaustion vs. forced-PainJumps) are active.
 - **Slugpup** (`SlugpupEndingSettings`, added 2026-09-15): `Configurable<bool>
-  endsAtOuterExpanse` (default **true**, via `OpCheckBox`) — whether reaching the standard Outer
-  Expanse ending permanently stops the gimmick for that character on that save file. See
-  "Slugpup gimmick: ends at Outer Expanse, in detail" below.
+  EndsOnBeatingGame` (default **true**, via `OpCheckBox`) — whether beating the game via any
+  standard (non-ascension) ending permanently stops the gimmick for that character on that save
+  file. See "Slugpup gimmick: ends at Outer Expanse, in detail" below.
 
 **First real in-game test result:** the user opened the drill-down menu (the design that predates
 the character-grid/detail-panel merge above) in Remix and confirmed the core navigation worked —
@@ -3203,64 +3206,63 @@ abilities as a slugpup" from the gimmick's original request.
 setting reaches the ending sequence in outer expanse, after the credits if they come back to the
 run, they will stop being a slugpup - the gimmick will effectively be removed. its still applied,
 just doesnt do anything. make this effect a default setting." Requested as a follow-up to the
-SlugCatClass-flip rewrite above, but this one is a new feature, not a bugfix.
+SlugCatClass-flip rewrite above, but this one is a new feature, not a bugfix. Went through two
+rounds of direct user correction before landing on the right mechanism — documented in full below
+rather than smoothed over, per this file's own standing practice for this gimmick.
 
-**First attempt was wrong, corrected by the user directly.** The first pass hooked
+**Round 1 (wrong): hooked the ascension ending, not the standard one.** The first pass targeted
 `RainWorldGame.BeatGameMode(RainWorldGame game, bool standardVoidSea)`'s `standardVoidSea: true`
 branch, reasoning that its one call site (`RainWorldGame.ExitToVoidSeaSlideShow()`, from
 `VoidSea/VoidSeaScene.cs`'s rising-water sequence) was "the" Outer Expanse ending. The user
 corrected this immediately and specifically: **"the standard outer expanse ending is them reaching
 the outer expanse region and heading all the way to the left. what you described is the void or
-ascencion ending - that is why its called standardVoidSea. look for a different ending."** In other
-words, `standardVoidSea` names a *separate*, specific ascension/void-sea outcome — not "the generic
-Outer Expanse ending" the name superficially suggested. Worth being honest about here rather than
-smoothing over: the first version was pushed and documented as if it were correct, on the strength
-of one plausible-sounding method name, without cross-checking it against what "reaching Outer
-Expanse and walking left" concretely looks like in the decompiled room scripts. Lesson for next
-time: a method name that *sounds* like it matches a user's plain-language description isn't
-confirmation — trace the actual room-level behavior it's meant to describe.
+ascencion ending - that is why its called standardVoidSea. look for a different ending."** So
+`standardVoidSea` names a *separate*, specific ascension/void-sea outcome — not "the generic Outer
+Expanse ending" the name superficially suggested. Lesson: a method name that *sounds* like it
+matches a user's plain-language description isn't confirmation — trace the actual room-level
+behavior it's meant to describe.
 
-**Re-traced correctly.** Checked every room-specific script in
-`MoreSlugcats/MSCRoomSpecificScript.cs` for what actually happens when a character simply walks to
-Outer Expanse's western edge. Room `"OE_FINAL03"` is hooked unconditionally for any
-`IsStorySession` (no character restriction at the hookup site at all) and spawns
-`OE_GourmandEnding` — a misleadingly-named class (presumably built for Gourmand first, then
-generalized to every character) whose `Update` tracks *any* story character's
-`firstChunk.pos.x` dropping below a threshold (`1020f`, held for `80` or `200` ticks depending on
-character) as they walk left, explicitly special-cases `SlugcatStats.Name.White` (Survivor) inside
-the very same method (so it isn't Gourmand-only despite the name), uses
-`RoomCamera.CameraCutsceneType.EndingOE` for its cutscene, fades to black, and only *then* calls
-`RainWorldGame.BeatGameMode(room.game, standardVoidSea: false)` — `false`, not `true`. This is
-"walking to the far west of Outer Expanse," precisely matching the user's own description, and it
-fires generically for whichever character is actually playing — unlike the genuinely
-character-*specific* alt endings elsewhere (Rivulet's Sky Islands resolution, Artificer's
-`LC_FINAL`, Saint's own ascension, Spearmaster's `SI_A07` pearl sequence, and even a *second*,
-separate Gourmand-only food-completionist secret ending tied to `WinState.GourFeastTracker`) that
-also happen to pass `standardVoidSea: false` but have nothing to do with Outer Expanse at all. This
-is also exactly why patching `BeatGameMode` directly was never going to work cleanly even after
-fixing the true/false mixup: it's the shared endpoint for half a dozen unrelated endings, with no
-room/region information of its own to tell them apart. Patching `OE_GourmandEnding.Update` itself
-sidesteps that ambiguity by hooking the one class that's specific to this exact ending.
+**Round 2 (also wrong, but closer): hooked a room-specific class instead of the shared method,
+then found it didn't generalize.** Re-traced `MoreSlugcats/MSCRoomSpecificScript.cs` for what
+actually happens when a character walks to Outer Expanse's western edge. Room `"OE_FINAL03"` is
+hooked unconditionally for any `IsStorySession` (no character restriction at the hookup site) and
+spawns `OE_GourmandEnding` — a misleadingly-named class (presumably built for Gourmand first, then
+generalized) whose `Update` tracks *any* story character's `firstChunk.pos.x` dropping below a
+threshold as they walk left, explicitly special-cases `SlugcatStats.Name.White` (Survivor) inside
+the same method, and only then calls `RainWorldGame.BeatGameMode(room.game, standardVoidSea:
+false)`. This matched "walking to the far west of Outer Expanse" correctly, so the second version
+Postfixed `OE_GourmandEnding.Update` directly (guarded by a `ConditionalWeakTable` against
+re-firing every frame once `doneFinalSave` was set). **The user then asked directly whether this
+generalizes: "if it gets placed on some other character, say artificer, and they beat the game with
+standardVoidSea: false then that should also remove the slugpup effect. Same goes for any character
+that beats standardVoidSea false."** It didn't — `OE_GourmandEnding.Update` only ever fires for the
+Outer Expanse walk-ending specifically. Rivulet's Sky Islands resolution, Artificer's `LC_FINAL`,
+Saint's own ascension, and Spearmaster's `SI_A07` pearl sequence all call
+`BeatGameMode(..., standardVoidSea: false)` too, from completely different rooms/regions that
+`OE_GourmandEnding` has no way to see.
+
+**Round 3 (the actual fix): hook `BeatGameMode` after all, but check the right boolean.** Since the
+user wants *any* "standard" (non-ascension) ending to count, regardless of which region or
+character-specific room triggers it, the right hook was `BeatGameMode` all along — round 1 just had
+the boolean backwards. Checking `!standardVoidSea` (rather than `standardVoidSea`) is exactly "any
+standard ending," covering the Outer Expanse walk-ending, Gourmand's own alt/food-completionist
+branch, and Rivulet/Artificer/Saint/Spearmaster's respective alt endings all at once, while leaving
+`standardVoidSea: true` (the ascension) deliberately untouched — matching the user's own
+distinction from round 1. This also turned out simpler than round 2: `BeatGameMode` is a plain
+static method invoked once per ending event (not a per-frame `Update`), so the
+`ConditionalWeakTable` re-fire guard round 2 needed is unnecessary here.
 
 **Confirmed this doesn't end the save file** (matching the user's own framing, "after the credits
-if they come back to the run"): nothing in `OE_GourmandEnding` deletes or locks anything — picking
+if they come back to the run"): none of `BeatGameMode`'s branches delete or lock the save — picking
 the same character on the same slot again afterward resumes from the same den, same as vanilla's
 own well-known "keep playing after the ending" behavior.
 
 **Implementation, in three pieces, all in `Gimmicks/SlugpupGimmick.cs`:**
 
-1. **`SlugpupEndingHook`** — a Postfix on `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding
-   .Update(bool)`. A `ConditionalWeakTable<OE_GourmandEnding, object>` guards against re-firing on
-   every later frame once `doneFinalSave` is set (vanilla's own logic already returns early once
-   it's true, so this is belt-and-suspenders, matching the same double-count-guard pattern the
-   Kill List gimmick uses for its own `Creature.Die()` Postfix). Once past that: `PrimalSlot
-   .IsActive`, `game.IsStorySession`, the gimmick actually assigned to `game.StoryCharacter`, and
-   the new setting (below) enabled for that character. If all pass, it permanently records the
-   marker. `OE_GourmandEnding` and its `room`/`doneFinalSave` fields are all plain `public` members
-   on an ordinary room-behavior script (not a tightly-encapsulated simulation object like
-   `Player`/`PlayerGraphics`), so this is patched directly rather than through reflection — the
-   same judgment call already applied to `Menu.SlugcatSelectMenu.SlugcatPageNewGame` elsewhere in
-   this codebase (Gotcha #1).
+1. **`SlugpupEndingHook`** — a Postfix on `RainWorldGame.BeatGameMode`. Guards, in order:
+   `!standardVoidSea` (skip the ascension ending entirely), `game.IsStorySession`,
+   `PrimalSlot.IsActive`, the gimmick actually assigned to `game.StoryCharacter`, and the new
+   setting (below) enabled for that character. If all pass, it permanently records the marker.
 2. **`SlugpupEndingMarker`** — a plain existence-only marker (`"PRIMAL_SLUGPUP_ENDED<dpB>" +
    characterID`), written into the same `DeathPersistentSaveData.unrecognizedSaveStrings`
    passthrough list `OneSpearGimmick` and the Kill List gimmick already use for their own save
@@ -3268,11 +3270,13 @@ own well-known "keep playing after the ending" behavior.
    itself doesn't know how to store." Unlike `OneSpearGimmick`'s *indexed, counted* markers (it
    needs to know *how many* pulls have been used), this only ever needs a yes/no, so it's a single
    un-indexed key, checked with a plain `.Contains(...)`.
-3. **`SlugpupEndingSettings`** — one new `Configurable<bool> endsAtOuterExpanse`, **default true**
+3. **`SlugpupEndingSettings`** — one new `Configurable<bool> EndsOnBeatingGame`, **default true**
    (per the user's explicit "make this effect a default setting"), shown as a single `OpCheckBox`
    in the Slugpup gimmick's settings sub-view (which didn't exist before this — Slugpup previously
    had `BindSettings`/`BuildSettingsUI` both left `null`, per the "no obvious knob" note in the
-   config-menu section above; that's now out of date).
+   config-menu section above; that's now out of date). Named/labeled around "beats the game"
+   rather than "Outer Expanse" specifically, since round 3's generalization made the narrower name
+   inaccurate.
 
 **Where the marker is actually read — and why nothing else in this file needed to change.**
 `SlugpupGimmick`'s own `isSlugpup`-getter Postfix (the single choke point this whole gimmick was
@@ -3301,25 +3305,24 @@ matching the user's own phrasing. Only the *effect* turns off, via the save mark
 the assignment itself.
 
 **Not yet built or tested — same container limitation as everything else in this file.** Every new
-member access (`OE_GourmandEnding`, its `Update`/`room`/`doneFinalSave` members,
-`RainWorldGame.StoryCharacter`, `RainWorldGame.IsStorySession`, `RainWorldGame.GetStorySession`) was
-checked against `reference/GameSource/MoreSlugcats/MSCRoomSpecificScript.cs` and
-`reference/GameSource/RainWorldGame.cs` rather than guessed. **Open question for in-game
-verification, flagged honestly rather than assumed away:** whether `OE_FINAL03`/`OE_GourmandEnding`
-is genuinely the *only* way to reach "the standard Outer Expanse ending" for every character the
-gimmick might be assigned to, or whether some characters (e.g. base-game Monk/Hunter) might reach
-Outer Expanse's end through a different room entirely that this patch wouldn't catch — the room
-hookup itself has no character restriction, which is reassuring, but this hasn't been (and can't
-be, in this container) verified against an actual playthrough. Next, in-game, in order: (1) it
-compiles; (2) assign Slugpup to a character, verify the new checkbox appears in that character's
-settings sub-view, defaulted to checked; (3) walk that character all the way to Outer Expanse's
-western edge (not the void sea/ascension route) with the checkbox checked, and confirm the BepInEx
-log shows the `[Slugpup] ... reached the Outer Expanse ending` line; (4) continue playing that same
-character/slot afterward and confirm they render/behave as their normal adult self, not a pup, for
-the rest of that save; (5) uncheck the setting for a different character *before* they reach the
-ending, reach it, and confirm the gimmick keeps working afterward (the marker should never get
-written); (6) reach the ending a second time on an already-ended character (if reachable) and
-confirm nothing breaks.
+member access (`RainWorldGame.BeatGameMode`, `RainWorldGame.StoryCharacter`,
+`RainWorldGame.IsStorySession`) was checked against `reference/GameSource/RainWorldGame.cs` rather
+than guessed — all plain `public` members on an ordinary, widely-used class, not a
+tightly-encapsulated simulation object, so no reflection was used (consistent with this codebase's
+usual Gotcha #1 judgment call). Next, in-game, in order: (1) it compiles; (2) assign Slugpup to a
+character, verify the new checkbox appears in that character's settings sub-view, defaulted to
+checked, labeled around "beats the game" rather than "Outer Expanse"; (3) walk that character all
+the way to Outer Expanse's western edge (not the void sea/ascension route) with the checkbox
+checked, and confirm the BepInEx log shows the `[Slugpup] ... beat the game` line; (4) **assign
+Slugpup to a different character (e.g. Artificer) and have them reach their own alt ending
+(`LC_FINAL`) instead — confirm the same log line appears and the gimmick stops for them too, the
+specific generalization the user asked to verify**; (5) continue playing either character
+afterward and confirm they render/behave as their normal adult self, not a pup, for the rest of
+that save; (6) uncheck the setting for a character *before* they beat the game, confirm the gimmick
+keeps working afterward (the marker should never get written); (7) reach the void-sea/ascension
+ending (`standardVoidSea: true`) on a Slugpup-assigned character and confirm the gimmick is *not*
+affected by that specific ending, per the user's own true/false distinction; (8) beat the game a
+second time on an already-ended character (if reachable) and confirm nothing breaks.
 
 ## History — why the architecture is what it is now (don't re-litigate these)
 
@@ -3474,31 +3477,40 @@ in it.)
   (6) any of Gourmand's own `SlugCatClass`-gated behaviors/abilities that used to break under the
   old flip now work correctly while pup-ified.**
 - **New, not yet built or tested (2026-09-15, sixth Slugpup round, a feature not a bugfix, revised
-  once mid-round after a user correction — see "Slugpup gimmick: ends at Outer Expanse, in detail"
-  above for the full account): reaching the standard Outer Expanse ending (walking to the region's
-  western edge) now permanently stops the Slugpup gimmick for that character on that save file
+  twice after two separate user corrections — see "Slugpup gimmick: ends at Outer Expanse, in
+  detail" above for the full three-round account): beating the game via any "standard" (non-
+  ascension) ending now permanently stops the Slugpup gimmick for that character on that save file
   (still shown assigned in Remix -- just inert), gated by a new `Configurable<bool>`
-  (`SlugpupEndingSettings.endsAtOuterExpanse`) that **defaults to on**, per explicit request.
-  **First attempt hooked the wrong thing** (`RainWorldGame.BeatGameMode`'s `standardVoidSea: true`
-  branch, actually the separate void-sea/ascension ending, not this one -- caught immediately by
-  the user: "that is why its called standardVoidSea. look for a different ending"). Re-traced and
-  corrected to a Postfix on `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding.Update` instead
-  (a misleadingly-named but genuinely generic "reached Outer Expanse's western edge" handler for
-  any story character), guarded by a `ConditionalWeakTable` against re-firing every frame. New
+  (`SlugpupEndingSettings.EndsOnBeatingGame`) that **defaults to on**, per explicit request.
+  **Round 1 hooked the wrong thing** (`RainWorldGame.BeatGameMode`'s `standardVoidSea: true`
+  branch, actually the separate void-sea/ascension ending -- caught by the user: "that is why its
+  called standardVoidSea. look for a different ending"). **Round 2 hooked a Postfix on
+  `MoreSlugcats.MSCRoomSpecificScript.OE_GourmandEnding.Update`** (a misleadingly-named but
+  genuinely generic "reached Outer Expanse's western edge" handler), which matched but didn't
+  generalize -- the user asked directly: "if it gets placed on some other character, say
+  artificer, and they beat the game with standardVoidSea: false then that should also remove the
+  slugpup effect," and it didn't, since that class only ever fires for the Outer Expanse
+  walk-ending, never Rivulet/Artificer/Saint/Spearmaster's own alt endings elsewhere. **Round 3
+  (the fix): back to a Postfix on `RainWorldGame.BeatGameMode` after all, but checking
+  `!standardVoidSea`** (any standard ending) instead of `standardVoidSea` (round 1's mistake) --
+  this correctly covers every character's own alt ending plus the Outer Expanse walk-ending in one
+  hook, while still leaving the ascension ending untouched. Simpler than round 2 too: no
+  `ConditionalWeakTable` needed, since `BeatGameMode` only ever fires once per ending event. New
   `SlugpupEndingMarker` (a permanent per-character `unrecognizedSaveStrings` marker, same mechanism
   `OneSpearGimmick` already uses). Needed no changes to `SlugpupStatsGimmick`,
   `SlugpupMalnourishmentStatsGimmick`, or `SlugpupColorGimmick` -- they all key off
   `Player.isSlugpup` (directly or via vanilla's own `NPCStats`-construction gate), so the one new
   check in `SlugpupGimmick`'s own Postfix is enough to turn the whole gimmick off from a single
   choke point. **When testing: (1) it compiles; (2) the new checkbox shows up in Slugpup's settings
-  sub-view, checked by default; (3) walking to Outer Expanse's western edge (not the void sea
-  route) with it checked logs `[Slugpup] ... reached the Outer Expanse ending` and the character
-  plays as their normal adult self from then on, for the rest of that save; (4) unchecking it for a
-  character before they reach the ending means the gimmick keeps working after they reach it;
-  (5) reaching the ending twice on the same character doesn't break anything; (6) double-check this
-  actually fires for whichever character the gimmick is assigned to, not just Gourmand, since
-  `OE_GourmandEnding`'s own name suggests (incorrectly, per the trace above) it might be
-  Gourmand-specific.**
+  sub-view, checked by default, labeled around "beats the game"; (3) walking to Outer Expanse's
+  western edge (not the void sea route) with it checked logs `[Slugpup] ... beat the game` and the
+  character plays as their normal adult self from then on, for the rest of that save; (4)
+  **assign Slugpup to a different character (e.g. Artificer), have them reach their own alt ending
+  (LC_FINAL), and confirm the same effect -- the specific generalization the user asked to
+  verify**; (5) unchecking the setting for a character before they beat the game means the gimmick
+  keeps working after they do; (6) reaching the void-sea/ascension ending specifically does *not*
+  trigger this (confirming the true/false distinction from round 1 stuck); (7) beating the game
+  twice on an already-ended character doesn't break anything.**
 - **New, built, deploy-gap already found and fixed, not yet tested in-game (2026-09-12): the Chains
   gimmick.** Requested by the user as "find the artificer chains mod and turn that into a gimmick"
   — turned out to be a **local, not-on-the-Workshop** mod already installed on the user's machine

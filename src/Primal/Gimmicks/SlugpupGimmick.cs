@@ -1,10 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Reflection;
-using System.Runtime.CompilerServices;
 using HarmonyLib;
 using Menu.Remix.MixedUI;
-using MoreSlugcats;
 using UnityEngine;
 
 namespace Primal.Gimmicks
@@ -94,8 +92,8 @@ namespace Primal.Gimmicks
 
             if (SlugpupEndingMarker.HasEnded(game, characterID))
             {
-                // Reached the Outer Expanse ending with this setting on -- permanently stopped
-                // for this character on this save file. See SlugpupEndingHook's doc comment.
+                // Beat the game with this setting on -- permanently stopped for this character on
+                // this save file. See SlugpupEndingHook's doc comment.
                 return;
             }
 
@@ -411,10 +409,9 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>
-    /// The fourth part of the Slugpup gimmick (2026-09-15): once a character reaches the standard
-    /// Outer Expanse ending -- walking all the way to the region's western edge -- stop applying
-    /// this gimmick to them for the rest of that save file, if this setting (default on, see
-    /// SlugpupEndingSettings) is enabled for them.
+    /// The fourth part of the Slugpup gimmick (2026-09-15): once a character beats the game via any
+    /// "standard" (non-ascension) ending, stop applying this gimmick to them for the rest of that
+    /// save file, if this setting (default on, see SlugpupEndingSettings) is enabled for them.
     ///
     /// Requested as: "if a given character with this setting reaches the ending sequence in outer
     /// expanse, after the credits if they come back to the run, they will stop being a slugpup --
@@ -432,70 +429,57 @@ namespace Primal.Gimmicks
     /// -- so this one check in one place is enough to turn off the whole gimmick's effects, with no
     /// need to duplicate an ending check into every other patch in this file.
     ///
-    /// **CORRECTION (same day): the first version of this patch hooked the wrong thing.** It
-    /// targeted `RainWorldGame.BeatGameMode(game, standardVoidSea: true)`, reasoning that its one
-    /// call site (`RainWorldGame.ExitToVoidSeaSlideShow()`, from `VoidSea/VoidSeaScene.cs`'s rising-
-    /// water sequence) was "the" Outer Expanse ending. The user corrected this directly: "the
+    /// **Two corrections, same day, both from direct user feedback -- keeping the record honest
+    /// rather than tidying it away.**
+    ///
+    /// *Correction 1:* the very first version hooked `RainWorldGame.BeatGameMode(game,
+    /// standardVoidSea: true)`, reasoning its one call site (`ExitToVoidSeaSlideShow`, the rising-
+    /// water sequence in `VoidSea/VoidSeaScene.cs`) was "the" Outer Expanse ending. User: "the
     /// standard outer expanse ending is them reaching the outer expanse region and heading all the
     /// way to the left. what you described is the void or ascension ending -- that is why its
-    /// called standardVoidSea." In other words `standardVoidSea` names a *specific*, separate
-    /// ascension/void-sea outcome, not "the generic Outer Expanse ending" as first assumed.
+    /// called standardVoidSea." So `standardVoidSea` names a *specific*, separate ascension/void-
+    /// sea outcome. Re-traced `MoreSlugcats/MSCRoomSpecificScript.cs` and found room `"OE_FINAL03"`
+    /// spawns `OE_GourmandEnding` (misleadingly named -- its `Update` explicitly handles Survivor
+    /// too, no character restriction at the room-hookup site), which tracks a character walking
+    /// left past a threshold and then calls `BeatGameMode(room.game, standardVoidSea: false)` --
+    /// this is "walking to the far west of Outer Expanse." Second version hooked this class's
+    /// `Update` directly instead.
     ///
-    /// **Re-traced with that correction in mind.** Every room-specific script in
-    /// `MoreSlugcats/MSCRoomSpecificScript.cs` was checked for what actually happens when a
-    /// character simply walks to Outer Expanse's western edge, rather than trusting the first
-    /// plausible-looking method name found. Room `"OE_FINAL03"` (hooked unconditionally for any
-    /// `IsStorySession`, no character restriction at all) spawns `OE_GourmandEnding` -- a
-    /// misleadingly-named class (presumably built for Gourmand first, then generalized) whose
-    /// `Update` tracks *any* story character's `firstChunk.pos.x` dropping below a threshold
-    /// (`1020f`, held for `80`-or-`200` ticks depending on character) as they walk left, explicitly
-    /// handles `SlugcatStats.Name.White` (Survivor) inside the same method, uses
-    /// `RoomCamera.CameraCutsceneType.EndingOE` for its cutscene, fades out, and only then calls
-    /// `RainWorldGame.BeatGameMode(room.game, standardVoidSea: false)` -- `false`, not `true`. This
-    /// is "walking to the far west of Outer Expanse," precisely matching the user's own
-    /// description, and it applies to every character generically (not gated to Gourmand at the
-    /// room level), unlike the several genuinely character-*specific* alt endings elsewhere
-    /// (Rivulet's Sky Islands resolution, Artificer's `LC_FINAL`, Saint's, Spearmaster's `SI_A07`
-    /// pearl sequence) that also happen to pass `standardVoidSea: false` but are unrelated to Outer
-    /// Expanse entirely -- which is exactly why patching `BeatGameMode` directly (keying only on
-    /// the bool) was never going to work cleanly even after fixing the true/false confusion: that
-    /// one method is the shared endpoint for half a dozen unrelated endings, with no room/region
-    /// info of its own to distinguish them. Patching `OE_GourmandEnding.Update` itself sidesteps
-    /// that ambiguity entirely by hooking the one class that's specific to this exact ending.
-    ///
-    /// A `ConditionalWeakTable` guards against re-firing on every later frame once
-    /// `doneFinalSave` is set (vanilla's own logic already returns early once it's true, so this is
-    /// belt-and-suspenders, matching the same double-count-guard pattern the Kill List gimmick uses
-    /// for its own Creature.Die() Postfix). `OE_GourmandEnding` and its `room`/`doneFinalSave`
-    /// fields are all plain `public` members on an ordinary room-behavior script (not a
-    /// tightly-encapsulated simulation object like `Player`/`PlayerGraphics`), so this is patched
-    /// directly rather than through reflection -- the same judgment call already applied to
-    /// `Menu.SlugcatSelectMenu.SlugcatPageNewGame` elsewhere in this codebase (see Gotcha #1 in
-    /// AI_CONTEXT.md).
+    /// *Correction 2:* the user then asked directly whether this generalizes -- "if it gets placed
+    /// on some other character, say artificer, and they beat the game with standardVoidSea: false
+    /// then that should also remove the slugpup effect. Same goes for any character that beats
+    /// standardVoidSea false." It didn't: hooking `OE_GourmandEnding.Update` only ever catches the
+    /// Outer-Expanse walk-ending, never Rivulet's Sky Islands resolution, Artificer's `LC_FINAL`,
+    /// Saint's own ascension, or Spearmaster's `SI_A07` pearl sequence -- every one of those also
+    /// calls `BeatGameMode(..., standardVoidSea: false)`, just from a completely different room/
+    /// region, which `OE_GourmandEnding` can never see. **The fix: hook `BeatGameMode` itself after
+    /// all, but check `!standardVoidSea` (any "standard" ending) instead of `standardVoidSea` (the
+    /// void-sea ascension, which the first correction confirmed is a separate, deliberately
+    /// untouched outcome).** This is actually simpler than either previous version: `BeatGameMode`
+    /// is a plain static method invoked once per ending event (not a per-frame `Update`), so the
+    /// `ConditionalWeakTable` re-fire guard the `OE_GourmandEnding` version needed is unnecessary
+    /// here. This one hook now covers every character's own "standard" ending -- the Outer Expanse
+    /// walk-ending (via `OE_GourmandEnding`'s own call), Gourmand's own alt/food-completionist
+    /// branch, and Rivulet/Artificer/Saint/Spearmaster's respective alt endings -- while
+    /// `standardVoidSea: true` (the ascension) stays deliberately excluded, matching exactly what
+    /// the user asked for both times: "the standard ending" (in the "false" sense used throughout
+    /// `BeatGameMode`), generalized to any character, not just Gourmand walking through Outer
+    /// Expanse specifically.
     ///
     /// Confirmed this doesn't end the save file (matching the user's own framing, "after the
-    /// credits if they come back to the run"): nothing in `OE_GourmandEnding` deletes or locks
-    /// anything -- picking the same character on the same slot again afterward resumes from the
-    /// same den, same as vanilla's own well-known "keep playing after the ending" behavior.
+    /// credits if they come back to the run"): none of `BeatGameMode`'s branches delete or lock the
+    /// save -- picking the same character on the same slot again afterward resumes from the same
+    /// den, same as vanilla's own well-known "keep playing after the ending" behavior.
     /// </summary>
-    [HarmonyPatch(typeof(MSCRoomSpecificScript.OE_GourmandEnding), nameof(MSCRoomSpecificScript.OE_GourmandEnding.Update))]
+    [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.BeatGameMode))]
     internal static class SlugpupEndingHook
     {
-        private static readonly ConditionalWeakTable<MSCRoomSpecificScript.OE_GourmandEnding, object> _handled =
-            new ConditionalWeakTable<MSCRoomSpecificScript.OE_GourmandEnding, object>();
-
-        private static void Postfix(MSCRoomSpecificScript.OE_GourmandEnding __instance)
+        private static void Postfix(RainWorldGame game, bool standardVoidSea)
         {
-            if (__instance == null || !__instance.doneFinalSave || _handled.TryGetValue(__instance, out _))
+            if (standardVoidSea || game == null || !game.IsStorySession || !PrimalSlot.IsActive(game.rainWorld))
             {
-                return;
-            }
-
-            _handled.Add(__instance, null);
-
-            RainWorldGame game = __instance.room?.game;
-            if (game == null || !game.IsStorySession || !PrimalSlot.IsActive(game.rainWorld))
-            {
+                // standardVoidSea == true is the separate void-sea/ascension ending -- deliberately
+                // left alone, per the user's own distinction (see this class's doc comment).
                 return;
             }
 
@@ -505,14 +489,14 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            if (!SlugpupEndingSettings.EndsAtOuterExpanse(characterID))
+            if (!SlugpupEndingSettings.EndsOnBeatingGame(characterID))
             {
                 return;
             }
 
             if (SlugpupEndingMarker.RecordEnded(game, characterID))
             {
-                Plugin.Log?.LogInfo($"[Slugpup] {characterID}: reached the Outer Expanse ending -- the gimmick stays assigned but stops applying for the rest of this save file.");
+                Plugin.Log?.LogInfo($"[Slugpup] {characterID}: beat the game -- the gimmick stays assigned but stops applying for the rest of this save file.");
             }
         }
     }
@@ -565,14 +549,15 @@ namespace Primal.Gimmicks
         }
     }
 
-    /// <summary>Per-character settings for the Slugpup gimmick: whether reaching the Outer Expanse
-    /// ending permanently stops it (see SlugpupEndingHook). Defaults to on, per the user's own
+    /// <summary>Per-character settings for the Slugpup gimmick: whether beating the game (any
+    /// "standard" ending -- see SlugpupEndingHook's own doc comment for why this is deliberately
+    /// broader than just Outer Expanse) permanently stops it. Defaults to on, per the user's own
     /// request that this behavior ship as the default rather than an opt-in.</summary>
     internal static class SlugpupEndingSettings
     {
-        private const bool DefaultEndsAtOuterExpanse = true;
+        private const bool DefaultEndsOnBeatingGame = true;
 
-        private static readonly Dictionary<string, Configurable<bool>> _endsAtOuterExpanse = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _endsOnBeatingGame = new Dictionary<string, Configurable<bool>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why (Configurable<T> can only ever be bound to one
@@ -582,15 +567,15 @@ namespace Primal.Gimmicks
 
         public static void Bind(OptionInterface owner, string characterID)
         {
-            _endsAtOuterExpanse[characterID] = owner.config.Bind(
-                characterID + "_Slugpup_endsAtOuterExpanse",
-                DefaultEndsAtOuterExpanse,
-                new ConfigurableInfo("Once this character reaches the standard Outer Expanse ending, stop being a slugpup for the rest of this save file. The gimmick stays assigned -- it just no longer does anything."));
+            _endsOnBeatingGame[characterID] = owner.config.Bind(
+                characterID + "_Slugpup_endsOnBeatingGame",
+                DefaultEndsOnBeatingGame,
+                new ConfigurableInfo("Once this character beats the game (any standard ending -- Outer Expanse, or any character's own alt ending), stop being a slugpup for the rest of this save file. The gimmick stays assigned -- it just no longer does anything."));
         }
 
-        public static bool EndsAtOuterExpanse(string characterID)
+        public static bool EndsOnBeatingGame(string characterID)
         {
-            return _endsAtOuterExpanse.TryGetValue(characterID, out Configurable<bool> c) ? c.Value : DefaultEndsAtOuterExpanse;
+            return _endsOnBeatingGame.TryGetValue(characterID, out Configurable<bool> c) ? c.Value : DefaultEndsOnBeatingGame;
         }
 
         public static List<UIelement> BuildUI(string characterID, float topY)
@@ -601,14 +586,14 @@ namespace Primal.Gimmicks
             }
 
             var items = new List<UIelement>();
-            if (!_endsAtOuterExpanse.TryGetValue(characterID, out Configurable<bool> endsAtOuterExpanse))
+            if (!_endsOnBeatingGame.TryGetValue(characterID, out Configurable<bool> endsOnBeatingGame))
             {
                 // Not bound yet -- don't cache an incomplete/empty result.
                 return items;
             }
 
-            items.Add(new OpCheckBox(endsAtOuterExpanse, 20f, topY - 40f));
-            items.Add(new OpLabel(56f, topY - 36f, "Stop being a slugpup after the Outer Expanse ending", false));
+            items.Add(new OpCheckBox(endsOnBeatingGame, 20f, topY - 40f));
+            items.Add(new OpLabel(56f, topY - 36f, "Stop being a slugpup once this character beats the game", false));
 
             _uiCache[characterID] = items;
             return items;
