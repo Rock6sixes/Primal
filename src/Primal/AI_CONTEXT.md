@@ -2541,6 +2541,30 @@ Spider, "Small Spider")`, per the user's own chosen display name. **Final roster
 see `KillListRegistry.All` in `Gimmicks/CreatureKillListGimmick.cs` for the exact list with display
 names.
 
+**Verification (2026-09-15, sixth round, no code change): centipede growth stages, including
+Coalescipede.** User asked to double-check that `Small Centipede`, `Centipede`, `Red Centipede`,
+`Centiwing`, and `Coalescipede` (`AquaCenti`) all get attributed the same way. Confirmed via
+`Centipede.cs`: all five roster entries are the *same* `Centipede` class, distinguished purely by
+`creatureTemplate.type` (`Small`/`Red`/`Centiwing`/`AquaCenti` are just bool properties reading that
+field) — there is no separate `AquaCenti.cs` or `Centiwing.cs`. `Die()` is a one-line override
+(`base.Die()`) for all variants alike, so the `killTag`-read at the top of `Creature.Die()` applies
+identically regardless of growth stage. `Violence()` is overridden (shell-falloff/shock-resistance
+logic differs per variant) but every code path falls through to an unconditional
+`base.Violence(...)` call at the end (`Centipede.cs` ~line 1334) — including `Creature.Violence()`'s
+own `SetKillTag((source.owner as Creature).abstractCreature)` when hit by another creature's body
+chunk. Spear stab/throw kills are attributed even more directly and universally, regardless of
+creature type: `Weapon.cs` (~line 363, the shared thrown/melee-hit collision path) calls
+`SetKillTag(thrownBy.abstractCreature)` unconditionally on any `Creature` a spear hits, before
+`HitSomething`/`Violence` even run. The one real difference: `Edible => Small` (`Centipede.cs:205`)
+— only `SmallCentipede` can be grabbed-and-eaten via the `IPlayerEdible`/`BiteEdibleObject` path;
+the larger stages can't be bite-killed at all, matching normal vanilla behavior, not a tracking gap.
+Also checked `Centipede.cs:1454` (`(shockObj as Creature).Die()`, no `SetKillTag`) — that's a
+centipede *shocking prey to death* (its own predation ability against something else), not a path
+by which the centipede itself dies, so it's irrelevant to this gimmick. No `airDrown`-style
+direct-`Die()` self-death path (the kind that caused the Leech gap in round 3) exists anywhere in
+`Centipede.cs`. Conclusion: all five entries attribute identically; no fix needed, no roster or code
+change made this round.
+
 **"Killed by [character]", precisely.** Rather than reimplementing kill attribution from scratch
 (fragile territory — Rain World's damage system varies a lot by creature and death cause), this
 reuses a mechanism vanilla already has: `Creature.killTag` (an `AbstractCreature`), set by the
