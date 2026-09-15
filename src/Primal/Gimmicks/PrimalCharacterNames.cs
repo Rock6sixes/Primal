@@ -7,11 +7,13 @@ using MoreSlugcats;
 namespace Primal.Gimmicks
 {
     /// <summary>
-    /// While playing on this mod's reserved alt slot (PrimalSlot.ReservedSlot), Gourmand and
-    /// Spearmaster show up on the "choose your character" screen as "PRIMAL GOURMAND" /
-    /// "PRIMAL SPEARMASTER" instead of their vanilla names, with a description that lists
-    /// whichever of this mod's gimmicks are currently assigned to them (see GimmickAssignments).
-    /// Off the alt slot, both characters are shown completely unmodified -- this only ever
+    /// While playing on this mod's reserved alt slot (PrimalSlot.ReservedSlot), Gourmand,
+    /// Spearmaster, Sofanthiel, and Artificer show up on the "choose your character" screen as
+    /// "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER" / "PRIMAL ???" / "PRIMAL ARTIFICER" instead of
+    /// their vanilla names, with a description that lists whichever of this mod's gimmicks are
+    /// currently assigned to them (see GimmickAssignments; Sofanthiel has no gimmick of its own as
+    /// of this writing, so its description will just read "No primal traits assigned yet").
+    /// Off the alt slot, all four characters are shown completely unmodified -- this only ever
     /// touches how they're *labeled* on this one screen; nothing about SlugcatStats.Name,
     /// StoryGameSession identity, or actual gameplay changes because of it (same "no faked
     /// identity" rule the gimmicks themselves follow -- see PrimalSlot.cs).
@@ -72,14 +74,24 @@ namespace Primal.Gimmicks
                 name = "PRIMAL GOURMAND";
                 description = BuildDescription(
                     slugcatNumber.value,
-                    "This Gourmand has been changed by something primal -- their old habits no longer tell the whole story.");
+                    "A glutton reduced to the simplest pleasures of life. Capable only of sluggish rolling, one must seek out their home to regain some semblance of power.");
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Spear)
             {
                 name = "PRIMAL SPEARMASTER";
                 description = BuildDescription(
                     slugcatNumber.value,
-                    "This Spearmaster has been changed by something primal -- their old habits no longer tell the whole story.");
+                    "A deteriorating abnormality with its crucial needles running out. A traveller from a very far away land; A feeling in your hollow depths rushes you, messenger...");
+            }
+            else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel)
+            {
+                // Added 2026-09-15 per user rewrite -- vanilla's own name for this character is
+                // "???" rather than "THE X", so the Primal label follows that same convention
+                // instead of forcing a "PRIMAL SOFANTHIEL" that vanilla itself never uses.
+                name = "PRIMAL ???";
+                description = BuildDescription(
+                    slugcatNumber.value,
+                    "Thanks Rockman.");
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Artificer)
             {
@@ -93,10 +105,12 @@ namespace Primal.Gimmicks
             else
             {
                 // Every other character (Survivor, Monk, Hunter, Rivulet, Saint, Watcher) keeps
-                // its ordinary vanilla name/description on the alt slot too -- only Gourmand,
-                // Spearmaster, and Artificer have gimmicks assigned by default, and only they were
-                // asked for here. If a gimmick is ever added for another character, extend this
-                // switch rather than assuming every character should get a "Primal" name.
+                // its ordinary vanilla name/description on the alt slot too -- Gourmand,
+                // Spearmaster, Artificer, and Sofanthiel are the only ones explicitly asked for a
+                // "Primal" label here (Sofanthiel's is a standalone flavor rewrite, not tied to a
+                // gimmick assignment the way the other three are). If a gimmick is ever added for
+                // another character, extend this switch rather than assuming every character
+                // should get a "Primal" name.
                 return;
             }
 

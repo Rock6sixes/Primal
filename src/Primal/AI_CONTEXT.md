@@ -115,9 +115,10 @@ was tried twice and rejected both times for good reasons (see History).
 - `RainWorldHooks.cs` — a Postfix on `RainWorld.OnModsInit`. This is where `GimmickDefaults.Apply()`
   runs and where the Remix options screen gets registered (`MachineConnector.SetRegisteredOI`).
   **Do not move this earlier** — see Gotcha #2.
-- `PrimalCharacterNames.cs` (new, 2026-09-11) — while on the alt slot, relabels Gourmand and
-  Spearmaster on the "choose your character" screen as "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER",
-  with a description listing whichever gimmicks are currently assigned to them. See "Primal
+- `PrimalCharacterNames.cs` (new, 2026-09-11; revised 2026-09-15) — while on the alt slot, relabels
+  Gourmand, Spearmaster, Sofanthiel, and Artificer on the "choose your character" screen as
+  "PRIMAL GOURMAND" / "PRIMAL SPEARMASTER" / "PRIMAL ???" / "PRIMAL ARTIFICER", with a description
+  listing whichever gimmicks are currently assigned to them (Sofanthiel has none). See "Primal
   character names, in detail" below.
 
 ### File map (`src/Primal/`)
@@ -2790,8 +2791,9 @@ been started with that character on the alt slot. That matches what the user ask
 `reference/GameSource/Menu/SlugcatSelectMenu.cs`) sets two fields, `difficultyLabel` (the name) and
 `infoLabel` (the description), based on which vanilla character is being shown — this patch runs
 right after that and, only if `PrimalSlot.IsActive(menu.manager.rainWorld)` and the character is
-Gourmand or Spearmaster, overwrites both with the Primal name and a gimmick-driven description; any
-other character (or either of these two off the alt slot) is left completely untouched.
+Gourmand, Spearmaster, Sofanthiel, or Artificer, overwrites both with the Primal name and a
+gimmick-driven description; any other character (or any of these four off the alt slot) is left
+completely untouched.
 
 **Read via reflection, not direct field access** — see the 2026-09-11 addendum to **Gotcha #1**
 above for why: `reference/GameSource/` is decompiled from the same publicized assembly as
@@ -2830,8 +2832,29 @@ screen, a separate and unrelated label).
 "Chains gimmick, in detail"), the user asked for it to follow the same "Primal" treatment as
 Gourmand/Spearmaster: added an `else if` branch for `MoreSlugcatsEnums.SlugcatStatsName.Artificer`
 → **"PRIMAL ARTIFICER"**, with the same generic intro sentence style as the other two ("This
-Artificer has been changed by something primal..."). Not yet confirmed in-game as of this doc — see
-Outstanding items.
+Artificer has been changed by something primal..."). The user later hand-edited this intro line
+directly on their own machine (see the 2026-09-13-ish addendum on the `ChainsGimmick.cs` push,
+above) to a vanilla-flavored line instead — that hand edit was deliberately left in place.
+
+**2026-09-15: intro lines rewritten by the user; Sofanthiel added.** The user asked to see every
+Primal character's current name/description, then sent back rewritten intro lines for Gourmand and
+Spearmaster and a brand-new one for Sofanthiel (vanilla's "???"). Applied verbatim:
+- **PRIMAL GOURMAND** — "A glutton reduced to the simplest pleasures of life. Capable only of
+  sluggish rolling, one must seek out their home to regain some semblance of power."
+- **PRIMAL SPEARMASTER** — "A deteriorating abnormality with its crucial needles running out. A
+  traveller from a very far away land; A feeling in your hollow depths rushes you, messenger..."
+- **PRIMAL ???** (new `else if` branch, `MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel`) — "Thanks
+  Rockman." The label follows vanilla's own convention of naming this character "???" rather than
+  "THE X" (see `reference/GameSource/Menu/SlugcatSelectMenu.cs`'s Sofanthiel branch), so it becomes
+  "PRIMAL ???" rather than a literal "PRIMAL SOFANTHIEL". Unlike Gourmand/Spearmaster/Artificer,
+  Sofanthiel has no gimmick assigned (none exists for it), so its "Active traits" line will always
+  read the generic "No primal traits assigned yet" placeholder — this is a standalone flavor-text
+  addition, not tied to a gimmick the way the other three are.
+Artificer's description was **not** touched this round (the user's rewrite list didn't include it;
+it keeps the hand-edited vanilla-flavored line from 2026-09-12/13 above). Same container limitation
+as every other entry in this file — no `.NET` toolchain here, so none of this has compiled or run;
+the only change here is to string literals and one new `else if` branch mirroring three already-
+proven branches, so the risk is low, but still unconfirmed in-game.
 
 **Build/deploy status:** this feature has gone through several successful builds since it was first
 written (the Chains-gimmick and settings-import passes both compiled `PrimalCharacterNames.cs`
@@ -3535,11 +3558,14 @@ in it.)
     "Config menu UI, in detail" above for the full report and an unconfirmed hypothesis.
   - **New, highest priority:** `PrimalCharacterNames.cs` (see "Primal character names, in detail"
     above) — has compiled clean in every build since it was written, so just needs in-game
-    confirmation: on the alt slot, Gourmand, Spearmaster, and (as of 2026-09-12) Artificer show
-    "PRIMAL GOURMAND"/"PRIMAL SPEARMASTER"/"PRIMAL ARTIFICER" with a description listing their
-    currently-assigned gimmicks on the "choose your character" (new-game) screen; every other
-    character, and all three of these off the alt slot, are unaffected; and toggling a gimmick in
-    Remix changes the wording next time that screen is shown.
+    confirmation: on the alt slot, Gourmand, Spearmaster, Artificer (2026-09-12), and Sofanthiel
+    (2026-09-15) show "PRIMAL GOURMAND"/"PRIMAL SPEARMASTER"/"PRIMAL ARTIFICER"/"PRIMAL ???" with a
+    description listing their currently-assigned gimmicks (Sofanthiel's will just read the generic
+    placeholder, since it has none) on the "choose your character" (new-game) screen; every other
+    character, and all four of these off the alt slot, are unaffected; and toggling a gimmick in
+    Remix changes the wording next time that screen is shown. As of 2026-09-15 Gourmand's and
+    Spearmaster's intro lines are the user's own rewrites (see "Primal character names, in detail"),
+    not the original generic "changed by something primal" placeholder text.
   - Master Spear's (OneSpear's) now-configurable pull limit — confirm raising it above 1 in the
     settings sub-view actually grants more than one pull, and that the save-marker format change
     doesn't break anything on a save file that already has old-format markers on it (see the
