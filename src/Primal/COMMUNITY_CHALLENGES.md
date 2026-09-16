@@ -583,3 +583,54 @@ moment otherwise.
 `LanternMouse.iVars.color.hue`, `Menu/RegionSelectMenu.cs`'s region list) was verified against
 `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): Ornaments implemented; 4 more gaps researched, need user input
+
+Requested: "go through 5 more gaps" from the 19-item shared-mechanics list (items #8-18, the
+remaining ones after #1-7 and #19 were all closed in earlier batches). Researched 5; one resolved
+cleanly from decompiled source alone, four hit genuine ambiguity that needs either a design
+decision or gameplay knowledge this doc's own research pass can't settle from source code alone --
+flagged explicitly rather than guessed.
+
+- **Ornaments (gap n/a -- "pinned to a surface" detection, item #12) -- IMPLEMENTED.** Confirmed
+  via decompiling `Spear.LodgeInCreature`: a thrown spear with a high enough damage bonus, hitting
+  a creature with a solid wall directly behind it, sets `stuckInWall` (a `Vector2?`) and
+  `pinToWallCounter = 300` -- genuinely pinning the creature to that wall. Both plain public
+  fields. Built a new `SurvivorPinning.cs` (`OnCreaturePinnedToWall`, a Prefix/Postfix pair on
+  `LodgeInCreature` using the usual wasX/isX transition trick) and `OrnamentsTracker` (12 distinct
+  live-at-pin-time creature instances in one cycle -- "unique" read as distinct individuals, not
+  distinct species, since the CSV notes never mention species diversity the way Foe's own wording
+  does).
+- **Collector (item #13, SandboxUnlockID roster) -- mechanism found, scope unclear.** Confirmed
+  `ExtEnum<T>.values.entries` is a plain public `List<string>` -- the FULL registered-value list
+  is directly readable with no reflection needed at all (better than expected; `AllAchievements()`
+  -style `Enum.GetValues` wasn't even necessary). The open question is scope: does "all arena,
+  creature and item Sandbox unlocks" mean literally every registered `SandboxUnlockID`, or a
+  curated subset (the challenge names three categories specifically, which could imply excluding
+  some other kind of unlock this doc hasn't identified)? Needs either the user's own knowledge of
+  the Sandbox unlock system, or a decision to just implement "all of them" as a reasonable
+  approximation.
+- **Devotee (item #8, same-shelter-across-cycles) -- half resolved.** `GhostWorldPresence.GhostID`
+  is confirmed a small, fixed, compile-time-known ExtEnum roster (CC, SI, LF, SH, UW, SB -- exactly
+  6 real regions, plus a `NoGhost` sentinel), and `SurvivorVanillaProgress.HasMetGhost` already
+  exists to check each. What's missing: what "reach the Depths" corresponds to mechanically (a
+  specific room/region, or some other vanilla flag) -- needed before the "one shelter across all
+  these cycles" tracking can be finished, since the final Depths cycle's own starting shelter has
+  to match too.
+- **Martyr (item #10, rot-stat reading) -- likely wrong mechanism, needs confirmation.** Found
+  `RegionState.sentientRotProgression` (a `Dictionary<string, RotState>` with a `rotIntensity`
+  float, gated behind `miscWorldSaveData.hasVoidWeaverAbility`) -- a real vanilla "Sentient Rot"
+  mechanic, but tied to a specific late-game ability flag that may not even apply to an ordinary
+  Unfortunate Development visit. Genuinely unsure this is the same "rot" the challenge means by
+  "reach a Memory Conflux room without rot" -- could be an unrelated, more local hazard specific to
+  that room. Needs the user's own knowledge of Unfortunate Development's actual mechanics.
+- **Guardian (item #15, Guardian-visit trigger) -- likely wrong class, needs confirmation.**
+  Confirmed the real internal name for what the community calls "Guardians" is `TempleGuard` (a
+  normal `Creature` with its own `TempleGuardAI`) -- but the challenge's own "take them both to
+  visit the Guardians" phrasing implies something more specific than mere proximity (Rain World's
+  TempleGuards can reportedly be appeased/passed via a specific interaction). Needs the user's own
+  knowledge of what "meeting the Guardians" actually requires mechanically.
+
+20 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.

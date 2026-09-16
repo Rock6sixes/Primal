@@ -1207,4 +1207,67 @@ namespace Primal.Gimmicks
             SurvivorCreatureTracking.ClearTracker(trackerKey);
         }
     }
+
+    /// <summary>Added 2026-09-16. "Pin 12 unique, live creatures against any surface in a single
+    /// cycle" -- "unique" read as 12 distinct INDIVIDUAL creatures (not 12 distinct species; the
+    /// CSV's own notes never mention species diversity the way Foe's own "9 Lizard types" wording
+    /// does), and "Creatures don't need to be left pinned" (confirmed in the CSV's own Notes
+    /// column) means only the pinning MOMENT matters, not whether the creature is still pinned
+    /// later -- matching this tracker's own instant, per-event counting rather than any ongoing
+    /// state check. Consumes the new SurvivorPinning.OnCreaturePinnedToWall directly: "live"
+    /// means the creature must not be dead at the exact moment it gets pinned (a pin can
+    /// definitely also be lethal, so this doesn't assume every pin qualifies).</summary>
+    internal sealed class OrnamentsTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Ornaments");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredPins = 12;
+
+        // In-memory only, per characterID -- distinct creature instances (EntityID.number) pinned
+        // alive so far THIS cycle.
+        private static readonly Dictionary<string, HashSet<int>> _pinnedThisCycle = new Dictionary<string, HashSet<int>>();
+
+        public override void Register()
+        {
+            SurvivorPinning.OnCreaturePinnedToWall += (spear, creature) =>
+            {
+                if (creature == null || creature.dead || creature.abstractCreature == null)
+                {
+                    return;
+                }
+                if (!(spear.thrownBy is Player player) || !TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (!_pinnedThisCycle.TryGetValue(characterID, out HashSet<int> pinned))
+                {
+                    pinned = new HashSet<int>();
+                    _pinnedThisCycle[characterID] = pinned;
+                }
+                pinned.Add(creature.abstractCreature.ID.number);
+
+                if (pinned.Count >= RequiredPins)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _pinnedThisCycle.Remove(eventCharacterID);
+                }
+            };
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _pinnedThisCycle.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
 }

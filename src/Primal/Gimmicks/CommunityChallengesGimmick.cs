@@ -505,6 +505,7 @@ namespace Primal.Gimmicks
             new PilgrimageTracker(),
             new ChefTracker(),
             new OfferingTracker(),
+            new OrnamentsTracker(),
         };
 
         private static bool _registered;

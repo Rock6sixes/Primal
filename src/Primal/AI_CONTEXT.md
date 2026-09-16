@@ -4573,6 +4573,64 @@ toolchain in this container. Every vanilla member used (`Room.zapCoils`, `ZapCoi
 region list) was verified against `reference/GameSource/*.cs` first. Brace/paren balance
 re-checked across the whole `src/Primal` tree after this change.
 
+## Ornaments implemented; Collector/Devotee/Martyr/Guardian researched, need user input (2026-09-16, later still)
+
+Requested: "go through 5 more gaps" from the 19-item shared-mechanics list, with an offer to help
+with mechanical/gameplay knowledge or explain challenges in more detail. Picked 5 of the remaining
+items (#8, #10, #12, #13, #15 — #1-7 and #19 were already closed): one resolved cleanly from
+decompiled source alone, four hit genuine ambiguity flagged explicitly rather than guessed past.
+
+**Ornaments (item #12) — implemented.** "Pin 12 unique, live creatures against any surface in a
+single cycle." Traced `Spear.LodgeInCreature` (the method that runs when a thrown spear embeds in
+a creature): if `spearDamageBonus > 0.9f` and there's a solid wall directly behind the creature in
+the throw direction, it sets `stuckInWall` (`Vector2?`) and `pinToWallCounter = 300` — the real,
+literal "pinned to a surface" mechanic, both plain public fields on `Spear`. Built
+`SurvivorPinning.cs`: a Prefix/Postfix pair on `LodgeInCreature` using the standard wasX/isX
+transition trick (comparing `stuckInWall.HasValue` before/after, not checking `== 300` directly,
+so nothing depends on 300 being a value nothing else could coincidentally produce), firing
+`OnCreaturePinnedToWall(Spear, Creature)`. `OrnamentsTracker` counts distinct creature INSTANCES
+(not species — the CSV's own wording never mentions species diversity the way Foe's "9 Lizard
+types" does) that were alive at the exact moment of pinning, reset per cycle; "Creatures don't
+need to be left pinned" (confirmed in the CSV's own Notes column) is exactly why this counts the
+instant of pinning, not any ongoing pinned-state check.
+
+**The other four, each blocked on something this doc's own source-reading can't resolve alone:**
+
+- **Collector (item #13)** — the ENUMERATION mechanism turned out to be trivial once found:
+  `ExtEnum<T>.values.entries` is a plain public `List<string>`, the full registered-value roster,
+  directly readable with zero reflection (simpler than `AllAchievements()`'s own `Enum.GetValues`
+  approach, since `SandboxUnlockID` isn't a plain enum). What's actually unresolved is SCOPE: does
+  "all arena, creature and item Sandbox unlocks" mean literally every registered
+  `SandboxUnlockID`, or a curated subset — the challenge names three categories specifically,
+  which might imply excluding some other unlock kind this pass never identified. Needs either the
+  user's knowledge of the Sandbox unlock system or an explicit decision to treat "all of them" as
+  the reasonable default.
+- **Devotee (item #8)** — half resolved. `GhostWorldPresence.GhostID` is a small, fixed,
+  compile-time roster (CC, SI, LF, SH, UW, SB — exactly the 6 real Echo regions, plus a `NoGhost`
+  sentinel — all declared directly as static fields, no dynamic registration to worry about), and
+  `SurvivorVanillaProgress.HasMetGhost` already exists. Missing: what "reach the Depths" actually
+  corresponds to mechanically (a specific room, a region transition, some other vanilla flag) —
+  needed before the "one shelter across every one of these cycles" check can be finished, since
+  the final Depths cycle's own starting shelter has to match the rest.
+- **Martyr (item #10)** — found `RegionState.sentientRotProgression` (`Dictionary<string,
+  RotState>` with a `rotIntensity` float), gated behind `miscWorldSaveData.hasVoidWeaverAbility` —
+  a real "Sentient Rot" vanilla mechanic, but tied to a specific late-game ability flag that may
+  have nothing to do with an ordinary trip through Unfortunate Development. Genuinely unsure this
+  is the same "rot" the challenge means by "reach a Memory Conflux room without rot" — could
+  plausibly be a separate, more local hazard specific to that one room/area. Needs the user's own
+  knowledge of Unfortunate Development's actual mechanics rather than a guess built on a
+  same-named-but-possibly-unrelated system.
+- **Guardian (item #15)** — confirmed the real class behind what the community calls "Guardians"
+  is `TempleGuard` (a normal `Creature`, own `TempleGuardAI`) — but "take them both to visit the
+  Guardians" reads like something more specific than mere proximity (community knowledge suggests
+  TempleGuards can be appeased/passed via a specific interaction, not just walked past). Needs the
+  user's own knowledge of what "meeting the Guardians" actually requires mechanically before
+  picking a hook point.
+
+20 of 50 challenges now have a tracker registered (up from 19). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
