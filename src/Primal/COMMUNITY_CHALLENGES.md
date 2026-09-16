@@ -809,3 +809,40 @@ Usurper). Both stay open rather than force a much weaker approximation.
 30 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
 .NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): Nomad, Circuit, Desperado, U-Turn, Symbiote, Charged wired up; 36 of 50 now implemented
+
+The user gave exact room IDs for 6 of the 9 room-name-blocked/carry challenges, explicitly parking
+Journey, Visitor, and Fishtank as hard tasks for later.
+
+- **NomadTracker** -- the 4 Industrial Complex Karma Gates: `GATE_HI_GW`, `GATE_SU_HI`,
+  `GATE_HI_CC`, `GATE_HI_SH`. Completes LIVE the instant the 4th distinct gate room is entered, no
+  hibernation needed, matching the CSV's own "You do not need to hibernate!" note exactly.
+- **CircuitTracker** -- start/end shelter `SS_S05`; checkpoints (`SS_D04`, `SS_I03`, `SS_A03`) were
+  already known from the original CSV's own Console Verification column. The first real consumer
+  of `SurvivorCheckpointRun`, built during the very first shared-mechanisms batch and never used
+  until now.
+- **DesperadoTracker** -- "Deer Pearl room" is `LF_D07`. Confirmed "Popcorn Plant" is the
+  community nickname for vanilla's `SeedCob` (`SlugNPCAI.GetFoodType` explicitly maps it to
+  `Food.Popcorn`) -- but `SeedCob` is never eaten through `Player.ObjectEaten` at all, so a new
+  file, `SurvivorSeedCobEaten.cs`, patches `PlayerSessionRecord.AddEat` directly (the real,
+  universal "ate an external food source" signal this specific object uses instead).
+- **UTurnTracker** -- northeast Outskirts shelter is `SU_S04`. Same shape as Circuit but with zero
+  named checkpoints; `SurvivorCheckpointRun.AllCheckpointsHit` is vacuously true for an empty
+  checkpoint list, so this needed no special-casing at all -- exactly the "no named checkpoints"
+  case that class's own original design comment already anticipated.
+- **SymbioteTracker** -- westernmost Underhang shelter `UW_S01`, shelter at the top of The Leg
+  `UW_S07`. Confirmed "squidcada" is the community nickname for vanilla's Cicada (both
+  `CicadaA`/`CicadaB` accepted, since the challenge doesn't specify which). "While starving" is
+  checked continuously at every room transition during the carry, not just once.
+- **ChargedTracker** -- eastmost Drainage System shelter `DS_S02`. "Baby centipede" is
+  `CreatureTemplate.Type.SmallCentipede` specifically (the "youth" size class).
+
+36 of 50 challenges now have a tracker registered. **Deferred, per the user's own explicit
+direction, as hard tasks for later:** Journey (needs the exact "highest shelter in Five Pebbles"
+room), Visitor (needs the exact tutorial-platform position), Fishtank (needs a full 7-location
+Hazer spawn map). **Still not built or tested in-game** -- no .NET toolchain in this container.
+Every vanilla member used (`SlugNPCAI.GetFoodType`, `SeedCob`, `PlayerSessionRecord.AddEat`/
+`.playerNumber`, `CreatureTemplate.Type.SmallCentipede`/`CicadaA`/`CicadaB`) was verified against
+`reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.

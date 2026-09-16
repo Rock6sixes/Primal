@@ -4891,6 +4891,77 @@ shipping a much weaker approximation.
 real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
 `src/Primal` tree after this change.
 
+## Nomad, Circuit, Desperado, U-Turn, Symbiote, Charged wired up (2026-09-16, later still)
+
+Requested: "let's do the room-named-blocked and carry challenges — what do you need from me." The
+user supplied exact room IDs for 6 of the 9 previously-blocked challenges directly, explicitly
+parking Journey ("as a hard task"), Visitor ("as a hard task"), and Fishtank ("as a hard task") for
+a later pass. No new shared mechanisms needed for 5 of these 6 — pure wiring against rooms this
+mod had no way to know before. Desperado needed one genuinely new piece.
+
+**NomadTracker** — the 4 Industrial Complex Karma Gates: `GATE_HI_GW`, `GATE_SU_HI`, `GATE_HI_CC`,
+`GATE_HI_SH`. Completes the instant the 4th distinct gate room is entered — no hibernation
+required at all, matching the CSV's own explicit "You do not need to hibernate!" note. **Known
+simplification:** treats "entered the gate room" as "crossed the gate" (the challenge's own
+wording is more precise — "crossing the middle line" — but this mod has no in-room position data,
+only room identity).
+
+**CircuitTracker** — start/end shelter `SS_S05`. The 3 checkpoint rooms (`SS_D04`, `SS_I03`,
+`SS_A03`) were already sitting in this doc's own Console Verification column from the very
+original CSV pull, just never connected to code before. This is the first real consumer of
+`SurvivorCheckpointRun` — built during the ORIGINAL 8-mechanism shared-mechanics batch, purpose-
+built for exactly this challenge shape, and sitting completely unused until this pass. 3m45s
+converts to 9000 ticks at the confirmed 40-ticks/second rate.
+
+**DesperadoTracker** — "Deer Pearl room" is `LF_D07`. This one needed real new research, not just
+a room ID: confirmed "Popcorn Plant" is the community nickname for vanilla's own `SeedCob`
+(`MoreSlugcats/SlugNPCAI.cs`'s own `GetFoodType` method explicitly categorizes a `SeedCob` as
+`Food.Popcorn`) — but `SeedCob` does NOT implement `IPlayerEdible` and is never eaten through
+`Player.ObjectEaten` at all (confirmed via decompiling `SeedCob.cs`, which has no such interface).
+Its own `Update` body instead calls `PlayerSessionRecord.AddEat(this)` directly once a nearby,
+hungry, eligible player stands close enough for long enough (guarded by
+`player.eatExternalFoodSourceCounter` so it only fires once per real eating session, not once per
+frame of contact). Built a new file, `SurvivorSeedCobEaten.cs`, patching
+`PlayerSessionRecord.AddEat` directly and resolving the eating player via
+`PlayerSessionRecord.playerNumber` (confirmed public, the same field `AddEat`'s own body already
+uses internally) — the real, universal "ate an external food source" signal this object uses
+instead of the path `SurvivorEvents.OnObjectEaten` already covers. Tracks 2 distinct `SeedCob`
+instances eaten while inside `LF_D07`; "escape alive" reads as "successfully transitioned to a
+different room" (any `Player.NewRoom` firing implies the player is alive and moving).
+
+**UTurnTracker** — northeast Outskirts shelter is `SU_S04`. Same shape as Circuit but with ZERO
+named checkpoints — `SurvivorCheckpointRun.AllCheckpointsHit` (`_nextCheckpoint >=
+_checkpointRoomsInOrder.Length`) is vacuously true for an empty array, so this needed no
+special-casing at all: it's exactly the "no named checkpoints, just a timed loop" case that
+class's own ORIGINAL header comment already anticipated when it was first built, now finally
+exercised. 1 minute converts to 2400 ticks, the same constant this codebase already uses
+elsewhere.
+
+**SymbioteTracker** — westernmost Underhang shelter `UW_S01`, shelter at the top of The Leg
+`UW_S07`. Confirmed "squidcada" is the community nickname for vanilla's Cicada
+(`CreatureTemplate.Type.CicadaA`/`CicadaB`) — both variants accepted, since the challenge's own
+text doesn't specify which. "While starving" (`Player.Malnourished`) is checked CONTINUOUSLY at
+every room transition during the carry, not just once at the start — becoming well-fed at any
+point during the journey abandons the attempt, matching the literal framing rather than a looser
+"was starving at some point" reading.
+
+**ChargedTracker** — eastmost Drainage System shelter `DS_S02`. "Baby centipede" is
+`CreatureTemplate.Type.SmallCentipede` specifically (the "youth" size class, distinct from plain
+`Centipede` and `RedCentipede` per Ranger's own CSV note that these three count as distinct
+species). Completion is checked at the moment of hibernation by verifying the SPECIFIC tracked
+instance is present in `SurvivorShelterContents.EntitiesInShelter` — not by re-checking
+`IsBeingCarriedBy` at that exact instant, which would be less robust against however grasp state
+behaves during the sleep transition. Same reasoning `MotherTracker`/`SleepoverTracker`'s own
+shelter-presence checks already use.
+
+36 of 50 challenges now have a tracker registered (up from 30). **Deferred, per the user's own
+explicit direction, as hard tasks for a later pass:** Journey, Visitor, Fishtank. **Still not built
+or tested in a real game** — no .NET toolchain in this container. Every vanilla member used
+(`SlugNPCAI.GetFoodType`, `SeedCob`, `PlayerSessionRecord.AddEat`/`.playerNumber`,
+`CreatureTemplate.Type.SmallCentipede`/`CicadaA`/`CicadaB`) was verified against
+`reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

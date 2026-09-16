@@ -516,6 +516,12 @@ namespace Primal.Gimmicks
             new ManslaughterTracker(),
             new ChieftainTracker(),
             new CriminalTracker(),
+            new NomadTracker(),
+            new CircuitTracker(),
+            new DesperadoTracker(),
+            new UTurnTracker(),
+            new SymbioteTracker(),
+            new ChargedTracker(),
         };
 
         private static bool _registered;

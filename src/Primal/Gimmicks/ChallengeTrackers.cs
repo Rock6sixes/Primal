@@ -1998,4 +1998,482 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, per the user's own room names: the 4 Industrial Complex Karma
+    /// Gates are GATE_HI_GW, GATE_SU_HI, GATE_HI_CC, GATE_HI_SH. "You do not need to hibernate! You
+    /// only need to cross the last Karma Gate" -- completes LIVE the instant the 4th distinct gate
+    /// room is entered, no hibernation required, matching that note exactly. **Known
+    /// simplification:** treats "entered the gate room" as "crossed the gate" -- the challenge's
+    /// own wording is more precise ("crossing the middle line"), but gate rooms are typically
+    /// simple single-purpose transition rooms where entering and crossing are practically the
+    /// same event; Primal has no in-room-position data to check the literal middle line.</summary>
+    internal sealed class NomadTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Nomad");
+        public override ChallengeEntry Challenge => _entry;
+
+        private static readonly string[] KarmaGates = { "GATE_HI_GW", "GATE_SU_HI", "GATE_HI_CC", "GATE_HI_SH" };
+
+        private static readonly Dictionary<string, HashSet<string>> _gatesThisCycle = new Dictionary<string, HashSet<string>>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                bool isGate = false;
+                foreach (string gate in KarmaGates)
+                {
+                    if (roomName == gate)
+                    {
+                        isGate = true;
+                        break;
+                    }
+                }
+                if (!isGate)
+                {
+                    return;
+                }
+
+                if (!_gatesThisCycle.TryGetValue(characterID, out HashSet<string> gates))
+                {
+                    gates = new HashSet<string>();
+                    _gatesThisCycle[characterID] = gates;
+                }
+                gates.Add(roomName);
+
+                if (gates.Count >= KarmaGates.Length)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    _gatesThisCycle.Remove(characterID);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _gatesThisCycle.Remove(eventCharacterID);
+                }
+            };
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _gatesThisCycle.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own room names: start/end shelter is SS_S05,
+    /// checkpoints (already known from the original CSV's own Console Verification column) are
+    /// SS_D04, SS_I03, SS_A03 in order. The first real consumer of SurvivorCheckpointRun, built
+    /// during the original 8-mechanism batch specifically for this shape of challenge and never
+    /// used until now. 3m45s = 225s = 9000 ticks at the confirmed 40 ticks/second nominal
+    /// rate.</summary>
+    internal sealed class CircuitTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Circuit");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string StartShelter = "SS_S05";
+        private const int TimeLimitTicks = 225 * 40;
+
+        private static readonly Dictionary<string, SurvivorCheckpointRun> _runs = new Dictionary<string, SurvivorCheckpointRun>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (!_runs.TryGetValue(characterID, out SurvivorCheckpointRun run))
+                {
+                    run = new SurvivorCheckpointRun("SS_D04", "SS_I03", "SS_A03");
+                    _runs[characterID] = run;
+                }
+
+                if (roomName != StartShelter)
+                {
+                    run.NotifyRoomEntered(roomName);
+                    return;
+                }
+
+                RainWorldGame game = GimmickGate.GameFor(player);
+                if (run.IsRunning && run.AllCheckpointsHit)
+                {
+                    int? elapsed = run.ElapsedTicksIfComplete(game);
+                    if (elapsed.HasValue && elapsed.Value <= TimeLimitTicks)
+                    {
+                        ReportCompletion(player, characterID, isLive: true);
+                    }
+                }
+                run.Begin(game);
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null && _runs.TryGetValue(eventCharacterID, out SurvivorCheckpointRun run))
+                {
+                    run.Abort();
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own room name: "Deer Pearl room" is LF_D07.
+    /// "Popcorn Plant" is the community nickname for vanilla's SeedCob (see
+    /// SurvivorSeedCobEaten.cs's own doc comment for the full trace of why this needed a dedicated
+    /// new hook -- SeedCob is never eaten through the ordinary Player.ObjectEaten path at all).
+    /// Tracks 2 DISTINCT SeedCob instances eaten while inside LF_D07; "escape alive" is read as
+    /// "successfully transitioned to a different room" (Player.NewRoom firing at all implies the
+    /// player is alive and moving) -- checked the moment they leave, with progress reset on any
+    /// departure, matching this as one continuous encounter rather than several separate
+    /// visits.</summary>
+    internal sealed class DesperadoTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Desperado");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string DeerPearlRoom = "LF_D07";
+        private const int RequiredPlants = 2;
+
+        private static readonly Dictionary<string, HashSet<int>> _eatenThisAttempt = new Dictionary<string, HashSet<int>>();
+
+        public override void Register()
+        {
+            SurvivorSeedCobEaten.OnSeedCobEaten += (player, eventCharacterID, seedCob) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || player.room?.abstractRoom?.name != DeerPearlRoom)
+                {
+                    return;
+                }
+
+                if (!_eatenThisAttempt.TryGetValue(characterID, out HashSet<int> eaten))
+                {
+                    eaten = new HashSet<int>();
+                    _eatenThisAttempt[characterID] = eaten;
+                }
+                eaten.Add(seedCob.abstractPhysicalObject.ID.number);
+            };
+
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || roomName == DeerPearlRoom)
+                {
+                    return;
+                }
+
+                if (_eatenThisAttempt.TryGetValue(characterID, out HashSet<int> eaten) && eaten.Count >= RequiredPlants)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+                _eatenThisAttempt.Remove(characterID);
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _eatenThisAttempt.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own room name: the northeast Outskirts shelter is
+    /// SU_S04. Same "loop return within a time limit" shape as Circuit, but with NO named
+    /// checkpoints -- SurvivorCheckpointRun's own AllCheckpointsHit is vacuously true for a
+    /// zero-length checkpoint array, so this falls out of the exact same code path Circuit uses
+    /// with no special-casing needed. 1 minute = 2400 ticks, the same 40-ticks/second constant
+    /// used throughout this codebase.</summary>
+    internal sealed class UTurnTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("UTurn");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string StartShelter = "SU_S04";
+        private const int TimeLimitTicks = 2400;
+
+        private static readonly Dictionary<string, SurvivorCheckpointRun> _runs = new Dictionary<string, SurvivorCheckpointRun>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || roomName != StartShelter)
+                {
+                    return;
+                }
+
+                if (!_runs.TryGetValue(characterID, out SurvivorCheckpointRun run))
+                {
+                    run = new SurvivorCheckpointRun();
+                    _runs[characterID] = run;
+                }
+
+                RainWorldGame game = GimmickGate.GameFor(player);
+                if (run.IsRunning)
+                {
+                    int? elapsed = run.ElapsedTicksIfComplete(game);
+                    if (elapsed.HasValue && elapsed.Value <= TimeLimitTicks)
+                    {
+                        ReportCompletion(player, characterID, isLive: true);
+                    }
+                }
+                run.Begin(game);
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null && _runs.TryGetValue(eventCharacterID, out SurvivorCheckpointRun run))
+                {
+                    run.Abort();
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own room names: westernmost Underhang shelter is
+    /// UW_S01, shelter at the top of The Leg is UW_S07. "Squidcada" is the community nickname for
+    /// vanilla's Cicada (CreatureTemplate.Type.CicadaA/CicadaB) -- both variants accepted, since
+    /// the challenge doesn't specify which. "While starving" (Player.Malnourished) is checked
+    /// continuously at every room transition during the carry, not just at the start or end --
+    /// becoming well-fed at any point during the journey abandons the attempt, matching the
+    /// literal "while starving" framing.</summary>
+    internal sealed class SymbioteTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Symbiote");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string StartShelter = "UW_S01";
+        private const string EndShelter = "UW_S07";
+
+        private static string TrackerKeyFor(string characterID) => "Symbiote:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    if (roomName != StartShelter || !player.Malnourished)
+                    {
+                        return;
+                    }
+                    AbstractCreature squidcada = FindCarriedSquidcada(player);
+                    if (squidcada == null)
+                    {
+                        return;
+                    }
+                    SurvivorCreatureTracking.Touch(trackerKey, squidcada);
+                    return;
+                }
+
+                if (!player.Malnourished || !SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                    return;
+                }
+
+                AbstractCreature tracked = FirstTracked(trackerKey);
+                if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
+                {
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                    return;
+                }
+
+                if (roomName == EndShelter)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
+                }
+            };
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
+                }
+            };
+        }
+
+        private static AbstractCreature FindCarriedSquidcada(Player player)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return null;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (!(grasp?.grabbed is Creature creature))
+                {
+                    continue;
+                }
+                CreatureTemplate.Type type = creature.abstractCreature?.creatureTemplate?.type;
+                if (type == CreatureTemplate.Type.CicadaA || type == CreatureTemplate.Type.CicadaB)
+                {
+                    return creature.abstractCreature;
+                }
+            }
+            return null;
+        }
+
+        private static AbstractCreature FirstTracked(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                return creature;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own room name: the eastmost Drainage System
+    /// shelter is DS_S02. "Baby centipede" is CreatureTemplate.Type.SmallCentipede specifically
+    /// (the "youth" size class -- distinct from plain Centipede and RedCentipede, per Ranger's own
+    /// CSV note that these three count as distinct). Completion is checked at the moment of
+    /// hibernation, verifying the SPECIFIC tracked instance is present in the shelter's own entity
+    /// list (SurvivorShelterContents.EntitiesInShelter) rather than re-checking IsBeingCarriedBy at
+    /// that exact instant -- more robust against however grasp state behaves during the sleep
+    /// transition, the same reasoning Mother/Sleepover's own shelter-presence checks already
+    /// use.</summary>
+    internal sealed class ChargedTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Charged");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string TargetShelter = "DS_S02";
+
+        private static string TrackerKeyFor(string characterID) => "Charged:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    AbstractCreature baby = FindCarriedBabyCentipede(player);
+                    if (baby == null)
+                    {
+                        return;
+                    }
+                    SurvivorCreatureTracking.Touch(trackerKey, baby);
+                    return;
+                }
+
+                if (!SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                    return;
+                }
+
+                AbstractCreature tracked = FirstTracked(trackerKey);
+                if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
+                {
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+                bool completed = false;
+
+                if (SurvivorShelterContents.ShelterRoomFor(player)?.name == TargetShelter
+                    && SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    AbstractCreature tracked = FirstTracked(trackerKey);
+                    if (tracked != null)
+                    {
+                        foreach (AbstractWorldEntity entity in SurvivorShelterContents.EntitiesInShelter(player))
+                        {
+                            if (entity == tracked)
+                            {
+                                completed = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (completed)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+                SurvivorCreatureTracking.ClearTracker(trackerKey);
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
+                }
+            };
+        }
+
+        private static AbstractCreature FindCarriedBabyCentipede(Player player)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return null;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp?.grabbed is Creature creature
+                    && creature.abstractCreature?.creatureTemplate?.type == CreatureTemplate.Type.SmallCentipede)
+                {
+                    return creature.abstractCreature;
+                }
+            }
+            return null;
+        }
+
+        private static AbstractCreature FirstTracked(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                return creature;
+            }
+            return null;
+        }
+    }
 }
