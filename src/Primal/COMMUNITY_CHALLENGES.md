@@ -676,3 +676,57 @@ them:
 `SaveState.GhostEncounter`, `Player.Malnourished`, `TubeWorm.grappleToPos`) was verified against
 `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): Despicable implemented; 5 more mechanics researched, need user input
+
+Requested: "focus on the missing shared mechanics." Researched the 6 remaining mechanism-level
+gaps from the original 19-item list (Enlightenment's neuron carry, Despicable's dream state,
+Outlaw's scoring formula, Flytrap's pole plant, Triplopia's triple-spawn heuristic, Broadcast's
+comms array) -- one resolved cleanly, five hit real ambiguity or missing pieces flagged explicitly
+rather than guessed past.
+
+- **Despicable -- IMPLEMENTED.** Confirmed `DreamsState.DreamID.MoonThief` is "Stolen
+  Enlightenment" (chosen when `SLOracleState.neuronsLeft < 5` -- i.e. the player took 5+ of Moon's
+  neurons, the "stole from Moon" story this dream depicts; its sibling `MoonFriend` fires the
+  opposite way). Built a new `SurvivorDreamState.cs`. **Real timing gotcha found and documented:**
+  this had to be the first-ever Postfix (not Prefix) on `RainWorldGame.Win` in this whole event
+  bus, since the dream only finalizes partway through `Win`'s own body -- but that means
+  `SaveState.cycleNumber` has ALREADY incremented by the time this fires, so "starting cycle" here
+  checks `== 1`, not `== 0` like every other Win-Prefix-timed check in this codebase. Flagged
+  loudly in both the event's own doc comment and `DespicableTracker`'s, since getting this
+  backwards would silently detect the wrong cycle.
+- **Enlightenment (neuron-carry) -- genuinely confusing, needs clarification.** Two candidate
+  classes exist: `SSOracleSwarmer` (a graspable `PhysicalObject` implementing `IPlayerEdible` --
+  literally holdable like a Rock, confirmed via its own `Edible` property rejecting consumption
+  only when the player's stomach is already full) and `NSHSwarmer` (a separate class tied to a
+  scripted Pebbles cutscene). Neither obviously matches "carry 7 things across two regions" the
+  way this mod's other carry challenges do, since a Player can only hold 2 items in hand at once --
+  the CSV's own "Total neurons at the end of the challenge must be 12 or more" note suggests
+  there's a real, PERSISTENT vanilla delivery counter behind this (accumulated across multiple
+  trips), not a live 7-at-once carry, but no such counter was found in a first search.
+- **Outlaw (Hunter scoring) -- likely needs a simplification decision.** No real vanilla
+  "Hunter score" field or score-screen class exists in the decompiled source at all -- the CSV's
+  own "Score calculator" link and "standard scorerunning rules" note confirm this is the
+  community's OWN external scoring convention, not anything vanilla computes or displays. This
+  mod's existing kill-point table (`SurvivorVanillaProgress.KillPointValue`, already used by
+  Massacre/Ranger) could sum kills across a whole run, but per this doc's own earlier note, real
+  competitive Hunter scoring also counts food/survival/spear-hits -- kills alone would likely
+  undercount versus the "real" 10k threshold.
+- **Flytrap (pole plant) -- class found, exact mechanic unclear.** `PoleMimic` IS the real "pole
+  plant" (confirmed `Creature`, not a hazard object as this doc previously assumed) -- it grabs
+  nearby creatures via its own ambush logic (`Grab(...)`, `Vulture.cs`'s own confirmed prey
+  relationship checks). Unclear: exactly how a player "feeds" a live Vulture to it (does the
+  Vulture just need to wander/be dragged into grab range, or is there a specific technique), and
+  what state confirms a successful "fed and player survived" outcome versus any other grab.
+- **Triplopia (triple-spawn heuristic) -- likely genuinely undetectable, leaning honor-system.**
+  This is a known community EXPLOIT technique (the CSV's own "Multi-spawning documentation" link
+  points to external material), not a normal vanilla mechanic -- this doc's own earlier note
+  already called it "inherently fragile." No obvious save-data signature was found to key off.
+- **Broadcast (Communications Array signal) -- nothing found at all.** No "laser," "signal," or
+  "array" reference anywhere in the decompiled source, and no dedicated room-effect type for it
+  either (unlike `ElectricDeath`, which WAS findable this way). Genuinely stuck on where this
+  mechanic even lives in vanilla's own code.
+
+**Still not built or tested in-game** -- no .NET toolchain in this container. 25 of 50 challenges
+now have a tracker registered. Brace/paren balance re-checked across the whole `src/Primal` tree
+after this change.

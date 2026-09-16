@@ -510,6 +510,7 @@ namespace Primal.Gimmicks
             new DevoteeTracker(),
             new MartyrTracker(),
             new GuardianTracker(),
+            new DespicableTracker(),
         };
 
         private static bool _registered;

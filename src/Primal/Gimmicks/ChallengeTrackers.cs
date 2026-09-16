@@ -1604,4 +1604,38 @@ namespace Primal.Gimmicks
             _starvedThisAttempt.Remove(characterID);
         }
     }
+
+    /// <summary>Added 2026-09-16. "Trigger the Stolen Enlightenment dream on the starting cycle."
+    /// Consumes the new SurvivorDreamState.OnCycleEndDream, checking for
+    /// DreamsState.DreamID.MoonThief (confirmed to be "Stolen Enlightenment" -- see that event's
+    /// own doc comment). **The cycleNumber check here is deliberately `== 1`, not `== 0`** --
+    /// this event is a Postfix on RainWorldGame.Win (the only one in this whole event bus that has
+    /// to be), so by the time it fires, SaveState.cycleNumber has ALREADY incremented past the
+    /// cycle that just ended. Every OTHER "starting cycle" check in this codebase
+    /// (MotherTracker, MycologistTracker) reads cycleNumber from a PREFIX, where it's still 0 --
+    /// getting this backwards here would silently detect the SECOND cycle instead of the
+    /// first.</summary>
+    internal sealed class DespicableTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Despicable");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorDreamState.OnCycleEndDream += (player, eventCharacterID, dream, cycleNumberAfterIncrement) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (cycleNumberAfterIncrement != 1 || dream != DreamsState.DreamID.MoonThief)
+                {
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: false);
+            };
+        }
+    }
 }

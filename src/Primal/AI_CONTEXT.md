@@ -4695,6 +4695,75 @@ real game** — no .NET toolchain in this container. Every vanilla member used
 `TubeWorm.grappleToPos`) was verified against `reference/GameSource/*.cs` first. Brace/paren
 balance re-checked across the whole `src/Primal` tree after this change.
 
+## Despicable implemented; 5 more mechanics researched, need user input (2026-09-16, later still)
+
+Requested: "focus on the missing shared mechanics." Researched all 6 remaining mechanism-level
+gaps from the original 19-item list — Enlightenment's neuron carry, Despicable's dream state,
+Outlaw's scoring formula, Flytrap's pole plant, Triplopia's triple-spawn heuristic, Broadcast's
+comms array/laser. One resolved cleanly from decompiled source alone; the other five hit real
+ambiguity, each flagged explicitly below rather than guessed past.
+
+**Despicable — implemented.** "Trigger the Stolen Enlightenment dream on the starting cycle."
+Confirmed `DreamsState.DreamID.MoonThief` is "Stolen Enlightenment": traced
+`RainWorldGame.Win`'s own body to the exact branch that picks it —
+`GetStorySession.saveState.miscWorldSaveData.SLOracleState.neuronsLeft < 5` (the player took 5+ of
+Moon's own neurons) — versus its sibling `MoonFriend`, chosen the opposite way. This is a
+confirmed narrative pairing, not a name-based guess. Built a new `SurvivorDreamState.cs`.
+
+**A genuine timing gotcha surfaced and is now documented prominently, since it's easy to get
+backwards.** This is the first-ever Postfix (not Prefix) on `RainWorldGame.Win` anywhere in this
+event bus. Every other Win hook (`SurvivorWinHook`, `PrimalKillCommitHook`, etc.) is a Prefix,
+specifically because `Win`'s own body triggers a synchronous disk save partway through, so
+anything that needs to write data before that save has to run first. Reading the dream needed the
+OPPOSITE: `dreamsState.EndOfCycleProgress` (which finalizes `eventDream` for the ending cycle)
+runs INSIDE `Win`'s own body, so a Prefix would read the STALE value from the previous cycle.
+Confirmed via decompilation that `EndOfCycleProgress` runs before `SaveState.SessionEnded`, whose
+`survived` branch calls `RainCycleTick` — the same method that increments `SaveState.cycleNumber`.
+Net effect: by the time a Postfix on `Win` runs, `cycleNumber` has ALREADY moved past the cycle
+that just ended. `DespicableTracker`'s own "starting cycle" check is therefore `cycleNumberAfterIncrement
+== 1`, not `== 0` the way `MotherTracker`/`MycologistTracker` check it from their own
+Prefix-timed reads — flagged loudly in both the event's own doc comment and the tracker's, since
+this is exactly the kind of off-by-one that would silently detect the SECOND cycle instead of the
+first with no error, no crash, just a subtly wrong tracker.
+
+**The other five, each blocked on something a source-only pass couldn't settle:**
+
+- **Enlightenment (neuron carry)** — two candidate classes exist and neither obviously fits.
+  `SSOracleSwarmer` is a graspable `PhysicalObject` implementing `IPlayerEdible` (literally
+  holdable like a Rock — its own `Edible` property only returns false when the player's stomach is
+  already full, meaning normally picking one up just eats it). `NSHSwarmer` is a separate class
+  tied to a scripted Pebbles cutscene ("green neuron," `SSOracleBehavior.cs`'s own extensive
+  `SSOracleGetGreenNeuron` sub-behavior), unrelated to the general delivery mechanic. Neither
+  matches "bring 7 neurons" the way this mod's other carry challenges work, since a Player can
+  only hold 2 items at once — the CSV's own "Total neurons at the end must be 12 or more" note
+  implies a real, PERSISTENT vanilla delivery counter (accumulated over many trips) exists
+  somewhere, but no such counter turned up in a first search.
+- **Outlaw (Hunter scoring)** — no real vanilla "Hunter score" field or score-screen class exists
+  anywhere in the decompiled source. The CSV's own "Score calculator" external-tool link and
+  "standard scorerunning rules" note confirm this is the community's OWN scoring convention that
+  vanilla itself never computes or displays. This mod's existing `KillPointValue` table (already
+  used by Massacre/Ranger) could sum kills across a whole run as an approximation, but per this
+  doc's own earlier gap note, the real competitive formula also counts food/survival/spear-hits —
+  kills alone would likely undercount against a genuine 10k threshold.
+- **Flytrap (pole plant)** — found the real class: `PoleMimic` (confirmed a `Creature`, not a
+  hazard object as earlier assumed), which ambushes and grabs nearby creatures via its own
+  `Grab(...)` call. Unclear: the actual player technique for getting a live Vulture into its grab
+  range (does it just need to wander close, or is there a specific setup), and what distinguishes
+  "successfully fed, player survived" from any other grab the plant might make.
+- **Triplopia (triple-spawn heuristic)** — a known community EXPLOIT technique (the CSV's own
+  external "Multi-spawning documentation" link), not a normal vanilla mechanic. This doc already
+  called it "inherently fragile" before this pass; no save-data signature to key off turned up
+  either. Leaning toward this staying honor-system rather than forcing a heuristic.
+- **Broadcast (Communications Array signal)** — nothing found at all. No "laser," "signal," or
+  "array" string anywhere in the decompiled source, and no dedicated room-effect type the way
+  `ElectricDeath` was findable for Room's own hazard system. Genuinely stuck on where this
+  mechanic even lives in vanilla's own code — this may need the user's own knowledge just to know
+  where to look.
+
+25 of 50 challenges now have a tracker registered (up from 24). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
