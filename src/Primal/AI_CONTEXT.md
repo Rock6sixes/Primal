@@ -5030,6 +5030,60 @@ its "no Guardian skip" clause.
 real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
 `src/Primal` tree after this change.
 
+## Friend and Scholar implemented (2026-09-16, later still)
+
+The user resolved both remaining open questions directly, and both turned out simpler than the
+previous pass assumed — worth internalizing as a lesson: the original ratings pass's own
+architectural assumption for Friend was wrong, not just incomplete.
+
+**Friend.** "Story mode refers to game mode and we have only been in story mode — basically just
+track if all lizard types got tamed in one run of one character." This is PER-CHARACTER, this
+mod's default scope — the earlier assumption that it needed tracking SHARED ACROSS EVERY PRIMAL
+CHARACTER on a save slot was simply incorrect, not a real architectural gap needing new
+cross-character persistence infrastructure. What genuinely WAS needed: a LIVE "just got tamed"
+signal. The existing `friendTracker.friend` field (already trusted directly elsewhere in this mod
+— `ChainsGimmick.cs`, `SleepoverTracker`) only ever shows the MOST RECENT tame at any given
+moment; a permanent per-species record needs to know the exact INSTANT a new taming happens, not
+just what's currently true (a previously-tamed Lizard could die or wander off, and a reactive
+check would lose that historical fact). Traced this to `FriendTracker.Update()`: confirmed via
+decompilation that `friend` transitions from null to a real `Creature` exactly when a relationship
+crosses `like > 0.5f && tempLike > 0.5f`. Built a new `SurvivorTaming.cs`, using the same
+wasNull/isNotNull transition trick as every other "X just happened" detection in this event bus.
+
+**Naming collision, avoided on purpose:** the challenge tracker itself is named
+`FriendChallengeTracker`, NOT `FriendTracker` — vanilla already has a real `FriendTracker` class
+(the one `SurvivorTaming.cs` itself patches), and a second type with that exact bare name inside
+the same `Primal.Gimmicks` namespace would shadow the vanilla one for any file in this namespace
+that references it unqualified, silently breaking `[HarmonyPatch(typeof(FriendTracker), ...)]`
+wherever it's used. Every OTHER challenge tracker in this codebase follows the plain
+`<ChallengeName>Tracker` convention; this is the one deliberate exception, and the reason is
+recorded here so a future pass doesn't rename it back for consistency without realizing why it's
+different.
+
+**Scholar.** "Do not worry about uncompletable challenges... for all colors, use all colors
+accessible in vanilla, for survivor, monk and hunter." Confirmed
+`DataPearl.AbstractDataPearl.DataPearlType` is also an ExtEnum (nested two levels, matching the
+same syntax already used to reference it in `DespicableTracker`'s general research), so the exact
+same `values.entries` trick already proven for `SandboxUnlockID` applies directly — added
+`SurvivorVanillaProgress.AllDataPearlTypes()`, structurally identical to `AllSandboxUnlockIDs()`.
+`ScholarTracker` itself is a direct consumer of `SurvivorShelterContents.CountDistinct`, keyed on
+`AbstractDataPearl.dataPearlType` (the pearl's own color/identity field, confirmed via
+decompilation to be distinct from the generic `AbstractObjectType` every pearl instance shares —
+`type` is always `AbstractObjectType.DataPearl`, `dataPearlType` is the actual color). Per the
+user's own explicit instruction, no filtering was added for registered colors that may belong to
+one-off story pearls incapable of ever appearing as a loose collectible — accepted the same way
+several other challenges (the ones scoped to "the starting cycle") are already understood to
+become permanently uncompletable once that window passes, without that being treated as a defect
+needing a workaround.
+
+40 of 50 challenges now have a tracker registered (up from 38). **Still open, all previously
+discussed and none newly discovered:** Journey, Visitor, Vegan, Fishtank, Outlaw, Triplopia,
+Broadcast, Heist, Elder, Saint. **Still not built or tested in a real game** — no .NET toolchain
+in this container. Every vanilla member used (`FriendTracker.Update`/`.friend`,
+`DataPearl.AbstractDataPearl.DataPearlType`, `AbstractDataPearl.dataPearlType`) was verified
+against `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

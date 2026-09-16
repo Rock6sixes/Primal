@@ -2570,4 +2570,116 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, per the user's own clarification: "story mode refers to game
+    /// mode and we have only been in story mode -- basically just track if all lizard types got
+    /// tamed in one run of one character." This is PER-CHARACTER, this mod's usual scope --
+    /// confirming the original ratings pass's own "needs save-file-wide tracking across every
+    /// Primal character" assumption was simply wrong, not a real architectural gap. No new
+    /// persistence infrastructure needed: the existing per-character PrimalSaveMarkers is exactly
+    /// right. Consumes the new SurvivorTaming.OnCreatureTamed, checking against the same 9-Lizard
+    /// roster FoeTracker's own kill checklist already uses. Named `FriendChallengeTracker` rather
+    /// than `FriendTracker` specifically to avoid colliding with vanilla's own `FriendTracker`
+    /// class (the AI module SurvivorTaming.cs itself patches) -- both would otherwise share this
+    /// namespace, and a same-named type here would shadow the vanilla one for any file in
+    /// Primal.Gimmicks that references it by its bare name.</summary>
+    internal sealed class FriendChallengeTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Friend");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string TamedMarkerKey = "PRIMAL_FRIEND_TAMED";
+
+        private static readonly CreatureTemplate.Type[] LizardTypes =
+        {
+            CreatureTemplate.Type.GreenLizard,
+            CreatureTemplate.Type.PinkLizard,
+            CreatureTemplate.Type.WhiteLizard,
+            CreatureTemplate.Type.BlueLizard,
+            CreatureTemplate.Type.YellowLizard,
+            CreatureTemplate.Type.RedLizard,
+            CreatureTemplate.Type.BlackLizard,
+            CreatureTemplate.Type.CyanLizard,
+            CreatureTemplate.Type.Salamander,
+        };
+
+        public override void Register()
+        {
+            SurvivorTaming.OnCreatureTamed += (tamer, tamed) =>
+            {
+                if (!(tamer is Player player) || !TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                CreatureTemplate.Type type = tamed?.abstractCreature?.creatureTemplate?.type;
+                if (type?.value == null || System.Array.IndexOf(LizardTypes, type) < 0)
+                {
+                    return;
+                }
+
+                DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(GimmickGate.GameFor(player));
+                if (saveData == null)
+                {
+                    return;
+                }
+
+                PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(TamedMarkerKey, characterID, type.value));
+
+                foreach (CreatureTemplate.Type lizard in LizardTypes)
+                {
+                    if (!PrimalSaveMarkers.Has(saveData, PrimalSaveMarkers.Marker(TamedMarkerKey, characterID, lizard.value)))
+                    {
+                        return;
+                    }
+                }
+
+                ReportCompletion(player, characterID, isLive: true);
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own direction: "do not worry about uncompletable
+    /// challenges... for all colors, use all colors accessible in vanilla, for survivor, monk and
+    /// hunter." "Collect all unique coloured Pearls in one shelter" -- a direct consumer of
+    /// SurvivorShelterContents.CountDistinct, keyed on AbstractDataPearl.dataPearlType (the
+    /// pearl's own color/identity field, confirmed distinct from the generic AbstractObjectType
+    /// every pearl shares) against the full roster from the new
+    /// SurvivorVanillaProgress.AllDataPearlTypes(). Some registered colors may belong to one-off
+    /// story pearls that can never appear as a loose collectible -- per the user's own explicit
+    /// instruction, not worked around here (matching how several other challenges are only
+    /// completable on a starting cycle and become permanently uncompletable afterward -- an
+    /// accepted, not a fixed, property of some of these challenges).</summary>
+    internal sealed class ScholarTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Scholar");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                int totalColors = SurvivorVanillaProgress.AllDataPearlTypes().Length;
+                if (totalColors == 0)
+                {
+                    return;
+                }
+
+                int distinctInShelter = SurvivorShelterContents.CountDistinct(
+                    player,
+                    entity => (entity as DataPearl.AbstractDataPearl)?.dataPearlType?.value,
+                    entity => entity is DataPearl.AbstractDataPearl);
+
+                if (distinctInShelter >= totalColors)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+    }
 }

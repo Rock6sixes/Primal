@@ -524,6 +524,8 @@ namespace Primal.Gimmicks
             new ChargedTracker(),
             new CatalogueTracker(),
             new AscensionTracker(),
+            new FriendChallengeTracker(),
+            new ScholarTracker(),
         };
 
         private static bool _registered;

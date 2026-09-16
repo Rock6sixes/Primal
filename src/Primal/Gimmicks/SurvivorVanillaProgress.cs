@@ -73,6 +73,30 @@ namespace Primal.Gimmicks
             return result;
         }
 
+        /// <summary>Added 2026-09-16 for Scholar, same idea as AllSandboxUnlockIDs -- confirmed
+        /// DataPearl.AbstractDataPearl.DataPearlType is also an ExtEnum, so the same
+        /// `values.entries` read applies directly. Per the user's own explicit direction ("do not
+        /// worry about uncompletable challenges... for all colors, use all colors accessible in
+        /// vanilla, for survivor, monk and hunter") -- with MSC disabled, only vanilla's own
+        /// DataPearlType registrations ever run, so no extra category filtering is applied here,
+        /// even though some registered colors may belong to one-off story pearls that can never
+        /// actually appear as a loose collectible.</summary>
+        public static DataPearl.AbstractDataPearl.DataPearlType[] AllDataPearlTypes()
+        {
+            List<string> entries = DataPearl.AbstractDataPearl.DataPearlType.values?.entries;
+            if (entries == null)
+            {
+                return Array.Empty<DataPearl.AbstractDataPearl.DataPearlType>();
+            }
+
+            var result = new DataPearl.AbstractDataPearl.DataPearlType[entries.Count];
+            for (int i = 0; i < entries.Count; i++)
+            {
+                result[i] = new DataPearl.AbstractDataPearl.DataPearlType(entries[i], register: false);
+            }
+            return result;
+        }
+
         public static bool HasSteamAchievement(RainWorld rainWorld, RainWorld.AchievementID achievement)
         {
             return rainWorld != null && rainWorld.AchievementAlreadyDisplayed(achievement);

@@ -896,3 +896,38 @@ original ratings pass. Checked each against what's actually buildable now:
 38 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
 .NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): Friend and Scholar implemented; 40 of 50 now done
+
+The user resolved both open questions directly, and both turned out simpler than the previous
+pass assumed.
+
+- **Friend -- IMPLEMENTED.** "Story mode refers to game mode and we have only been in story
+  mode... basically just track if all lizard types got tamed in one run of one character." This
+  is PER-CHARACTER after all -- the original ratings pass's "needs save-file-wide tracking across
+  every Primal character" assumption was simply wrong, not a real gap. No new persistence
+  infrastructure needed. What WAS needed: a LIVE "just got tamed" signal, since the existing
+  `friendTracker.friend` field only ever shows the most recent tame, not a permanent record of
+  every species tamed so far. Traced this to `FriendTracker.Update()` (confirmed via
+  decompilation: `friend` transitions from null to a real Creature exactly when a relationship
+  crosses `like > 0.5f && tempLike > 0.5f`). Built a new `SurvivorTaming.cs` around the usual
+  wasNull/isNotNull transition trick. The challenge tracker itself is named
+  `FriendChallengeTracker`, not `FriendTracker`, specifically to avoid colliding with vanilla's
+  own `FriendTracker` class in the same C# namespace.
+- **Scholar -- IMPLEMENTED.** "Do not worry about uncompletable challenges... for all colors, use
+  all colors accessible in vanilla, for survivor, monk and hunter." Confirmed
+  `DataPearl.AbstractDataPearl.DataPearlType` is also an ExtEnum, so the exact same
+  `values.entries` trick Collector uses applies directly -- added
+  `SurvivorVanillaProgress.AllDataPearlTypes()`. Direct consumer of
+  `SurvivorShelterContents.CountDistinct`, keyed on `AbstractDataPearl.dataPearlType` (the pearl's
+  own color/identity field, confirmed distinct from the generic `AbstractObjectType` every pearl
+  shares). Per the user's own explicit instruction, no filtering for potentially-uncollectable
+  story-unique pearl colors was added -- accepted the same way several other challenges are only
+  completable on a starting cycle and become permanently uncompletable afterward.
+
+40 of 50 challenges now have a tracker registered. **Still open, all previously discussed:**
+Journey, Visitor, Vegan, Fishtank, Outlaw, Triplopia, Broadcast, Heist, Elder, Saint. **Still not
+built or tested in-game** -- no .NET toolchain in this container. Every vanilla member used
+(`FriendTracker.Update`/`.friend`, `DataPearl.AbstractDataPearl.DataPearlType`,
+`AbstractDataPearl.dataPearlType`) was verified against `reference/GameSource/*.cs` first.
+Brace/paren balance re-checked across the whole `src/Primal` tree after this change.
