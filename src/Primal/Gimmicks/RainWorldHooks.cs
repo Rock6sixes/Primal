@@ -71,6 +71,19 @@ namespace Primal.Gimmicks
             {
                 Plugin.Log?.LogError($"PrimalOptions.EnsureConfigBound() threw -- gimmick assignments may not persist across game restarts this session (still fully assignable by hand in Remix): {ex}");
             }
+
+            try
+            {
+                // Plain C# event subscriptions, not Harmony patches -- PatchAll (Plugin.cs) has no
+                // reason to ever touch these types, so unlike an ordinary [HarmonyPatch] class they
+                // need an explicit call site somewhere that's guaranteed to run once at mod setup.
+                // See SurvivorRegionMarkers.Init()'s own doc comment.
+                SurvivorRegionMarkers.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"SurvivorRegionMarkers.Init() threw -- Survivor community-challenge tracking may be incomplete this session: {ex}");
+            }
         }
     }
 }

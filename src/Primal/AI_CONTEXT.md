@@ -3825,6 +3825,68 @@ self-heals. The one mutation it can't see is one that replaces an entry *without
 list's length — nothing does that to this list in practice, but if kill-list progress or a spear-pull
 count ever reads as stale, that's the first place to look.
 
+## Survivor gimmick: community-challenge shared mechanisms (2026-09-16, branch `survivor-gimmick`)
+
+The user's next goal: one gimmick ("Survivor") that tracks as many of the ~50 informal Rain
+World community challenges as possible in a single run. Full challenge-by-challenge feasibility
+pass, ratings, and the reasoning behind them: **`src/Primal/COMMUNITY_CHALLENGES.md`** (not
+duplicated here). This entry only covers what actually shipped: the 8 shared mechanisms that
+pass identified as covering most of the harder challenges, built on a new `survivor-gimmick`
+branch, with **no per-challenge gimmick logic yet** — that was explicit scope, not an oversight.
+
+New files, one per mechanism (see each one's own doc comment for the full decompiled-source
+trace): `SurvivorEvents.cs`, `SurvivorRegionMarkers.cs`, `SurvivorShelterContents.cs`,
+`SurvivorCreatureTracking.cs`, `SurvivorCreatureVariant.cs`, `SurvivorTollState.cs`,
+`SurvivorCheckpointRun.cs`, `SurvivorVanillaProgress.cs`. `PrimalSaveMarkers.SaveDataFor` and a
+call to `SurvivorRegionMarkers.Init()` from `RainWorldHooks.Postfix` are the only edits to
+already-shipped files.
+
+**Findings worth remembering even before any gimmick uses them:**
+
+- **Lizard colors and Centipede's Red variant need no new mechanism at all** — RedLizard,
+  CyanLizard, etc., and RedCentipede, are each their own `CreatureTemplate.Type` value in
+  vanilla, the same enum Kill List already compares directly. Only BigEel/JetFish's `albino`
+  bool fields and Lantern Mouse's continuous HSLColor hue are genuine runtime-variant reads —
+  and the hue one was deliberately left unimplemented (no natural threshold; see
+  `SurvivorCreatureVariant.cs`'s own comment).
+- **A real bug in the base game's own `EntityID` struct**: `Equals` compares only `number`, but
+  `GetHashCode` falls through to `ValueType.GetHashCode()` across all three fields —
+  `spawner`/`number`/`altSeed` — so two EntityIDs `Equals` says are equal aren't guaranteed to
+  hash equal. Using `EntityID` directly as a `Dictionary`/`HashSet` key would silently misbehave.
+  `SurvivorCreatureTracking.cs` keys on the plain `int number` field instead, sidestepping it
+  entirely — this applies to ANY future code in this mod that might want to key a collection on
+  creature identity, not just Survivor.
+- **`ScavengerOutpost`** already tracks everything Heist/Manslaughter/Elder/Usurper/Criminal
+  need: `team` (guards), `worldOutpost.feePayed > 9` (vanilla's own "paid enough" threshold —
+  reused, not invented), `playerTrackers[...].killOrder` (vanilla's own per-player hostility
+  flag, surfaced via a Postfix on `ScavengerReportTransgression`).
+- **Several challenges are just reads of state vanilla already tracks**: Sandbox unlocks
+  (`PlayerProgression.miscProgressionData.GetTokenCollected`), Steam achievements
+  (`RainWorld.AchievementAlreadyDisplayed` — Steam-only for now, matching the user's own
+  install), Echo-met tracking (`DeathPersistentSaveData.ghostsTalkedTo`), and a kill-point-value
+  table (`Menu.SandboxSettingsInterface.DefaultKillScores`, looked up per `CreatureTemplate.Type`
+  via the same ExtEnum string round-trip `KillListEntry` already uses).
+- **Avoid the `MoreSlugcats`-namespaced `SpeedRunTimer` HUD class** for any timing need — same
+  DLC-namespace pattern that broke `PrimalOptions.AllCharacters` under MSC-disabled a few commits
+  back, and every one of these challenges requires MSC disabled. `RainWorldGame.clock` (already
+  used by TimeLimitGimmick) is the safe, plain-vanilla alternative; `SurvivorCheckpointRun.cs`
+  uses it.
+- Every new `[HarmonyPatch]` class in this batch is top-level, not nested inside the static
+  helper it serves (`SurvivorWinHook`, `SurvivorFallDeathHook`, etc., alongside `SurvivorEvents`,
+  not inside it) — deliberately matching every existing patch class in this codebase rather than
+  introducing an untested nested-class structure Harmony's `PatchAll` has never been exercised
+  against here.
+
+**Gating note for whoever wires the actual gimmick up next:** every patch in `SurvivorEvents.cs`
+and `SurvivorTollState.cs` currently gates only on the mod-wide `PrimalSlot.IsActive` check
+(same as every other gimmick's cheapest-first gate), NOT on a specific gimmick assignment — there
+is no "Survivor" ID in `GimmickRegistry` yet to check against. Once it exists, re-gate these
+through `GimmickGate.IsActiveFor(player, SurvivorGimmick.ID)` so they only fire for a player the
+gimmick is actually assigned to.
+
+**Not yet built or tested in-game as of this doc** — no .NET toolchain in this container, and
+this pass is pure infrastructure with nothing wired up to actually exercise it yet.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

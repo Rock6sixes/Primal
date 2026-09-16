@@ -156,3 +156,70 @@ candidates to save for last, or to descope first if the gimmick ships in stages.
 **Nothing in this doc has been built, and none of the "needs confirming" points above have
 been checked against the decompiled source yet** -- this is a planning pass only, done before
 writing any tracking code, per the user's own request.
+
+## Status update, 2026-09-16: shared mechanisms implemented
+
+All 8 mechanisms above are now built, on the `survivor-gimmick` branch, as pure infrastructure
+-- no per-challenge gimmick logic yet, per the user's own request that day. Every API was
+checked against the decompiled `reference/GameSource/` before being written, not guessed; see
+each file's own doc comment for its specific traces. Still completely unbuilt/untested (no
+.NET toolchain in this container).
+
+- `SurvivorEvents.cs` -- the event bus behind mechanism #7 (ending-hook reuse) and the
+  detection half of #1 (fall-damage death): Prefix on `RainWorldGame.Win` (before its
+  synchronous save write, same lesson as the Kill List Postfix/Prefix bug), Postfix on
+  `GameOver` and `BeatGameMode`, and a wasDead/isDead Prefix+Postfix pair on
+  `Player.TerrainImpact` that proves a death was specifically the fall-damage branch without
+  re-deriving vanilla's own threshold formula (confirmed: exactly one `Die()` call in that
+  whole method).
+- `SurvivorRegionMarkers.cs` -- mechanism #1's persistence half, a thin wrapper reusing
+  `PrimalSaveMarkers` verbatim (needed no new persistence code at all).
+- `SurvivorShelterContents.cs` -- mechanism #2, query-only, built on the confirmed
+  `AbstractRoom.entities`/`AbstractRoom.shelter` fields.
+- `SurvivorCreatureTracking.cs` -- mechanism #3. Found and worked around a real bug in the
+  base game's own `EntityID` struct: `Equals` compares only the `number` field, but
+  `GetHashCode` falls through to `ValueType.GetHashCode()`, which hashes every field --
+  violating the Equals/GetHashCode contract .NET's own hashed collections require. Everything
+  here keys on the plain `int number` instead of the struct itself. Also confirmed there's no
+  global "find creature by ID" lookup anywhere in the decompiled source, so this tracks
+  last-known references rather than a live index -- documented as a real limitation, not
+  hidden.
+- `SurvivorCreatureVariant.cs` -- mechanism #4, and the single biggest finding of this pass:
+  **most of it doesn't need to exist.** Lizard colors (RedLizard, CyanLizard, ...) and
+  Centipede's red variant (RedCentipede) are each their OWN `CreatureTemplate.Type` value in
+  vanilla, not a runtime color field -- exactly the enum this mod's Kill List already compares
+  directly. That drops Feast, Sleepover, Pilgrimage, and two of Safari's three creatures to the
+  same "1 -- direct CreatureTemplate.Type check" tier as Ranger/Spearfisher, no longer "4".
+  What's left and actually implemented: `BigEel.albino`/`JetFish.albino`, both confirmed real
+  `bool` fields, read through `AccessTools` per Gotcha #1. Lantern Mouse's purple/green is a
+  genuine continuous HSLColor hue with no natural threshold and is deliberately left
+  unimplemented (see the file's own comment on why guessing a hue range is closer to this mod's
+  honor-system carve-outs than a clean check).
+- `SurvivorTollState.cs` -- mechanism #5. All five toll challenges turned out to share one
+  class, `ScavengerOutpost`, confirmed to already expose everything needed: `team` (guard
+  roster, self-updating when a replacement scavenger spawns in), `worldOutpost.feePayed > 9`
+  (vanilla's own "paid enough" threshold, reused rather than invented), and
+  `playerTrackers[...].killOrder` (vanilla's own per-player hostility flag), the last one
+  surfaced live via a Postfix on `ScavengerReportTransgression`. Not yet covered: telling
+  "stole without paying" apart from "attacked a scavenger" -- both call the same method as far
+  as this pass's research went.
+- `SurvivorCheckpointRun.cs` -- mechanism #6, a small reusable timer/checkpoint state machine
+  against `RainWorldGame.clock` (confirmed 40 ticks/second, same field TimeLimitGimmick already
+  relies on) -- deliberately NOT the `MoreSlugcats`-namespaced `SpeedRunTimer` HUD class some of
+  these challenges' own rules reference, since that namespace pattern is exactly what broke
+  `PrimalOptions.AllCharacters` under MSC-disabled a few commits ago.
+- `SurvivorVanillaProgress.cs` -- mechanism #8, confirming (not guessing) four separate
+  vanilla-state reads: Sandbox unlocks (`PlayerProgression.miscProgressionData
+  .GetTokenCollected`), Steam achievements (`RainWorld.AchievementAlreadyDisplayed`, Steam-only
+  for now -- the user's own install is Steam), Echo-met tracking for Devotee
+  (`DeathPersistentSaveData.ghostsTalkedTo`, which vanilla itself already writes to on every
+  real Echo encounter), and the creature kill-point-value table Massacre/Outlaw/Ranger's own
+  rules reference (`Menu.SandboxSettingsInterface.DefaultKillScores`, looked up per
+  `CreatureTemplate.Type` via the same ExtEnum string-round-trip `KillListEntry` already uses,
+  rather than hand-copying vanilla's own table as a second, driftable copy).
+
+**Ratings this pass revises down**, given the above: Feast, Sleepover, Pilgrimage (now ~1-2:
+direct `CreatureTemplate.Type` checks, no variant research needed), Collector, Devotee, Outlaw,
+Passages, Massacre (now ~1-2: confirmed direct reads of vanilla's own already-tracked state).
+Safari stays slightly higher than those since one of its three creatures (Spitter Spider) wasn't
+checked this pass. Every other rating in the table above still stands.
