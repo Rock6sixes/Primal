@@ -3880,12 +3880,44 @@ already-shipped files.
 **Gating note for whoever wires the actual gimmick up next:** every patch in `SurvivorEvents.cs`
 and `SurvivorTollState.cs` currently gates only on the mod-wide `PrimalSlot.IsActive` check
 (same as every other gimmick's cheapest-first gate), NOT on a specific gimmick assignment — there
-is no "Survivor" ID in `GimmickRegistry` yet to check against. Once it exists, re-gate these
-through `GimmickGate.IsActiveFor(player, SurvivorGimmick.ID)` so they only fire for a player the
-gimmick is actually assigned to.
+was no gimmick ID in `GimmickRegistry` yet to check against at the time this batch was written.
+Now that `CommunityChallengesGimmick.ID` exists (see the next section), re-gate these through
+`GimmickGate.IsActiveFor(player, CommunityChallengesGimmick.ID)` so they only fire for a player
+the gimmick is actually assigned to — still outstanding as of this doc, not done yet.
 
 **Not yet built or tested in-game as of this doc** — no .NET toolchain in this container, and
 this pass is pure infrastructure with nothing wired up to actually exercise it yet.
+
+## Community Challenges gimmick: selection UI only (2026-09-16, same branch)
+
+Next step on the same `survivor-gimmick` branch: the actual gimmick the shared mechanisms above
+were built for, registered in `GimmickRegistry` as `CommunityChallenges` — but **settings-only,
+by explicit request**: "Dont yet implement anything relating to gameplay, just tracking what the
+user checks to persist across restarts." `CommunityChallengesGimmick.cs` has zero Harmony
+patches. All it does: a `ChallengeEntry[]` roster of all 50 challenges (`CommunityChallenges
+Registry.All`, same difficulty-ascending order as COMMUNITY_CHALLENGES.md's own table) and a
+settings sub-view (`CommunityChallengesSettings`) that binds one `Configurable<bool>` per
+(character, challenge) — 50 checkboxes, 5 columns of 10 rows, column-major fill, following
+`ChainsSettings`' own per-type-ban checkbox grid as the closest existing precedent (same
+`Dictionary<string, Dictionary<string, Configurable<bool>>>` shape, same per-character
+`List<UIelement>` cache required by Gotcha #4). `settingsContentHeight: 400f` on the `GimmickDef`
+gives the scroll box room for all 10 rows. **Exact pixel fit for the longest name
+("Enlightenment", 13 characters) at 116px column width is unverified in-game** — flagged in the
+file's own comment, same honesty as Chains' own unverified preset-menu footprint.
+
+**Answering the user's own question, for the record:** yes, Remix config
+(`ModConfigs\rokas.primal.txt`) lives entirely outside any save file, keyed only by characterID —
+confirmed empirically earlier this session (a stray Kill List assignment made during live UI
+testing survived a full game restart precisely because it lived there). So these 50
+challenge-selection checkboxes are already save-slot-independent for free, exactly like gimmick
+assignment itself already is ("if you change what gimmicks Primal Gourmand has, it should apply
+to all save slots") — no new persistence mechanism was needed for that property. Actual challenge
+PROGRESS, once it exists, is the opposite case and will need `DeathPersistentSaveData` (via
+`PrimalSaveMarkers`), the same per-save-file mechanism Kill List's own kill records already use —
+not Remix config the way these selection toggles are. Don't conflate the two when tracking logic
+gets built next: selection = Remix (shared across slots), progress = save file (per slot).
+
+**Not yet built or tested in-game as of this doc** — no .NET toolchain in this container.
 
 ## History — why the architecture is what it is now (don't re-litigate these)
 
