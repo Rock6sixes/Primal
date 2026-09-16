@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Primal.Gimmicks
 {
     /// <summary>
@@ -338,6 +340,319 @@ namespace Primal.Gimmicks
                 }
 
                 ReportCompletion(player, characterID, isLive: false);
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnPlayerDeath exists (see that
+    /// event's own doc comment). "Get pulled into a den and eaten by a centipede" -- the exact
+    /// wording is confirmed against community_challenges_source.csv, saved 2026-09-16 after the
+    /// original 50-challenge table needed re-pasting (the condensed notes in this doc's own
+    /// ratings table didn't retain enough detail to implement this precisely). "A centipede" isn't
+    /// qualified by color/size in the challenge text, and CreatureTemplate.Type confirms
+    /// Centipede/SmallCentipede/RedCentipede are three genuinely distinct types (not one type with
+    /// a runtime size stat) -- **judgment call, flagged explicitly:** counted all three as
+    /// satisfying "a centipede" rather than guessing the community means only the base
+    /// (mature-sized) one.</summary>
+    internal sealed class TastyTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Tasty");
+        public override ChallengeEntry Challenge => _entry;
+
+        private static readonly string[] CentipedeTypes =
+        {
+            CreatureTemplate.Type.Centipede.value,
+            CreatureTemplate.Type.SmallCentipede.value,
+            CreatureTemplate.Type.RedCentipede.value,
+        };
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerDeath += (player, eventCharacterID, killerType, inDen, inShelter) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || killerType == null || !inDen)
+                {
+                    return;
+                }
+
+                foreach (string type in CentipedeTypes)
+                {
+                    if (killerType == type)
+                    {
+                        // A death is as "live" a moment as this mod ever sees -- same reasoning
+                        // DescensionTracker's own fall-death completion already uses.
+                        ReportCompletion(player, characterID, isLive: true);
+                        return;
+                    }
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnPlayerDeath exists. "Get
+    /// eaten by a Daddy Long Legs inside of a shelter" -- a direct read of the same two flags
+    /// TastyTracker uses, just the other location check (inShelter instead of inDen) and a single
+    /// killer type (CreatureTemplate.Type.DaddyLongLegs, confirmed via decompiling
+    /// CreatureTemplate.cs).</summary>
+    internal sealed class LeukocyteTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Leukocyte");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerDeath += (player, eventCharacterID, killerType, inDen, inShelter) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (inShelter && killerType == CreatureTemplate.Type.DaddyLongLegs.value)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnObjectEaten exists. "Eat 10
+    /// Karma Flowers in one cycle" -- a per-character, per-cycle counter reset at every cycle
+    /// boundary (both a successful sleep and a death end "this cycle", so both clear the count for
+    /// the next one), checked live the instant the 10th flower lands. KarmaFlower is a plain
+    /// vanilla class (`public class KarmaFlower : ... IPlayerEdible ...`) -- a direct `is`
+    /// type-check needs no reflection, same as every other concrete-type check already in this
+    /// file (e.g. FoeTracker's CreatureTemplate.Type comparisons). **Known gap, flagged
+    /// explicitly:** the community rules' own "No Hunter Flower!" exclusion (a specific
+    /// Hunter-campaign Karma Flower that apparently shouldn't count) isn't checked -- no
+    /// vanilla flag for it was found on a first pass, and confirming one exists would need
+    /// dedicated research beyond this batch's "wire up existing mechanics" scope.</summary>
+    internal sealed class VisionsTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Visions");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredFlowers = 10;
+
+        // In-memory only, per characterID -- never persisted, matching every other "this cycle"
+        // counter in this file (see FoeTracker/MassacreTracker's own use of PrimalKillTracker's
+        // equivalent in-memory tables).
+        private static readonly Dictionary<string, int> _eatenThisCycle = new Dictionary<string, int>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnObjectEaten += (player, eventCharacterID, edible) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !(edible is KarmaFlower))
+                {
+                    return;
+                }
+
+                int count = _eatenThisCycle.TryGetValue(characterID, out int existing) ? existing + 1 : 1;
+                _eatenThisCycle[characterID] = count;
+
+                if (count >= RequiredFlowers)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _eatenThisCycle.Remove(eventCharacterID);
+                }
+            };
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _eatenThisCycle.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnObjectEaten exists. "Eat a
+    /// Mushroom from 4 different regions on the starting cycle" -- a per-character, per-cycle
+    /// distinct-region set (same reset-at-cycle-boundary shape as VisionsTracker), gated
+    /// additionally on SaveState.cycleNumber == 0 the same way MotherTracker already establishes
+    /// "starting cycle" (checked at the moment of eating here, not at Win time, since this
+    /// challenge cares about the eating itself happening during cycle 0 -- reading cycleNumber
+    /// mid-cycle is safe the same way it's safe at Win-Prefix time, since RainCycleTick's own
+    /// increment only ever happens inside a successful Win call, never mid-cycle).</summary>
+    internal sealed class MycologistTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Mycologist");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredRegions = 4;
+
+        private static readonly Dictionary<string, HashSet<string>> _regionsThisCycle = new Dictionary<string, HashSet<string>>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnObjectEaten += (player, eventCharacterID, edible) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !(edible is Mushroom))
+                {
+                    return;
+                }
+
+                RainWorldGame game = GimmickGate.GameFor(player);
+                if (game?.GetStorySession?.saveState?.cycleNumber != 0)
+                {
+                    return;
+                }
+
+                string region = player.room?.world?.name;
+                if (region == null)
+                {
+                    return;
+                }
+
+                if (!_regionsThisCycle.TryGetValue(characterID, out HashSet<string> regions))
+                {
+                    regions = new HashSet<string>();
+                    _regionsThisCycle[characterID] = regions;
+                }
+                regions.Add(region);
+
+                if (regions.Count >= RequiredRegions)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _regionsThisCycle.Remove(eventCharacterID);
+                }
+            };
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _regionsThisCycle.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnNonLethalDemask exists. "In
+    /// one cycle, demask two live King Vultures and hibernate with their Masks" -- two conditions,
+    /// both checked: a per-cycle count of King-Vulture-specific non-lethal demasks (via the new
+    /// event's own `isKing` flag), and at hibernation, at least 2 King Vulture masks physically
+    /// present in the shelter. The king/non-king distinction on a dropped mask is a plain public
+    /// bool (`VultureMask.AbstractVultureMask.king`, confirmed via decompiling VultureMask.cs,
+    /// set from the same `IsKing` flag Vulture.DropMask already passes when constructing it) --
+    /// trusted directly, matching VultureState.mask's own direct-trust precedent in
+    /// SurvivorEvents.cs. Reuses SurvivorShelterContents.EntitiesInShelter directly rather than
+    /// adding a new CountObjectsOfType-shaped helper, since the "king" filter needs a field
+    /// access CountObjectsOfType's own AbstractObjectType-equality signature doesn't expose. Two
+    /// masks acquired in EARLIER cycles and merely still sitting in the shelter don't count on
+    /// their own -- the per-cycle demask count must independently reach 2 first. **Known gap,
+    /// flagged explicitly:** the challenge's own "No Echo pacification!" exclusion isn't checked,
+    /// left as an honor-system note, the same treatment Saint/Vegan's own unenforceable clauses
+    /// already get in this doc.</summary>
+    internal sealed class UsurperTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Usurper");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredDemasks = 2;
+
+        private static readonly Dictionary<string, int> _kingDemasksThisCycle = new Dictionary<string, int>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnNonLethalDemask += (player, eventCharacterID, vulture, isKing) =>
+            {
+                if (!isKing || !TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+                _kingDemasksThisCycle[characterID] = _kingDemasksThisCycle.TryGetValue(characterID, out int existing) ? existing + 1 : 1;
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                int demasks = _kingDemasksThisCycle.TryGetValue(characterID, out int count) ? count : 0;
+                _kingDemasksThisCycle.Remove(characterID);
+                if (demasks < RequiredDemasks)
+                {
+                    return;
+                }
+
+                int kingMasksInShelter = 0;
+                foreach (AbstractWorldEntity entity in SurvivorShelterContents.EntitiesInShelter(player))
+                {
+                    if (entity is VultureMask.AbstractVultureMask mask && mask.king)
+                    {
+                        kingMasksInShelter++;
+                    }
+                }
+
+                if (kingMasksInShelter >= RequiredDemasks)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _kingDemasksThisCycle.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnGameEnding is finally used by
+    /// something (gap-list item #19 -- it was already built and free, just never consumed).
+    /// "Reach the Depths and ascend while starting on cycle zero" -- reuses the exact
+    /// `standardVoidSea` flag SlugpupGimmick's own ending hook already relies on for its
+    /// "true is the separate void-sea/ascension ending" meaning (see SurvivorEvents.OnGameEnding's
+    /// own doc comment). **Known gap, flagged explicitly, same treatment as Saint/Vegan's own
+    /// unenforceable clauses:** "starting on cycle zero" refers to the Remix assist configuration
+    /// (per community_challenges_source.csv's own Notes column: "Hunter cycles must be set to 1
+    /// and Bonus cycles to 0 via remix assists") rather than any in-run state this mod could check
+    /// -- reaching this ending at all already implies a completed run, so no separate cycle-number
+    /// check is applied here. "No Guardian skip!" is likewise left as an honor-system note.</summary>
+    internal sealed class PerseveranceTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Perseverance");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            {
+                if (!standardVoidSea || game?.Players == null)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player))
+                    {
+                        continue;
+                    }
+                    if (TryGetEnabledCharacter(player, out string characterID))
+                    {
+                        ReportCompletion(player, characterID, isLive: false);
+                    }
+                }
             };
         }
     }

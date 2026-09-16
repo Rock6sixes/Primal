@@ -4252,6 +4252,77 @@ future `ChallengeTracker`'s own job via `TryGetEnabledCharacter`).
 .NET toolchain in this container; every vanilla member used above was verified against
 `reference/GameSource/*.cs` first, per this project's standing rule.
 
+## Original 50-challenge table recovered as CSV; 6 more trackers wired (2026-09-16, later still)
+
+Requested: "wire up the trackers for whom the shared mechanics already exist for." Hit a real
+blocker immediately: COMMUNITY_CHALLENGES.md's own ratings table only ever recorded a condensed
+"what it needs" summary per challenge — the *mechanism* shape, not always the concrete data
+(exact creature type, room name, threshold) needed to implement one correctly — and the original
+50-row table with that data had been pasted in chat once, then fell out of context on
+compaction. Rather than guess specifics into permanent game logic, asked the user directly; they
+re-pasted the full table, now saved verbatim as `src/Primal/community_challenges_source.csv` (51
+rows including header, 23 columns) for this and every future batch to reference without needing
+another re-paste.
+
+With exact wording available, picked exactly the challenges buildable from mechanisms that
+*already exist* (no new mechanism research — matching the request's own scope) and skipped
+everything still blocked on something genuinely new: cross-region creature-carry (Chieftain,
+Fishtank, Symbiote, Charged, Offering, Chef, Guardian, Pilgrimage), toll/reputation state wiring
+(Manslaughter, Heist, Elder, Criminal), a color/variant roster (Feast, Friend, Safari, Scholar),
+and challenges needing room-name data-entry the CSV doesn't actually give either (Nomad, Journey,
+Circuit, Desperado, U-Turn, Visitor — their descriptions name real vanilla rooms/regions, but not
+by internal room ID, which would need a separate lookup pass, not just wiring).
+
+Six landed, added to `ChallengeTrackers.cs` and registered in
+`ChallengeTrackerRegistry.All` (`CommunityChallengesGimmick.cs`):
+
+- **`TastyTracker`** / **`LeukocyteTracker`** — both direct consumers of the new
+  `SurvivorEvents.OnPlayerDeath` (killer type + den/shelter flags), exactly what that event was
+  built for. Tasty ("pulled into a den and eaten by a centipede") counts all three vanilla
+  centipede `CreatureTemplate.Type`s (`Centipede`, `SmallCentipede`, `RedCentipede`, confirmed
+  distinct via decompiling `CreatureTemplate.cs`) rather than guessing the community means only
+  one specific size — a judgment call, flagged in the class's own doc comment. Leukocyte ("eaten
+  by a Daddy Long Legs inside of a shelter") is a single killer type + the `inShelter` flag.
+- **`VisionsTracker`** (10 Karma Flowers in one cycle) / **`MycologistTracker`** (a Mushroom from
+  4 distinct regions on the starting cycle) — both direct consumers of the new
+  `SurvivorEvents.OnObjectEaten`. `KarmaFlower`/`Mushroom` are plain vanilla classes implementing
+  `IPlayerEdible` directly, so `edible is KarmaFlower`/`is Mushroom` needs no reflection. Each
+  keeps a small per-character, in-memory counter/set (matching `PrimalKillTracker`'s own
+  in-memory-table precedent), reset on both `OnSuccessfulHibernation` and `OnCycleFailed` since
+  either ends "this cycle" for the next one to start fresh. Mycologist's cycle-0 gate reuses
+  `SaveState.cycleNumber == 0` exactly as `MotherTracker` already established, just checked at
+  the moment of eating instead of at Win time (both are safe for the same reason: `RainCycleTick`'s
+  own increment only ever happens inside a successful `Win` call, never mid-cycle). **Known gap,
+  flagged explicitly:** Visions' own "No Hunter Flower!" exclusion isn't checked — no vanilla flag
+  for a Hunter-specific Karma Flower turned up on a first pass, and confirming one exists needs
+  its own research, out of this batch's "wire up existing mechanics" scope.
+- **`UsurperTracker`** — the first consumer of the new `SurvivorEvents.OnNonLethalDemask`. Two
+  conditions, both checked: a per-cycle count of King-Vulture-specific demasks (`isKing` flag on
+  the event) reaching 2, AND at hibernation, at least 2 King Vulture masks physically present in
+  the shelter. The king/non-king distinction reuses `VultureMask.AbstractVultureMask.king` — a
+  plain public bool (confirmed via decompiling `VultureMask.cs`, set from the same `IsKing` flag
+  `Vulture.DropMask` already passes when constructing the dropped mask) — trusted directly, the
+  same direct-trust precedent already set for `VultureState.mask` in `SurvivorEvents.cs` itself.
+  Reads shelter contents via `SurvivorShelterContents.EntitiesInShelter` directly rather than
+  extending `CountObjectsOfType` (whose `AbstractObjectType`-equality signature has no way to
+  filter on the `king` instance field). **Known gap:** "No Echo pacification!" left unenforced,
+  an honor-system note.
+- **`PerseveranceTracker`** — the first consumer of `SurvivorEvents.OnGameEnding` at all (closing
+  gap-list item #19, "zero-cost, already built" since the original 8-mechanism batch — literally
+  nothing new needed here beyond writing the subscriber). Reuses the exact same `standardVoidSea`
+  flag `SlugpupGimmick`'s own ending hook already relies on (`SlugpupEndingHook`,
+  `SlugpupGimmick.cs`), iterating `game.Players` the same way `SurvivorGameOverHook`/
+  `SurvivorWinHook` already do (`OnGameEnding` itself only hands back `(RainWorldGame,
+  standardVoidSea)`, no `Player`, unlike every other `SurvivorEvents` event). **Known gap:**
+  "starting on cycle zero" and "no Guardian skip" are both Remix-assist-configuration/
+  honor-system clauses per the CSV's own Notes column ("Hunter cycles must be set to 1 and Bonus
+  cycles to 0 via remix assists"), not in-run state this mod can actually check — left
+  unenforced, same treatment Saint/Vegan's own unenforceable clauses already get.
+
+14 of 50 challenges now have a tracker registered (up from 8). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the
+whole `src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

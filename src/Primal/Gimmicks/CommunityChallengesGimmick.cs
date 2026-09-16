@@ -494,6 +494,12 @@ namespace Primal.Gimmicks
             new MotherTracker(),
             new SleepoverTracker(),
             new PassagesTracker(),
+            new TastyTracker(),
+            new LeukocyteTracker(),
+            new VisionsTracker(),
+            new MycologistTracker(),
+            new UsurperTracker(),
+            new PerseveranceTracker(),
         };
 
         private static bool _registered;

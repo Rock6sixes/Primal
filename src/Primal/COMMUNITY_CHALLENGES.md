@@ -382,3 +382,47 @@ re-checked across the whole `src/Primal` tree after this change.
 
 Zero consumers wired up yet for any of these 5 -- same "mechanism only" scope as the original
 8-mechanism batch. Gap-list items #4, #5, and #8-#19 above are still open.
+
+## Status update, 2026-09-16 (later still): original 50-challenge table recovered as CSV; 6 more trackers wired -- 14 of 50 now implemented
+
+Requested: "wire up the trackers for whom the shared mechanics already exist for." Hit a real
+blocker first -- the condensed "what it needs" notes in this doc's own ratings table describe
+*mechanisms*, not always the concrete data (exact creature types, room names, thresholds) needed
+to implement a specific challenge correctly, and that data only ever existed in the original
+50-row table pasted in chat, which had since fallen out of context. Asked the user directly rather
+than guessing; they re-pasted it, now saved verbatim as `community_challenges_source.csv` (23
+columns: name, difficulty, exact challenge description, PC/console verification requirements,
+notes, vote history) for this and every future batch to reference.
+
+With exact wording available, picked the 6 challenges buildable purely from mechanisms that
+already exist -- no new research, matching the request's own scope -- and skipped everything
+still needing a genuinely new mechanism (cross-region creature-carry, color/variant roster,
+toll/reputation state wiring, room-name data-entry for challenges like Nomad/Journey/Circuit/
+Desperado where the exact room IDs aren't in the CSV either and would need separate lookup):
+
+- **TastyTracker** and **LeukocyteTracker** -- both direct reads of the new
+  `SurvivorEvents.OnPlayerDeath` (killer creature type + den/shelter flags), exactly the
+  mechanism gap #3 was built to close. Tasty counts all three vanilla centipede types
+  (`Centipede`, `SmallCentipede`, `RedCentipede`) as satisfying "a centipede" since the challenge
+  text doesn't specify one -- a judgment call, flagged in the class's own doc comment.
+- **VisionsTracker** (10 Karma Flowers in one cycle) and **MycologistTracker** (a Mushroom from 4
+  distinct regions on the starting cycle) -- both direct consumers of the new
+  `SurvivorEvents.OnObjectEaten`, each with its own small per-character, per-cycle counter/set
+  reset at cycle boundaries. Visions' "No Hunter Flower!" exclusion isn't checked (no vanilla flag
+  for it found on a first pass) -- flagged as a known gap rather than silently ignored.
+- **UsurperTracker** -- the first consumer of the new `SurvivorEvents.OnNonLethalDemask`: a
+  per-cycle count of King-Vulture-specific demasks (>= 2) plus a shelter check for 2+ King Vulture
+  masks physically present at hibernation (`VultureMask.AbstractVultureMask.king`, a plain public
+  bool, trusted directly). "No Echo pacification!" left as an honor-system note.
+- **PerseveranceTracker** -- the first consumer of `SurvivorEvents.OnGameEnding` (gap-list item
+  #19, flagged as "zero-cost, already built" since the original 8-mechanism batch). Reuses the
+  same `standardVoidSea` flag SlugpupGimmick's own ending hook already relies on. "Starting on
+  cycle zero" and "no Guardian skip" are both Remix-assist-configuration/honor-system clauses per
+  the CSV's own Notes column, not in-run state this mod can check -- left unenforced, same
+  treatment Saint/Vegan's own unenforceable clauses already get in this doc.
+
+**Still not built or tested in-game** -- no .NET toolchain in this container. Brace/paren balance
+re-checked across the whole `src/Primal` tree after this change. 14 of 50 challenges now have a
+working tracker (assuming correctness once actually tested); 36 remain, most blocked on a
+not-yet-built mechanism (cross-region carry, toll/reputation state, color/variant roster, several
+single-purpose research items) rather than missing data now that the CSV exists.
