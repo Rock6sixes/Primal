@@ -249,12 +249,17 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>Hibernate with the Red Lizard in Industrial Complex without taming or killing it.
-    /// **Simplified, flagged rather than silently assumed:** only checks "a live Red Lizard is
-    /// present in the shelter" (SurvivorShelterContents.HasLiveCreatureOfType already excludes
-    /// dead ones, covering "without killing it") plus the region -- does NOT yet check "without
-    /// taming it", since this mod has no existing read on a Lizard's own tamed/friendship state.
-    /// A future pass adding that would need to confirm the real field (LizardAI's own friend-
-    /// tracker state, likely) before this can distinguish a tamed Red Lizard from a wild one.</summary>
+    ///
+    /// **2026-09-16: "without taming it" is now actually checked**, closing the gap this class's
+    /// own comment previously flagged. The real mechanism, confirmed via decompiling
+    /// ArtificialIntelligence.cs (not guessed): every AI, Lizards included, carries a public
+    /// `friendTracker` (type `FriendTracker`) whose `friend` field is the specific Creature it's
+    /// been tamed by -- null while wild. `ChainsGimmick.cs` already trusts this exact expression
+    /// directly, twice (`lizard.AI.friendTracker?.friend == self`), to recognize "this is my own
+    /// tamed ally, don't lock a room over it" -- same field, same access pattern, reused here
+    /// rather than re-derived. "Tamed" is checked as `friend == player` specifically (tamed BY
+    /// THIS character), not merely `friend != null` (tamed by anyone) -- matching the challenge's
+    /// own wording ("without taming... it").</summary>
     internal sealed class SleepoverTracker : ChallengeTracker
     {
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Sleepover");
@@ -279,10 +284,19 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                if (SurvivorShelterContents.HasLiveCreatureOfType(player, CreatureTemplate.Type.RedLizard))
+                AbstractCreature redLizard = SurvivorShelterContents.FindLiveCreatureOfType(player, CreatureTemplate.Type.RedLizard);
+                if (redLizard == null)
                 {
-                    ReportCompletion(player, characterID, isLive: false);
+                    return;
                 }
+
+                if (redLizard.realizedCreature is Lizard lizard && lizard.AI != null && lizard.AI.friendTracker?.friend == player)
+                {
+                    // Tamed by this character -- doesn't count, per the challenge's own wording.
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: false);
             };
         }
     }

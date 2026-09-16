@@ -88,8 +88,18 @@ namespace Primal.Gimmicks
         /// present in the shelter -- the shape Charged/Sleepover/Symbiote/Mother all need ("is my
         /// specific carried creature here with me"), parameterized on type rather than hardcoded to
         /// any one species since several challenges share this exact check against different
-        /// species.</summary>
+        /// species. A thin wrapper over FindLiveCreatureOfType for callers that only need the
+        /// yes/no answer.</summary>
         public static bool HasLiveCreatureOfType(Player player, CreatureTemplate.Type type)
+        {
+            return FindLiveCreatureOfType(player, type) != null;
+        }
+
+        /// <summary>Same as HasLiveCreatureOfType, but hands back the actual AbstractCreature
+        /// instead of a bool -- for a caller that needs to inspect the creature further (e.g.
+        /// SleepoverTracker checking its realized Lizard's own tame/friend state, which a plain
+        /// yes/no presence check can't answer).</summary>
+        public static AbstractCreature FindLiveCreatureOfType(Player player, CreatureTemplate.Type type)
         {
             foreach (AbstractWorldEntity entity in EntitiesInShelter(player))
             {
@@ -97,10 +107,10 @@ namespace Primal.Gimmicks
                     && creature.creatureTemplate?.type == type
                     && !creature.state.dead)
                 {
-                    return true;
+                    return creature;
                 }
             }
-            return false;
+            return null;
         }
 
         /// <summary>How many INSTANCES of this exact AbstractObjectType are present in the

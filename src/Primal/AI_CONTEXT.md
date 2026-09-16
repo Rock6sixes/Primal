@@ -4153,10 +4153,17 @@ settled).
   `cycleNumber++` runs later inside Win's body) -- same "this cycle, not the next one" timing
   already established for other Win-Prefix reads in this codebase.
 - **SleepoverTracker** (hibernate with the Red Lizard in Industrial Complex, un-killed) reuses
-  `HasLiveCreatureOfType`/`ShelterRoomFor` outright. **Deliberately simplified and flagged, not
-  silently assumed:** doesn't check "without taming it" at all -- this mod has no read on a
-  Lizard's tamed/friendship state yet, and confirming the real field (likely something on
-  `LizardAI`'s own friend-tracker) needs its own research pass.
+  `ShelterRoomFor` and a new `SurvivorShelterContents.FindLiveCreatureOfType` (`HasLiveCreatureOfType`'s
+  own bool answer wasn't enough here -- checking "without taming it" needs the actual creature
+  instance to inspect). **2026-09-16, later: the taming gap flagged here originally is closed.**
+  Confirmed via decompiling `ArtificialIntelligence.cs` that every AI carries a public
+  `friendTracker` (`FriendTracker`) whose `friend` field is the specific Creature that's tamed it
+  -- null while wild -- and that `ChainsGimmick.cs` already trusts this exact same expression
+  directly, twice (`lizard.AI.friendTracker?.friend == self`), to recognize its own tamed allies.
+  Reused verbatim rather than re-derived: `redLizard.realizedCreature is Lizard lizard &&
+  lizard.AI != null && lizard.AI.friendTracker?.friend == player`. Checked as `friend == player`
+  specifically (tamed BY this character), not `friend != null` (tamed by anyone), matching the
+  challenge's own wording.
 - **PassagesTracker** (all vanilla Steam achievements) uses a new
   `SurvivorVanillaProgress.AllAchievements()`, enumerating `RainWorld.AchievementID` via
   `Enum.GetValues` -- confirmed via decompilation that, unlike `SandboxUnlockID`, this is a plain
