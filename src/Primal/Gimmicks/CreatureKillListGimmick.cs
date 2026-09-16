@@ -41,7 +41,8 @@ namespace Primal.Gimmicks
     /// set) rather than written to the save file the instant they happen, and are only committed
     /// to DeathPersistentSaveData -- permanently, for the rest of that save file -- if the
     /// character actually reaches a shelter and the cycle ends successfully (see
-    /// CreatureKillListCycleWinHook, a Postfix on RainWorldGame.Win). If the character dies first
+    /// CreatureKillListCycleWinHook, a Prefix on RainWorldGame.Win -- see that hook's own doc
+    /// comment for why it has to run before Win's body, not after). If the character dies first
     /// (CreatureKillListCycleGameOverHook, a Postfix on RainWorldGame.GameOver), that cycle's
     /// pending kills are discarded outright, per explicit request: "if character dies, then it
     /// should not get counted." Persistence itself follows OneSpearGimmick.cs's own established
