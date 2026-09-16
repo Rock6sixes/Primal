@@ -931,3 +931,80 @@ built or tested in-game** -- no .NET toolchain in this container. Every vanilla 
 (`FriendTracker.Update`/`.friend`, `DataPearl.AbstractDataPearl.DataPearlType`,
 `AbstractDataPearl.dataPearlType`) was verified against `reference/GameSource/*.cs` first.
 Brace/paren balance re-checked across the whole `src/Primal` tree after this change.
+
+## Final status, 2026-09-16: 40 of 50 implemented; the remaining 10, and exactly what each needs
+
+This branch is being merged to `main` as-is. Here is the complete, final list of the 10 challenges
+with no tracker, each with the precise, single blocking gap standing between it and being
+buildable -- nothing vague, no re-investigation needed, just the missing input or decision:
+
+1. **Journey** -- "Reach the Depths from the highest shelter in Five Pebbles in one cycle."
+   Blocker: the exact room ID of "the highest shelter in Five Pebbles" itself. The destination
+   (the Depths entry room, `SB_E05`) is already confirmed and reused by Devotee. Once the starting
+   shelter's room ID is supplied, this is a same-cycle two-room-visit check, structurally identical
+   to trackers already built (e.g. `UTurnTracker`). **Needs:** one room ID from the user.
+2. **Visitor** -- "After leaving the tutorial area, re-enter and return to the platform you first
+   spawn on before the rain starts." Blocker: the exact tutorial spawn room + position (a candidate,
+   `SU_A22`, was floated from `Menu/RegionSelectMenu.cs`'s own start-room list but never confirmed
+   against real spawn behavior). **Needs:** the confirmed spawn room ID (and, if the room has
+   multiple usable platforms, which specific one counts).
+3. **Vegan** -- "Eat all 7 blue fruit in the tutorial area before crossing the charge-hop gap for
+   the first time." Blocker: same missing tutorial-area geometry as Visitor, plus the 7 individual
+   fruit spawn positions and the room ID of the charge-hop gap that marks the deadline. **Needs:**
+   the tutorial-area room layout (ideally the same answer that unblocks Visitor, plus fruit
+   positions and the gap-crossing room/threshold).
+4. **Fishtank** -- "Bring 7 Hazers from unique spawn locations to the same body of water, alive."
+   Blocker: a full map of Hazer spawn dens, needed to verify "unique spawn location" rather than
+   just "7 Hazers" (which this mod could already count via existing carry/creature-tracking
+   mechanisms). The CSV's own notes point at an external community-made "Hazer spawn map" resource.
+   **Needs:** that spawn-location map (or a list of den room IDs) from the user.
+5. **Outlaw** -- "Get 10k+ points in a Hunter run." Blocker: the real scoring formula. The user
+   described it precisely (deaths and quits subtract; eaten food and survived cycles add; the total
+   is multiplied by passages acquired) and pointed at "the hunter's ending when they run out of
+   cycles and die at cycle 0" as where it lives in vanilla. Searched `WinState.CycleCompleted`
+   (confirmed `Outlaw` is a real vanilla passage token, but its own scoring contribution is a narrow
+   kill-count, not this formula) and `RedsIllness.cs`, plus broad searches for
+   "quitCount"/"survivalScore"-shaped terms, with no match anywhere in the decompiled source.
+   **Needs:** the user to point at the specific class/method (or confirm it isn't in
+   `reference/GameSource` at all -- e.g. lives in a DLC assembly not currently decompiled).
+6. **Triplopia** -- "Triple-spawn Chimney Canopy, then survive the starve cycle." Blocker: the user
+   already confirmed this is likely an emergent bug with no clean technical signature to detect
+   ("there may not be a proper technical signature... this may just be a bug that places multiple
+   creatures into dens"). **Needs:** either a concrete idea for what state the bug leaves behind
+   that could be observed, or acceptance that this challenge stays untracked/honor-system.
+7. **Broadcast** -- "Starting from the southmost Sky Islands shelter, activate a Vulture Grub and
+   travel to the top of Communication Arrays without letting the laser fade or turn red, then die
+   to a Vulture in the last room." Blocker: total absence of any lead. Exhaustive searches across
+   the whole decompiled source for "laser," "signal," "array," "beam," "relay," "transmission," and
+   "antenna" found nothing relevant. This is the only one of the 10 with zero technical foothold.
+   **Needs:** the user's own knowledge of the real vanilla class/field names behind this mechanic
+   before any further research is even possible.
+8. **Heist** -- "Steal a pearl from the lowest Garbage Wastes Scavenger Toll without paying and
+   hibernate with it before the rain starts." Blocker: identifying which specific GW toll room
+   counts as "the lowest" among the region's several Scavenger Toll outposts. The underlying
+   mechanism is already fully built and proven (`SurvivorTollState.OnItemStolen`/`HasPaidToll`,
+   already reused by Manslaughter/Chieftain/Criminal) -- this is purely a room-ID lookup away from
+   being wired up. **Needs:** either the specific room ID from the user, or an explicit decision to
+   accept "any GW toll" as a documented simplification.
+9. **Elder** -- "Kit out any 6 Scavengers at any toll with Vulture Masks in one cycle." Blocker: an
+   entirely new, unbuilt mechanic. The mod already detects a live Vulture being non-lethally
+   demasked (`SurvivorEvents.OnNonLethalDemask`, built for Usurper), but Elder needs the opposite
+   and unrelated signal: a Scavenger wearing a Vulture Mask as an equipped item. No research has
+   been done on how vanilla represents a Scavenger's worn mask item at all. **Needs:** a research
+   pass into `Scavenger.cs`/`ScavengerAI.cs` for how equipped masks are tracked, ideally with the
+   user confirming whether "any 6 Scavengers" means 6 simultaneously-masked Scavengers alive at
+   once, or 6 masking events across the cycle (they could differ if a masked Scavenger dies and is
+   replaced).
+10. **Saint** -- "Complete all 3 objectives without killing anything, or eating live prey," with
+    exclusions ("no karma caching," "no echo-negated kills," "no Guardian Skip"). Blocker:
+    genuinely underspecified, re-confirmed rather than newly found -- the exclusion clauses
+    describe *technique legality* (how a player avoided a kill counting), not observable game
+    state, which this mod has no way to verify. The core "0 kills, 0 live-prey-eaten across a full
+    3-objective run" part is straightforwardly buildable today from `PrimalKillTracker` and the
+    existing eaten-food tracking. **Needs:** a decision on whether to ship the trackable core (kill
+    count + live-prey-eaten count over a full run) as an honor-system approximation, accepting that
+    the exclusion clauses can never be technically enforced, or leave it unimplemented entirely.
+
+**Still not built or tested in-game for any of the 40 implemented trackers** -- no .NET toolchain
+in this container across the whole session. All 40 should be treated as "should compile and behave
+correctly per source-level review," not as verified working.

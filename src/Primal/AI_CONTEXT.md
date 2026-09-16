@@ -5084,6 +5084,60 @@ in this container. Every vanilla member used (`FriendTracker.Update`/`.friend`,
 against `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole
 `src/Primal` tree after this change.
 
+## Final status before merge to main (2026-09-16): the remaining 10 challenges, precisely scoped
+
+`survivor-gimmick` merges to `main` with 40 of 50 community challenges tracked. This section is
+the single source of truth for what's left — read this instead of re-deriving it from the
+per-challenge history above. Each of the 10 has exactly one blocking gap, not a vague "needs more
+work":
+
+1. **Journey** (reach the Depths from the highest Five Pebbles shelter in one cycle) — needs one
+   room ID (the starting shelter; the Depths-entry destination `SB_E05` is already known from
+   Devotee). Mechanically identical to `UTurnTracker` once supplied.
+2. **Visitor** (leave the tutorial, re-enter, return to the exact first-spawn platform before rain)
+   — needs the confirmed tutorial spawn room/position. A candidate room, `SU_A22`, was floated from
+   `Menu/RegionSelectMenu.cs`'s debug start-room list but never verified.
+3. **Vegan** (eat all 7 tutorial-area blue fruit before the first charge-hop gap crossing) — needs
+   the same tutorial-area geometry as Visitor, plus the 7 fruit positions and the gap-room ID.
+4. **Fishtank** (7 Hazers from unique spawns, alive, into one body of water) — needs a Hazer den
+   map so "unique spawn location" can be verified; the CSV references an external community map.
+   Counting 7 live Hazers moved together is otherwise already within this mod's existing
+   carry-tracking primitives.
+5. **Outlaw** (10k+ Hunter-run score) — needs the user to point at the real scoring formula's
+   location in source (described as: deaths/quits subtract, food/survival add, multiplied by total
+   passages; said to appear in the Hunter cycle-0/out-of-cycles ending). Searched
+   `WinState.CycleCompleted` (found `Outlaw` is a real passage token, but its own contribution is
+   an unrelated narrow kill-count) and `RedsIllness.cs` with no match — may live in a DLC assembly
+   not currently decompiled into `reference/GameSource`.
+6. **Triplopia** (triple-spawn Chimney Canopy, survive the starve cycle) — user already confirmed
+   this is likely a signature-less emergent bug. Needs either a concrete observable side effect to
+   key on, or a decision to leave it untracked.
+7. **Broadcast** (Sky Islands laser-tower traversal ending in a scripted Vulture death) — zero
+   technical foothold found after exhaustively searching "laser," "signal," "array," "beam,"
+   "relay," "transmission," "antenna" across the whole decompiled source. The only one of the 10
+   with no lead at all. Needs the user's own knowledge of the real class/field names.
+8. **Heist** (steal from, don't pay, the *lowest* GW Scavenger Toll, then hibernate with the pearl
+   before rain) — the toll mechanism itself (`SurvivorTollState.OnItemStolen`/`HasPaidToll`) is
+   already built and proven by Manslaughter/Chieftain/Criminal. Needs only the specific room ID for
+   "the lowest" toll, or an explicit decision to accept "any GW toll" as a simplification.
+9. **Elder** (mask 6 Scavengers with Vulture Masks at any toll in one cycle) — needs a wholly new
+   mechanism: detecting a Scavenger's *equipped* mask item, which is unrelated to the existing
+   live-Vulture-demasking event (`SurvivorEvents.OnNonLethalDemask`) built for Usurper. No research
+   done yet into `Scavenger.cs`/`ScavengerAI.cs`'s item-equip representation. Also needs a scope
+   call from the user: 6 simultaneously-masked Scavengers alive at once, vs. 6 masking events over
+   the cycle (these diverge if a masked Scavenger dies mid-cycle and gets replaced).
+10. **Saint** (finish all 3 objectives with 0 kills / 0 live-prey-eaten, excluding karma-caching,
+    echo-negated kills, and Guardian Skip) — re-confirmed genuinely underspecified, not newly
+    found: the exclusion clauses describe technique legality, which isn't observable game state.
+    The trackable core (kill count + live-prey-eaten count across a full run) is buildable today
+    from `PrimalKillTracker` and existing eaten-food tracking. Needs a decision: ship that core as
+    an honor-system approximation of the full rule, or leave unimplemented.
+
+**None of the 40 implemented trackers have been built or tested in a real game** — no .NET
+toolchain was available in this container for this entire session. Treat all 40 as "should compile
+and behave correctly per source-level review, verified against `reference/GameSource/*.cs`," not as
+confirmed-working.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
