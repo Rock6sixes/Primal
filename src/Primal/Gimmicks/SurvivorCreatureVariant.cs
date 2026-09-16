@@ -12,11 +12,16 @@ namespace Primal.Gimmicks
     /// CreatureTemplate.Type.RedLizard, .CyanLizard, .PinkLizard, etc. (CreatureTemplate.cs) and
     /// .RedCentipede (also its own Type, distinct from plain .Centipede) -- exactly the same enum
     /// type this mod's Kill List gimmick already compares directly. So Feast's Red Centipede,
-    /// Sleepover's Red Lizard, Pilgrimage's Cyan Lizard, and two of Safari's three creatures need
-    /// NO new mechanism at all: `creature.creatureTemplate.type == CreatureTemplate.Type.RedLizard`
-    /// (etc.) is already sufficient, the same one-line check every other type-based gimmick in this
-    /// mod already uses. This revises those five challenges' original "4 -- creature variant
-    /// research needed" ratings down; see COMMUNITY_CHALLENGES.md's own updated notes.
+    /// Sleepover's Red Lizard, and Pilgrimage's Cyan Lizard need NO new mechanism at all:
+    /// `creature.creatureTemplate.type == CreatureTemplate.Type.RedLizard` (etc.) is already
+    /// sufficient, the same one-line check every other type-based gimmick in this mod already uses.
+    ///
+    /// **2026-09-16: Safari's third creature confirmed too.** `CreatureTemplate.Type.SpitterSpider`
+    /// is also its own distinct registered Type (CreatureTemplate.cs) -- so all three of Safari's
+    /// creatures (Red Lizard, Red Centipede, Spitter Spider) are plain Type comparisons, closing
+    /// out that challenge's own variant-identification need entirely. This revises those six
+    /// challenges' original "4 -- creature variant research needed" ratings down; see
+    /// COMMUNITY_CHALLENGES.md's own updated notes.
     ///
     /// What's left, and what this file actually provides, is the minority of species where the
     /// variant genuinely is a runtime field rather than a distinct Type: BigEel (Leviathan) and
@@ -26,16 +31,21 @@ namespace Primal.Gimmicks
     /// showing public in the decompiled/publicized reference proves nothing about the real runtime
     /// assembly's accessibility.
     ///
-    /// **Deliberately NOT attempted here: Lantern Mouse purple/green.** Its variant is a genuinely
-    /// continuous HSLColor hue (LanternMouse.iVars.color.hue, a float from 0 up to but excluding
-    /// 1), not a discrete
-    /// flag -- bucketing that into "purple" vs. "green" is a judgment call, and the challenge's own
-    /// notes tell human reviewers to "test colours using a colour picker and ask if unsure" rather
-    /// than giving a hue range themselves. Automating a guess here risks disagreeing with however
-    /// that's actually adjudicated, for the benefit of exactly one challenge (Offering) -- closer in
-    /// spirit to this mod's other honor-system carve-outs (see COMMUNITY_CHALLENGES.md's own scoping
-    /// note on technique-legality clauses) than to a clean state check. Left for a future pass, once
-    /// there's a concrete hue range to check against rather than a guess.
+    /// **Deliberately NOT attempted here: Lantern Mouse purple/green.** 2026-09-16: traced the full
+    /// formula this time (`LanternMouse.GenerateIVars`, not just confirmed its existence): hue is
+    /// `UnityEngine.Random.value &lt; 0.01f` a fully uniform-random hue, else (roughly 50/50) either
+    /// `Lerp(0.5, 0.65, random)` -- a cyan-through-blue/violet arc, the most plausible source of
+    /// what the community calls "purple" -- or `Lerp(0, 0.1, random)` -- red/orange, not green at
+    /// all. There is no dedicated "green" cluster in the ordinary (99%) case; a true green hue
+    /// (~0.33) only ever arises from the rare 1% fully-random roll. This is genuinely NOT a clean
+    /// two-value discrete split (it's one continuous float with two common clusters and a rare
+    /// wildcard) -- bucketing it into "purple" vs. "green" is exactly the judgment call the
+    /// challenge's own notes defer to a human ("test colours using a colour picker and ask if
+    /// unsure") rather than resolve themselves. Automating a guess here risks disagreeing with
+    /// however that's actually adjudicated, for the benefit of exactly one challenge (Offering) --
+    /// closer in spirit to this mod's other honor-system carve-outs (see COMMUNITY_CHALLENGES.md's
+    /// own scoping note on technique-legality clauses) than to a clean state check. Left
+    /// unimplemented on purpose, now with the real formula recorded here for whoever revisits it.
     /// </summary>
     internal static class SurvivorCreatureVariant
     {

@@ -21,12 +21,25 @@ namespace Primal.Gimmicks
     ///    file, below) patches directly rather than trying to infer hostility from anything
     ///    indirect.
     ///
-    /// Not yet covered by this pass: distinguishing "stole a pearl without paying" specifically
-    /// from any other transgression (attacking a scavenger also calls the same method, as far as
-    /// this file's own research went) -- ScavengerReportTransgression's call sites weren't traced
-    /// exhaustively. OnOutpostTransgression fires for any transgression the game itself reports;
-    /// a future per-challenge tracker that needs to tell "stole" apart from "attacked" will need
-    /// that follow-up research first.
+    /// **2026-09-16: the "stole vs. attacked" gap flagged above is closed, plus two more pieces
+    /// Heist/Criminal/Manslaughter actually need.** Traced ScavengerReportTransgression's real
+    /// call sites (ScavengerAI.cs): both live inside `ScavengerAI.SocialEvent(SocialEventRecognizer
+    /// .EventID ID, Creature subjectCrit, Creature objectCrit, PhysicalObject involvedItem)`, which
+    /// receives the specific `EventID` (Theft, NonLethalAttack, LethalAttack, ...) and the actual
+    /// `involvedItem` BEFORE deciding whether to call ScavengerReportTransgression at all --
+    /// exactly the "what actually happened" detail ScavengerReportTransgression's own signature
+    /// throws away. Rather than re-deriving SocialEvent's own `num > 0.5f` reporting threshold
+    /// (which mixes relationship state, distance, and item value in ways not worth duplicating),
+    /// OnItemStolen (below) is its own independent signal off SocialEvent directly, firing on
+    /// every genuine `EventID.Theft` regardless of whether it happened to also cross that
+    /// hostility threshold -- for Heist's purposes ("stole a pearl without paying"), the item
+    /// changing hands is the actual signal, not how offended the Scavenger got about it.
+    ///
+    /// Also added: OnTollPassed, a Postfix on Player.NewRoom (the same vanilla hook
+    /// SurvivorEvents.OnPlayerEnteredRoom already patches independently -- two unrelated Postfixes
+    /// on the same method, no ordering dependency between them) that fires once a player's room
+    /// changes away from a toll room they were just in, handing back whether they'd paid
+    /// (HasPaidToll) at that moment -- Criminal's own "passed 3 tolls without paying" need.
     /// </summary>
     internal static class SurvivorTollState
     {
@@ -97,10 +110,43 @@ namespace Primal.Gimmicks
         /// each have to re-derive it.</summary>
         public static event System.Action<ScavengerOutpost, Player, bool> OnOutpostTransgression;
 
+        /// <summary>Fires on every genuine item-theft SocialEvent a Scavenger recognizes against a
+        /// player -- see this class's own header comment for why this is its own independent
+        /// signal off ScavengerAI.SocialEvent rather than piggybacking on
+        /// ScavengerReportTransgression. `outpost` is the offended Scavenger's own outpost
+        /// assignment (ScavengerAI.outpostModule.outpost, confirmed public) if it's a toll guard at
+        /// all -- null for an ordinary wandering Scavenger, since theft-from-a-toll and
+        /// theft-from-any-Scavenger are the same underlying vanilla event. `item` is whatever was
+        /// actually taken (a DataPearl for Heist's own purposes, but not narrowed here -- narrowing
+        /// to a specific item type is each subscriber's own job, the same way TryGetEnabledCharacter
+        /// leaves per-challenge specifics to each ChallengeTracker).</summary>
+        public static event System.Action<ScavengerOutpost, Player, PhysicalObject> OnItemStolen;
+
+        /// <summary>Fires once a player's room changes away from a room that had a
+        /// ScavengerOutpost in it -- Criminal's own "passed a toll" moment. `paid` is
+        /// HasPaidToll(outpost) evaluated at the moment of leaving, so a subscriber doesn't need to
+        /// separately re-query stale state afterward. Doesn't fire while the player stays in (or
+        /// re-enters) the SAME outpost's room -- only on an actual departure to somewhere without
+        /// that same outpost.</summary>
+        public static event System.Action<ScavengerOutpost, Player, bool> OnTollPassed;
+
         internal static bool HasOutpostTransgressionSubscribers => OnOutpostTransgression != null;
+        internal static bool HasItemStolenSubscribers => OnItemStolen != null;
+        internal static bool HasTollPassedSubscribers => OnTollPassed != null;
 
         internal static void RaiseOutpostTransgression(ScavengerOutpost outpost, Player player, bool becameHostile)
             => OnOutpostTransgression?.Invoke(outpost, player, becameHostile);
+
+        internal static void RaiseItemStolen(ScavengerOutpost outpost, Player player, PhysicalObject item)
+            => OnItemStolen?.Invoke(outpost, player, item);
+
+        internal static void RaiseTollPassed(ScavengerOutpost outpost, Player player, bool paid)
+            => OnTollPassed?.Invoke(outpost, player, paid);
+
+        // In-memory only, per characterID -- which outpost's room (if any) this character was
+        // last known to be in, for SurvivorTollPassageHook to detect a genuine departure from.
+        internal static readonly Dictionary<string, ScavengerOutpost> LastOutpostByCharacter =
+            new Dictionary<string, ScavengerOutpost>();
     }
 
     /// <summary>Top-level patch class -- see SurvivorEvents.cs's header comment for why every patch
@@ -124,6 +170,67 @@ namespace Primal.Gimmicks
                 return;
             }
             SurvivorTollState.RaiseOutpostTransgression(__instance, player, SurvivorTollState.IsHostileToPlayer(__instance, player));
+        }
+    }
+
+    /// <summary>See SurvivorTollState.OnItemStolen's own doc comment for the full trace of why
+    /// this patches ScavengerAI.SocialEvent directly rather than ScavengerReportTransgression.</summary>
+    [HarmonyPatch(typeof(ScavengerAI), nameof(ScavengerAI.SocialEvent))]
+    internal static class SurvivorItemStolenHook
+    {
+        private static void Postfix(ScavengerAI __instance, SocialEventRecognizer.EventID ID, Creature subjectCrit, PhysicalObject involvedItem)
+        {
+            if (!SurvivorTollState.HasItemStolenSubscribers
+                || ID != SocialEventRecognizer.EventID.Theft
+                || involvedItem == null
+                || !(subjectCrit is Player player))
+            {
+                return;
+            }
+            if (!GimmickGate.TryGetCharacter(player, out _))
+            {
+                return;
+            }
+
+            ScavengerOutpost outpost = __instance.outpostModule?.outpost;
+            SurvivorTollState.RaiseItemStolen(outpost, player, involvedItem);
+        }
+    }
+
+    /// <summary>See SurvivorTollState.OnTollPassed's own doc comment. An independent Postfix on
+    /// Player.NewRoom -- SurvivorEvents.OnPlayerEnteredRoom already patches this same method
+    /// separately, but that event only hands back plain name strings, not the Room object
+    /// SurvivorTollState.OutpostIn needs, so this keeps its own dedicated hook rather than
+    /// reshaping that already-documented event's signature for one consumer.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.NewRoom))]
+    internal static class SurvivorTollPassageHook
+    {
+        private static void Postfix(Player __instance, Room newRoom)
+        {
+            if (newRoom == null || !GimmickGate.TryGetCharacter(__instance, out string characterID))
+            {
+                return;
+            }
+
+            ScavengerOutpost currentOutpost = SurvivorTollState.OutpostIn(newRoom);
+
+            if (SurvivorTollState.LastOutpostByCharacter.TryGetValue(characterID, out ScavengerOutpost previous)
+                && previous != null && previous != currentOutpost)
+            {
+                if (SurvivorTollState.HasTollPassedSubscribers)
+                {
+                    SurvivorTollState.RaiseTollPassed(previous, __instance, SurvivorTollState.HasPaidToll(previous));
+                }
+            }
+
+            if (currentOutpost != null)
+            {
+                SurvivorTollState.LastOutpostByCharacter[characterID] = currentOutpost;
+            }
+            else
+            {
+                SurvivorTollState.LastOutpostByCharacter.Remove(characterID);
+            }
         }
     }
 }

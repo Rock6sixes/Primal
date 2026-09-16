@@ -426,3 +426,55 @@ re-checked across the whole `src/Primal` tree after this change. 14 of 50 challe
 working tracker (assuming correctness once actually tested); 36 remain, most blocked on a
 not-yet-built mechanism (cross-region carry, toll/reputation state, color/variant roster, several
 single-purpose research items) rather than missing data now that the CSV exists.
+
+## Status update, 2026-09-16 (later still): cross-region carry, toll state, and color variant mechanisms implemented
+
+Requested: "implement shared mechanics for cross region creature carry, toll state and color
+variant identification" -- the three biggest remaining blockers from the shared-mechanisms list
+(items #3, #5, #4). Mechanism-only, same scope as every earlier shared-mechanics batch -- no new
+trackers wired up this pass.
+
+- **Cross-region carry (`SurvivorCreatureTracking.cs`)** -- the identity-tracking half
+  (Touch/Untrack/AllTrackedAlive/FindInRoom) already existed with zero consumers; the actual
+  missing piece was "is the player physically holding this creature right now," closed with one
+  new method, `IsBeingCarriedBy(Player, AbstractCreature)`, reading `Creature.grasps` (confirmed
+  public) the same way `PrimalKillTracker`'s own Grabbed hook already reads it from the grabber's
+  side. Combined with the already-built `SurvivorEvents.OnPlayerEnteredRoom`, this is now
+  sufficient for every carry-shaped challenge (Symbiote, Charged, Offering, Chef, Guardian,
+  Pilgrimage): track the creature's identity, check `IsBeingCarriedBy` + `AllTrackedAlive` at each
+  room arrival. Chieftain/Pilgrimage's own "escort, not carry" cases (a tamed Scavenger/Lizard
+  that follows on its own) needed no NEW mechanism at all -- identity-tracking + room-arrival
+  alone already answers those.
+- **Toll state (`SurvivorTollState.cs`, `SurvivorTollRoster.cs`)** -- closed the "stole vs.
+  attacked" gap this file's own header comment previously flagged as unresolved, plus two more
+  pieces. Traced `ScavengerReportTransgression`'s real call sites into
+  `ScavengerAI.SocialEvent(EventID, Creature, Creature, PhysicalObject)`, which has both the
+  specific event type and the actual item involved -- added `OnItemStolen` as its own independent
+  signal off `SocialEvent` (`EventID.Theft`) rather than piggybacking on the coarser transgression
+  hook, for Heist's "stole a pearl" need. Added `OnTollPassed` (a second, independent Postfix on
+  `Player.NewRoom`) for Criminal's "passed 3 tolls without paying." Built a brand-new
+  `SurvivorTollRoster.cs` for Manslaughter specifically: `ScavengerOutpost.team` only ever holds
+  CURRENTLY-tracked guards (confirmed via decompilation -- dead ones are removed the same tick,
+  replacements just get appended), so it can never by itself answer "is everyone who was EVER
+  assigned here now dead." The new file keeps its own persistent roster (keyed on the outpost's
+  own room name) fed by a Postfix on `ScavengerOutpost.Update`, plus a separate Postfix on
+  `Creature.Die` that flags an outpost as disqualified the instant the player gets kill credit for
+  one of its guards (reusing `PrimalKillTracker`'s own killTag/handler attribution).
+- **Color/variant identification (`SurvivorCreatureVariant.cs`)** -- confirmed
+  `CreatureTemplate.Type.SpitterSpider` is its own distinct registered Type, closing out Safari's
+  third creature (all three of Red Lizard/Red Centipede/Spitter Spider are now plain Type
+  comparisons, no new mechanism needed). Re-examined Lantern Mouse's purple/green question with
+  the actual generation formula this time (`LanternMouse.GenerateIVars`): it's a continuous hue
+  with two probability clusters (a cyan-through-violet arc ~50% of the time, red/orange ~50% of
+  the time) and no dedicated green cluster at all outside a rare 1% fully-random roll -- confirmed
+  this genuinely isn't a clean two-value split, not just "not yet researched." Left deliberately
+  unimplemented, same honor-system treatment as before, now with the real formula on record
+  instead of a placeholder note.
+
+**Still not built or tested in-game** -- no .NET toolchain in this container. Every vanilla member
+used (`Creature.grasps`, `ScavengerAI.SocialEvent`/`outpostModule`, `ScavengerOutpost.Update`/
+`team`, `CreatureTemplate.Type.SpitterSpider`, `LanternMouse.GenerateIVars`) was verified against
+`reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change. Still open: Scholar's own pearl-color-roster enumeration (a data-entry
+task, not a variant-identification one) and every remaining single-purpose research item from the
+original 19-item gap list.

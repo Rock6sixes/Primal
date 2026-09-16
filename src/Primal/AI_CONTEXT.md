@@ -4323,6 +4323,97 @@ Six landed, added to `ChallengeTrackers.cs` and registered in
 real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the
 whole `src/Primal` tree after this change.
 
+## Cross-region carry, toll state, and color variant mechanisms (2026-09-16, later still)
+
+Requested: "implement shared mechanics for cross region creature carry, toll state and color
+variant identification" — the three biggest remaining blockers on COMMUNITY_CHALLENGES.md's
+shared-mechanisms list (items #3, #5, #4 there). Mechanism-only, same scope as every earlier
+shared-mechanics batch in this doc — no new `ChallengeTracker`s wired up this pass.
+
+**Cross-region carry — one method added to `SurvivorCreatureTracking.cs`.** The identity-tracking
+half (`Touch`/`Untrack`/`AllTrackedAlive`/`FindInRoom`) already existed with zero consumers, built
+during the original 8-mechanism batch. Its own header comment already correctly diagnosed the
+actual gap: it can tell you IF a tracked creature is alive and WHERE it last was, but not whether
+the player is currently holding it. Closed with `IsBeingCarriedBy(Player, AbstractCreature)`,
+reading `Creature.grasps` (confirmed public property, `Grasp[] grasps { get; set; }`) — the same
+array-of-`Grasp` structure `PrimalKillTracker`'s own `Grabbed` hook already reads from the
+grabber's side (`grasp.grabber is Player`), just walked from the player's own `grasps` this time
+to ask "is `creature`'s realized body one of the things I'm holding." Deliberately requires the
+tracked creature to be realized — unlike `AllTrackedAlive` (where "not realized" would wrongly
+read as dead), here it's correct: a creature can't be in anyone's grasp while merely abstract, so
+"not realized" really does mean "not being carried right now." Combined with the already-built
+`SurvivorEvents.OnPlayerEnteredRoom`, this closes out every genuinely-carry-shaped challenge
+(Symbiote, Charged, Offering, Chef, Guardian, Pilgrimage): track the creature's identity at pickup,
+check `IsBeingCarriedBy` + `AllTrackedAlive` at each room arrival, done. Chieftain's "bring live
+Scavengers" and Pilgrimage's own Lizard-lineage half turned out to be a DIFFERENT case on closer
+reading of the CSV — an escorted/tamed creature that follows the player on its own rather than
+being grasped — which needs no carry check at all, just the identity-tracking + room-arrival pair
+already built; flagging this so a future pass doesn't waste time trying to detect a "carry" that
+was never going to happen for those two.
+
+**Toll state — `SurvivorTollState.cs` extended, plus a new `SurvivorTollRoster.cs`.** That file's
+own header comment had already flagged one open gap from the original build: no way to tell
+"stole a pearl" apart from "attacked a Scavenger," since both funnel through
+`ScavengerOutpost.ScavengerReportTransgression(Player)`, whose own signature carries neither
+detail. Traced the REAL call sites this time (`ScavengerAI.cs`): both live inside
+`ScavengerAI.SocialEvent(SocialEventRecognizer.EventID ID, Creature subjectCrit, Creature
+objectCrit, PhysicalObject involvedItem)`, which has exactly what's missing — the specific event
+type and the actual item — before it ever decides whether the hostility threshold
+(`num > 0.5f`, a mix of relationship state/distance/item value not worth re-deriving) is crossed.
+Rather than force that decision to happen through `ScavengerReportTransgression`, added
+`OnItemStolen` as its own independent signal straight off `SocialEvent` whenever `ID ==
+EventID.Theft` — for Heist's "stole a pearl without paying," the item changing hands at all is the
+real signal, regardless of how offended the Scavenger got about it. Also added `OnTollPassed`, a
+SECOND, independent Postfix on `Player.NewRoom` (the same vanilla method
+`SurvivorEvents.OnPlayerEnteredRoom` already patches on its own — two unrelated Postfixes on one
+method, no ordering dependency between them since neither reads the other's result) that fires
+once a player's room changes away from a room that had a `ScavengerOutpost`, handing back
+`HasPaidToll` at the moment of departure — Criminal's own "passed 3 tolls without paying" need. A
+dedicated hook rather than reshaping `OnPlayerEnteredRoom`'s own signature, since that event only
+ever hands back plain name strings by design, not the `Room` object `SurvivorTollState.OutpostIn`
+needs.
+
+Manslaughter needed something genuinely new: "every Scavenger EVER assigned to this toll died,
+with zero player kill credit and zero hostility, ever." `ScavengerOutpost.team`
+(`SurvivorTollState.GuardsOf`) can't answer that by itself — confirmed via decompiling
+`ScavengerOutpost.Update`'s own body that a dead/untrackable Scavenger is removed from `team` the
+SAME tick (`ScavToBeTracked` check, `team.RemoveAt`), and a replacement guard just gets appended
+in its place. By the time the last guard dies, every earlier casualty has already fallen out of
+the list — `team` only ever shows who's CURRENTLY there, never who was EVER there. Built a new
+file, `SurvivorTollRoster.cs`, keeping its own persistent roster keyed on the outpost's own room
+name (`AbstractRoom.name` — stable across room reloads, unlike the `ScavengerOutpost` instance
+itself, which is recreated fresh every time the room loads): a `SurvivorTollRosterObserveHook`
+Postfix on `ScavengerOutpost.Update` records every currently-tracked guard's identity
+(`EntityID.number`, per the same Equals/GetHashCode gotcha `SurvivorCreatureTracking`'s own header
+comment documents) and refreshes each one's dead/alive status every tick; a separate
+`SurvivorTollRosterDeathHook` Postfix on `Creature.Die` (independent of `PrimalKillDieHook`'s own
+unrelated Postfix on the same method — again, no ordering issue, neither reads the other) checks,
+the instant any Scavenger dies, whether `PrimalKillTracker`'s own killTag/handler attribution
+credits the kill to a gated player, and if so permanently disqualifies that outpost's roster.
+`SurvivorTollRoster.AllEverSeenGuardsDead(roomKey)` and `.PlayerEverCreditedAGuardKill(roomKey)`
+are the two queries a future Manslaughter tracker will actually read.
+
+**Color/variant identification — one confirmation, one write-up, in `SurvivorCreatureVariant.cs`.**
+Confirmed `CreatureTemplate.Type.SpitterSpider` is its own distinct registered Type (same as
+`RedLizard`/`RedCentipede`/`CyanLizard` already were) — closes out Safari's third creature; all
+three of Red Lizard/Red Centipede/Spitter Spider are now plain Type comparisons, no mechanism
+needed at all. Revisited the Lantern Mouse purple/green question the file had previously deferred
+without tracing the actual formula — this pass read `LanternMouse.GenerateIVars` directly: hue is
+a 1%-chance fully-random roll, else roughly 50/50 between `Lerp(0.5, 0.65, random)` (a
+cyan-through-violet arc, the most plausible source of "purple") and `Lerp(0, 0.1, random)`
+(red/orange — NOT green). There is no dedicated green cluster in the ordinary case at all; true
+green (~0.33 hue) only ever arises from that rare 1% wildcard. This confirms — doesn't just
+assume — that the earlier decision to leave this unimplemented was correct: it's a continuous
+float with two common clusters and a rare wildcard, not a clean two-value split, exactly the kind
+of judgment call the challenge's own rules defer to a human colour-picker for. Left unimplemented,
+now with the real formula on record instead of a placeholder "haven't looked" note.
+
+**Still not built or tested in a real game** — no .NET toolchain in this container. Every vanilla
+member used (`Creature.grasps`, `ScavengerAI.SocialEvent`, `ScavengerAI.outpostModule`,
+`ScavengerOutpost.Update`/`team`, `CreatureTemplate.Type.SpitterSpider`,
+`LanternMouse.GenerateIVars`) was verified against `reference/GameSource/*.cs` first. Brace/paren
+balance re-checked across the whole `src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

@@ -153,6 +153,36 @@ namespace Primal.Gimmicks
             return null;
         }
 
+        /// <summary>Added 2026-09-16, closing the actual missing piece of this mechanism: not
+        /// identity-tracking itself (already covered above), but "is the player literally holding
+        /// this creature right now" -- the live-carry half Symbiote/Charged/Offering/Chef each
+        /// need, combined with the new SurvivorEvents.OnPlayerEnteredRoom to answer "arrived at
+        /// the destination room WHILE carrying it". Creature.grasps (confirmed public property,
+        /// `Grasp[] grasps { get; set; }`) is the exact same array-of-Grasp structure
+        /// PrimalKillTracker's own Grabbed hook already reads from the other side
+        /// (`grasp.grabber is Player`) -- trusted directly here too, same precedent. Requires the
+        /// tracked creature to be REALIZED (a creature can't be in anyone's grasp while merely
+        /// abstract) -- unlike AllTrackedAlive, that's the correct behavior here, not a bug: if
+        /// it's not realized, it's definitionally not being carried right now.</summary>
+        public static bool IsBeingCarriedBy(Player player, AbstractCreature creature)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            PhysicalObject realized = creature?.realizedCreature;
+            if (grasps == null || realized == null)
+            {
+                return false;
+            }
+
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp != null && grasp.grabbed == realized)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static Watch GetOrCreateWatch(string trackerKey)
         {
             if (!_watches.TryGetValue(trackerKey, out Watch watch))
