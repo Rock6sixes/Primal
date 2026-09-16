@@ -786,4 +786,425 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, requested directly after clarifying the exact route: "Memory
+    /// Crypts" is a subregion of Shaded Citadel (SH), "The Leg" and "Underhang" are subregions of
+    /// The Exterior (UW, confirmed via Menu/RegionSelectMenu.cs's own debug region list --
+    /// UW="THE WALL", which lines up with this challenge's own "No climbing The Wall!" note).
+    /// Subregions aren't separately trackable (Primal has no sub-area data, only World.name, the
+    /// whole-region acronym) -- tracked at REGION granularity instead: visit SH and visit UW (in
+    /// either order) at some point while continuously carrying the tracked Cyan Lizard alive, then
+    /// arrive in SS (Five Pebbles) still carrying it alive. **Known simplification, flagged
+    /// explicitly:** this can't confirm the player specifically passed through Memory Crypts/The
+    /// Leg/Underhang as opposed to some other part of SH/UW, and doesn't enforce SH-before-UW
+    /// ordering (the challenge's own phrasing implies a specific route, but the completion INTENT
+    /// -- carry the lizard alive across this whole span -- is what's actually checked).
+    ///
+    /// Reuses SurvivorCreatureTracking (identity/alive) + IsBeingCarriedBy (added this session for
+    /// exactly this kind of challenge) + SurvivorEvents.OnPlayerEnteredRoom -- no new mechanism
+    /// needed here at all, only the region-name research the user provided. "Lineage a Cyan Lizard
+    /// in Outskirts" means tracking starts the first time this character is seen carrying a live
+    /// Cyan Lizard while in SU specifically -- CreatureTemplate.Type.CyanLizard is already a
+    /// confirmed distinct Type (reused from FoeTracker's own roster).</summary>
+    internal sealed class PilgrimageTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Pilgrimage");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string Outskirts = "SU";
+        private const string ShadedCitadel = "SH";
+        private const string TheExterior = "UW";
+        private const string FivePebbles = "SS";
+
+        // In-memory only, per characterID -- which of {SH, UW} this character has passed through
+        // so far THIS carry attempt, while continuously carrying the tracked Cyan Lizard alive.
+        private static readonly Dictionary<string, HashSet<string>> _regionsVisited = new Dictionary<string, HashSet<string>>();
+
+        private static string TrackerKeyFor(string characterID) => "Pilgrimage:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || region == null)
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    if (region != Outskirts)
+                    {
+                        return;
+                    }
+                    AbstractCreature carried = FindCarriedLizardOfType(player, CreatureTemplate.Type.CyanLizard);
+                    if (carried == null)
+                    {
+                        return;
+                    }
+                    SurvivorCreatureTracking.Touch(trackerKey, carried);
+                    _regionsVisited[characterID] = new HashSet<string>();
+                    return;
+                }
+
+                if (!SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    Abandon(trackerKey, characterID);
+                    return;
+                }
+
+                AbstractCreature tracked = FirstTracked(trackerKey);
+                if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
+                {
+                    Abandon(trackerKey, characterID);
+                    return;
+                }
+
+                if (!_regionsVisited.TryGetValue(characterID, out HashSet<string> visited))
+                {
+                    visited = new HashSet<string>();
+                    _regionsVisited[characterID] = visited;
+                }
+
+                if (region == ShadedCitadel || region == TheExterior)
+                {
+                    visited.Add(region);
+                }
+
+                if (region == FivePebbles && visited.Contains(ShadedCitadel) && visited.Contains(TheExterior))
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    Abandon(trackerKey, characterID);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    Abandon(TrackerKeyFor(eventCharacterID), eventCharacterID);
+                }
+            };
+        }
+
+        private static AbstractCreature FindCarriedLizardOfType(Player player, CreatureTemplate.Type type)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return null;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp?.grabbed is Lizard lizard && lizard.abstractCreature?.creatureTemplate?.type == type)
+                {
+                    return lizard.abstractCreature;
+                }
+            }
+            return null;
+        }
+
+        private static AbstractCreature FirstTracked(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                return creature;
+            }
+            return null;
+        }
+
+        private static void Abandon(string trackerKey, string characterID)
+        {
+            SurvivorCreatureTracking.ClearTracker(trackerKey);
+            _regionsVisited.Remove(characterID);
+        }
+    }
+
+    /// <summary>Added 2026-09-16. "Carry a live albino Jetfish from Subterranean into Five
+    /// Pebbles, kill it on a zapper and eat it." Carry-tracking is the same SU-style shape as
+    /// PilgrimageTracker (start tracking the first time this character is seen carrying a live
+    /// albino Jetfish while in Subterranean specifically, abandon if ever not-carried or dead).
+    /// The zap-kill half consumes the new SurvivorHazardDeath.OnZapCoilDeath (see that class's own
+    /// doc comment for why this is a room-proximity proxy, not a guaranteed per-kill signal) --
+    /// gated on the death happening in Five Pebbles specifically, matching "kill it ON THE WAY
+    /// INTO Five Pebbles" rather than anywhere else a zap coil might exist. Since
+    /// OnZapCoilDeath only hands back the dead Creature (no player/character -- a zap coil kills
+    /// autonomously, nobody's killTag is ever set), a small reverse index
+    /// (creature instance number -&gt; characterID) resolves who was carrying it, the same
+    /// shape-of-problem OfferingTracker's own OnLeviathanSwallow integration has.</summary>
+    internal sealed class ChefTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Chef");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string Subterranean = "SB";
+        private const string FivePebbles = "SS";
+
+        private static readonly Dictionary<int, string> _instanceToCharacter = new Dictionary<int, string>();
+        private static readonly Dictionary<string, int> _awaitingEatInstance = new Dictionary<string, int>();
+
+        private static string TrackerKeyFor(string characterID) => "Chef:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || region == null)
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    if (region != Subterranean)
+                    {
+                        return;
+                    }
+                    AbstractCreature carried = FindCarriedAlbinoJetfish(player);
+                    if (carried == null)
+                    {
+                        return;
+                    }
+                    SurvivorCreatureTracking.Touch(trackerKey, carried);
+                    _instanceToCharacter[SurvivorCreatureTracking.KeyOf(carried)] = characterID;
+                    return;
+                }
+
+                if (!SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    Abandon(trackerKey);
+                    return;
+                }
+
+                AbstractCreature tracked = FirstTracked(trackerKey);
+                if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
+                {
+                    Abandon(trackerKey);
+                }
+            };
+
+            SurvivorHazardDeath.OnZapCoilDeath += creature =>
+            {
+                if (!(creature is JetFish fish) || fish.abstractCreature == null || fish.room?.world?.name != FivePebbles)
+                {
+                    return;
+                }
+                if (SurvivorCreatureVariant.IsAlbinoJetfish(fish) != true)
+                {
+                    return;
+                }
+
+                int instanceNumber = fish.abstractCreature.ID.number;
+                if (!_instanceToCharacter.TryGetValue(instanceNumber, out string characterID))
+                {
+                    return;
+                }
+
+                _instanceToCharacter.Remove(instanceNumber);
+                SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(characterID));
+                _awaitingEatInstance[characterID] = instanceNumber;
+            };
+
+            SurvivorEvents.OnObjectEaten += (player, eventCharacterID, edible) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID)
+                    || !_awaitingEatInstance.TryGetValue(characterID, out int expectedInstance))
+                {
+                    return;
+                }
+
+                if (edible is JetFish fish && fish.abstractCreature?.ID.number == expectedInstance)
+                {
+                    _awaitingEatInstance.Remove(characterID);
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    Abandon(TrackerKeyFor(eventCharacterID));
+                    _awaitingEatInstance.Remove(eventCharacterID);
+                }
+            };
+        }
+
+        private static AbstractCreature FindCarriedAlbinoJetfish(Player player)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return null;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp?.grabbed is JetFish fish && SurvivorCreatureVariant.IsAlbinoJetfish(fish) == true)
+                {
+                    return fish.abstractCreature;
+                }
+            }
+            return null;
+        }
+
+        private static AbstractCreature FirstTracked(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                return creature;
+            }
+            return null;
+        }
+
+        private static void Abandon(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                _instanceToCharacter.Remove(SurvivorCreatureTracking.KeyOf(creature));
+            }
+            SurvivorCreatureTracking.ClearTracker(trackerKey);
+        }
+    }
+
+    /// <summary>Added 2026-09-16. "Carry a live purple or green Lantern Mouse to Subterranean then
+    /// feed it to the albino Leviathan and survive the encounter." Carry-tracking starts the first
+    /// time this character is seen carrying a matching Lantern Mouse (any region -- the challenge
+    /// only names Subterranean as the DESTINATION, not where the mouse itself must be found).
+    /// Consumes the new SurvivorPredation.OnLeviathanSwallow (see that class's own doc comment for
+    /// why BigEel.Swallow, not the taming/ItemOffering social event the user pointed at, is the
+    /// real hook -- BigEelAI doesn't implement IReactToSocialEvents at all), gated on the swallow
+    /// happening in Subterranean specifically and the eel being the albino variant
+    /// (SurvivorCreatureVariant.IsAlbinoLeviathan). Since OnLeviathanSwallow only hands back the
+    /// prey Creature (no player/character), the player's own AbstractCreature is captured at the
+    /// moment tracking starts and re-resolved to a live Player at swallow time -- simpler than
+    /// ChefTracker's characterID-keyed reverse index since ReportCompletion needs an actual Player
+    /// reference anyway. "Survive the encounter" is checked as "the player is not ALSO currently
+    /// dead at the exact moment of the swallow" -- not a longer post-encounter survival window,
+    /// flagged as a deliberate simplification.</summary>
+    internal sealed class OfferingTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Offering");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string Subterranean = "SB";
+
+        private static readonly Dictionary<int, AbstractCreature> _instanceToPlayerAbstract = new Dictionary<int, AbstractCreature>();
+
+        private static string TrackerKeyFor(string characterID) => "Offering:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    AbstractCreature carried = FindCarriedTargetMouse(player);
+                    if (carried == null)
+                    {
+                        return;
+                    }
+                    SurvivorCreatureTracking.Touch(trackerKey, carried);
+                    _instanceToPlayerAbstract[SurvivorCreatureTracking.KeyOf(carried)] = player.abstractCreature;
+                    return;
+                }
+
+                if (!SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    Abandon(trackerKey);
+                    return;
+                }
+
+                AbstractCreature tracked = FirstTracked(trackerKey);
+                if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
+                {
+                    Abandon(trackerKey);
+                }
+            };
+
+            SurvivorPredation.OnLeviathanSwallow += (eel, prey) =>
+            {
+                if (SurvivorCreatureVariant.IsAlbinoLeviathan(eel) != true || eel.room?.world?.name != Subterranean)
+                {
+                    return;
+                }
+                if (!(prey is LanternMouse) || prey.abstractCreature == null)
+                {
+                    return;
+                }
+
+                int instanceNumber = prey.abstractCreature.ID.number;
+                if (!_instanceToPlayerAbstract.TryGetValue(instanceNumber, out AbstractCreature playerAbstract))
+                {
+                    return;
+                }
+
+                _instanceToPlayerAbstract.Remove(instanceNumber);
+
+                if (!(playerAbstract?.realizedCreature is Player player) || !TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(characterID));
+                if (!player.dead)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    Abandon(TrackerKeyFor(eventCharacterID));
+                }
+            };
+        }
+
+        private static AbstractCreature FindCarriedTargetMouse(Player player)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return null;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp?.grabbed is LanternMouse mouse && SurvivorCreatureVariant.IsPurpleOrGreenLanternMouse(mouse) == true)
+                {
+                    return mouse.abstractCreature;
+                }
+            }
+            return null;
+        }
+
+        private static AbstractCreature FirstTracked(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                return creature;
+            }
+            return null;
+        }
+
+        private static void Abandon(string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                _instanceToPlayerAbstract.Remove(SurvivorCreatureTracking.KeyOf(creature));
+            }
+            SurvivorCreatureTracking.ClearTracker(trackerKey);
+        }
+    }
 }

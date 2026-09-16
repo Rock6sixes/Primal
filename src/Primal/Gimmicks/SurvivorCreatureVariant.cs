@@ -31,21 +31,32 @@ namespace Primal.Gimmicks
     /// showing public in the decompiled/publicized reference proves nothing about the real runtime
     /// assembly's accessibility.
     ///
-    /// **Deliberately NOT attempted here: Lantern Mouse purple/green.** 2026-09-16: traced the full
-    /// formula this time (`LanternMouse.GenerateIVars`, not just confirmed its existence): hue is
-    /// `UnityEngine.Random.value &lt; 0.01f` a fully uniform-random hue, else (roughly 50/50) either
-    /// `Lerp(0.5, 0.65, random)` -- a cyan-through-blue/violet arc, the most plausible source of
-    /// what the community calls "purple" -- or `Lerp(0, 0.1, random)` -- red/orange, not green at
-    /// all. There is no dedicated "green" cluster in the ordinary (99%) case; a true green hue
-    /// (~0.33) only ever arises from the rare 1% fully-random roll. This is genuinely NOT a clean
-    /// two-value discrete split (it's one continuous float with two common clusters and a rare
-    /// wildcard) -- bucketing it into "purple" vs. "green" is exactly the judgment call the
-    /// challenge's own notes defer to a human ("test colours using a colour picker and ask if
-    /// unsure") rather than resolve themselves. Automating a guess here risks disagreeing with
-    /// however that's actually adjudicated, for the benefit of exactly one challenge (Offering) --
-    /// closer in spirit to this mod's other honor-system carve-outs (see COMMUNITY_CHALLENGES.md's
-    /// own scoping note on technique-legality clauses) than to a clean state check. Left
-    /// unimplemented on purpose, now with the real formula recorded here for whoever revisits it.
+    /// **2026-09-16, later: Lantern Mouse purple/green implemented after all**, at the user's own
+    /// explicit direction ("you should be able to find the hue") overriding the earlier honor-
+    /// system deferral below (kept for the record, since the underlying uncertainty it describes
+    /// is still real -- this is a judgment call, not a rediscovered certainty).
+    ///
+    /// `LanternMouse.GenerateIVars` (traced via decompilation, not guessed): hue is
+    /// `UnityEngine.Random.value &lt; 0.01f` a fully uniform-random roll, else (roughly 50/50)
+    /// either `Lerp(0.5, 0.65, random)` or `Lerp(0, 0.1, random)`. Bucketed as: PURPLE = the
+    /// common `[0.5, 0.65]` cluster (standard HSL puts this cyan-to-blue, but at this formula's own
+    /// saturation/lightness (1, 0.8) it renders closer to a blue-violet the community plausibly
+    /// calls "purple" -- this IS the common cool-color case the formula actually produces, so it's
+    /// the best available match). GREEN = the standard HSL green band `[0.25, 0.45]` -- NOT
+    /// reachable via the formula's common (99%) path at all (which only ever produces the cool
+    /// cluster above or the warm `[0, 0.1]` red/orange one), so a green Lantern Mouse can only ever
+    /// come from the rare 1% fully-random roll landing in that band. Both accepted since the
+    /// challenge itself accepts either color -- this doesn't try to guess which is "more likely
+    /// correct", just whether the hue falls in either named band. `iVars`/`IndividualVariations`/
+    /// `HSLColor.hue` are all confirmed public (LanternMouse.cs, HSLColor.cs) -- trusted directly,
+    /// matching the precedent already set for `VultureState.mask`/`FriendTracker.friend`.
+    ///
+    /// **Original 2026-09-16 deferral, kept for context:** this is genuinely a continuous float
+    /// with two common clusters and a rare wildcard, not a clean two-value discrete split --
+    /// exactly the judgment call the challenge's own notes defer to a human for ("test colours
+    /// using a colour picker and ask if unsure"). The hue-band choice above is Primal's own best
+    /// guess at automating that judgment call, not a claim that this is definitively how a human
+    /// reviewer would rule on every borderline case near either band's edges.
     /// </summary>
     internal static class SurvivorCreatureVariant
     {
@@ -72,6 +83,28 @@ namespace Primal.Gimmicks
                 return null;
             }
             return JetFishAlbinoField.GetValue(fish) as bool?;
+        }
+
+        // See this class's own header comment for exactly where these bands come from and why.
+        private const float PurpleHueMin = 0.5f;
+        private const float PurpleHueMax = 0.65f;
+        private const float GreenHueMin = 0.25f;
+        private const float GreenHueMax = 0.45f;
+
+        /// <summary>True if this Lantern Mouse's generated hue falls in either the "purple" or
+        /// "green" band this class's own header comment derives from `LanternMouse.GenerateIVars`
+        /// -- Offering's own color requirement. Null if `creature` isn't a LanternMouse at all.</summary>
+        public static bool? IsPurpleOrGreenLanternMouse(Creature creature)
+        {
+            if (!(creature is LanternMouse mouse))
+            {
+                return null;
+            }
+
+            float hue = mouse.iVars.color.hue;
+            bool purple = hue >= PurpleHueMin && hue <= PurpleHueMax;
+            bool green = hue >= GreenHueMin && hue <= GreenHueMax;
+            return purple || green;
         }
     }
 }

@@ -4476,6 +4476,103 @@ player stays put won't be caught until the player's next room change.
 real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
 `src/Primal` tree after this change.
 
+## Pilgrimage, Chef, Offering: the last 3 unimplemented trackers (2026-09-16, later still)
+
+Requested: "implement mechanics needed for these 3 unimplemented trackers," together with three
+pieces of user-supplied research that turned out to be exactly right and unblocked each one:
+"Memory Crypts" is a subregion of Shaded Citadel, "The Leg"/"Underhang" are subregions of The
+Exterior; Chef's zap-coil-proximity idea; and Offering's hint that "fed to a predator" should hook
+the same code as taming/Lizard-reputation increases.
+
+**Pilgrimage.** Confirmed the region acronym mapping against the authoritative source —
+`Menu/RegionSelectMenu.cs`'s own debug region list (`regions = new string[12, 2]`): Shaded
+Citadel = SH ("SHADOW URBAN" in that list), The Exterior = UW ("THE WALL" — which also explains
+Pilgrimage's own "No climbing The Wall!" note, since UW is genuinely on this route). Primal has no
+sub-area/room-cluster data below the whole-region level (`World.name` is the finest grain
+anywhere in this codebase), so `PilgrimageTracker` tracks at REGION granularity instead: start
+tracking the first time this character is seen carrying a live Cyan Lizard while in Outskirts
+(SU), record SH and UW as "visited" (in either order) while the lizard stays alive and carried,
+and complete on arrival in Five Pebbles (SS) once both are recorded. No new mechanism needed at
+all — `SurvivorCreatureTracking`, `IsBeingCarriedBy` (added earlier this session for exactly this
+shape of challenge), and `SurvivorEvents.OnPlayerEnteredRoom` were already sufficient; this was
+purely a region-name research gap, closed by the user directly.
+
+**Chef.** The user's own zap-coil-proximity hunch turned out to be not just a reasonable proxy but
+the ONLY viable approach: decompiling `ZapCoil.cs` (`ZapCoil.Update`'s own body) confirmed it
+kills a creature with a DIRECT `Creature.Die()` call the instant a body chunk touches its contact
+zone while `turnedOn > 0.5f` — completely bypassing `Violence`/`Creature.SetKillTag`. There is
+structurally no killer `AbstractCreature` to attribute this death to at all, so every existing
+killTag-based mechanism in this mod (`PrimalKillTracker`, `SurvivorEvents.OnPlayerDeath`) could
+never have seen this cause no matter how it was extended. Built a new file,
+`SurvivorHazardDeath.cs`: `Room.zapCoils` (confirmed public `List<ZapCoil>`, maintained by `Room`
+itself) is checked for at least one coil with `turnedOn > 0.5f` — the exact same threshold
+`ZapCoil.Update`'s own real zap logic gates on — at the moment a creature dies in that room, fired
+as `OnZapCoilDeath(Creature)` off an independent Postfix on `Creature.Die` (a THIRD independent
+Postfix on that method now, alongside `PrimalKillDieHook` and `SurvivorTollRosterDeathHook` — no
+ordering needed, none of the three read each other's results). **Known imprecision, flagged
+explicitly:** this can't prove the coil caused THIS specific death, only that one was active in
+the same room — accepted as good enough for Chef's own deliberate, curated setup (the player
+chooses exactly which creature to bring to exactly which zapper). `ChefTracker` itself: carry-track
+an albino Jetfish from Subterranean (SB), gate `OnZapCoilDeath` on the death happening in Five
+Pebbles (SS) specifically and the creature being the tracked instance (a small reverse index,
+creature-instance-number → characterID, since the death event hands back only the creature), then
+require the SAME instance be eaten afterward (reusing FeastTracker's own "corpse is what
+`OnObjectEaten` reports" pattern, this time with `JetFish` instead of `Centipede`).
+
+**Offering.** The user's hunch about the taming/reputation code was directionally exactly right —
+that system is real (`SocialEventRecognizer.ItemOffered`, raising `EventID.ItemOffering`, handled
+by `LizardAI`/`CicadaAI`/`ScavengerAI`'s own `SocialEvent` methods) — but confirmed via decompiling
+`BigEelAI.cs` that it does NOT apply to Leviathans: `BigEelAI` does not implement
+`IReactToSocialEvents` at all, unlike every creature that actually does react to offerings, so
+`SocialEventRecognizer.SocialEvent`'s own dispatch loop (which filters on exactly that interface)
+structurally never reaches a BigEel regardless of what's offered to it. The real mechanism is
+`BigEel.Swallow()`, confirmed via decompiling `BigEel.cs` to be the one method that actually
+consumes whatever the Leviathan has caught: it iterates its own `clampedObjects` (public
+`List<ClampedObject>`, each with a public `chunk.owner`) and calls `.Destroy()` on each, then
+clears the list — independent of Violence/killTag/SocialEventRecognizer entirely, same shape of
+"autonomous predator kill" as Chef's zap coil. Built a new file, `SurvivorPredation.cs`, with a
+Prefix (not Postfix — `Swallow`'s own body immediately destroys and clears everything, so a
+Postfix would find nothing left) on `BigEel.Swallow`, firing `OnLeviathanSwallow(BigEel, Creature)`
+for each caught creature before it's destroyed.
+
+For the color half, the user explicitly asked to stop deferring the Lantern Mouse hue question
+("you should be able to find the hue") — overriding the earlier honor-system decision (kept in
+`SurvivorCreatureVariant.cs`'s own comment for context, since the underlying uncertainty it
+describes is still real). Added `IsPurpleOrGreenLanternMouse`, bucketing the already-traced
+`GenerateIVars` formula: PURPLE = the formula's own common `[0.5, 0.65]` cool-color cluster (not
+textbook HSL purple, but the closest match to what the community actually sees given this
+formula's fixed saturation/lightness), GREEN = the standard HSL green band `[0.25, 0.45]` — only
+reachable via the formula's rare 1% fully-random roll, since neither of its two common branches
+ever lands there. `LanternMouse.iVars`/`IndividualVariations.color`/`HSLColor.hue` are all
+confirmed public fields, trusted directly per the same precedent as `VultureState.mask`.
+
+`OfferingTracker` itself: carry-track a matching Lantern Mouse (any starting region — only the
+DESTINATION, Subterranean, is named), gate `OnLeviathanSwallow` on the eel being confirmed albino
+and the swallow happening in Subterranean, and check the SAME tracked instance was swallowed (a
+reverse index again, this time keyed on the mouse's instance number → the player's own
+`AbstractCreature`, since `ReportCompletion` needs an actual live `Player` and re-resolving
+`playerAbstract.realizedCreature as Player` at swallow time is simpler than a characterID-only
+index here). "Survive the encounter" is checked as "the player is not ALSO dead at the exact
+moment of the swallow" — a deliberate simplification, not a longer post-encounter survival window,
+flagged as such in the tracker's own doc comment.
+
+All three of this batch share one shape-of-problem: their terminal event (`OnZapCoilDeath`,
+`OnLeviathanSwallow`) hands back only the affected creature, never a player, because the predator
+in question kills/eats autonomously — there is no player-side hook at that exact instant to piggy-
+back on the way `OnObjectEaten`/`OnPlayerDeath` naturally provide one. Each tracker solves it with
+its own small, self-contained reverse index rather than changing either event's own signature (a
+generic index would need to live somewhere shared, and no second consumer exists yet to justify
+that).
+
+19 of 50 challenges now have a tracker registered (up from 16) — every challenge originally on the
+color-variant list, and both remaining carry-mechanism/toll-adjacent challenges from the last
+research pass, are now implemented. **Still not built or tested in a real game** — no .NET
+toolchain in this container. Every vanilla member used (`Room.zapCoils`, `ZapCoil.turnedOn`,
+`BigEel.Swallow`/`clampedObjects`/`ClampedObject`, `BigEelAI` confirmed NOT implementing
+`IReactToSocialEvents`, `LanternMouse.iVars.color.hue`, `Menu/RegionSelectMenu.cs`'s own debug
+region list) was verified against `reference/GameSource/*.cs` first. Brace/paren balance
+re-checked across the whole `src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

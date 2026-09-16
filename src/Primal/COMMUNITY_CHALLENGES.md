@@ -530,3 +530,56 @@ player's next transition.
 16 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
 .NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): the last 3 -- Pilgrimage, Chef, Offering; 19 of 50 now implemented
+
+Requested: "implement mechanics needed for these 3 unimplemented trackers," with three pieces of
+user-supplied research that unblocked each: "Memory Crypts" is a subregion of Shaded Citadel,
+"The Leg"/"Underhang" are subregions of The Exterior; for Chef, check for a nearby/in-room Zapper
+object at the moment of death; for Offering, the hue is findable, and "fed to a predator" likely
+hooks the same code as taming/Lizard-reputation increases.
+
+- **Pilgrimage** -- confirmed the region mapping via the authoritative source
+  (`Menu/RegionSelectMenu.cs`'s own debug region list): Shaded Citadel = SH, The Exterior = UW
+  (matching the challenge's own "No climbing The Wall!" note). Since Primal has no sub-area data
+  below the whole-region level, tracked at region granularity: carry a live Cyan Lizard from
+  Outskirts through SH and UW (either order) to arrival in Five Pebbles (SS). No new mechanism
+  needed -- just `SurvivorCreatureTracking` + `IsBeingCarriedBy` + `OnPlayerEnteredRoom`, all
+  already built.
+- **Chef** -- the user's own hunch about zapper-proximity was correct AND necessary: decompiling
+  `ZapCoil.cs` confirmed its own `Update` body kills a creature with a DIRECT `Creature.Die()`
+  call, completely bypassing `Violence`/`SetKillTag` -- there is no killer to attribute this to at
+  all, so the existing killTag-based mechanisms could never have seen this cause regardless of how
+  much wiring was added to them. Built a new `SurvivorHazardDeath.cs`: checks `Room.zapCoils`
+  (confirmed public) for an active coil (`turnedOn > 0.5f`, the exact threshold `ZapCoil.Update`
+  itself gates real zapping on) in the room a creature died in. Flagged as an imprecise proxy (a
+  creature dying of an unrelated cause in the same room as an active coil would also match) --
+  acceptable for Chef's own deliberate, curated setup.
+- **Offering** -- the user's hunch about the taming/reputation code was directionally right (that
+  code exists, `SocialEventRecognizer.ItemOffered`/`EventID.ItemOffering`, used by
+  `LizardAI`/`CicadaAI`/`ScavengerAI`) but doesn't apply to Leviathans specifically: confirmed via
+  decompiling `BigEelAI.cs` that it does not implement `IReactToSocialEvents` at all, so
+  `SocialEventRecognizer`'s own dispatch loop never reaches a BigEel no matter what's offered to
+  it. The real mechanism is `BigEel.Swallow()` -- traced via decompilation to be the one method
+  that actually consumes whatever's caught, entirely independent of the social-event system. Built
+  a new `SurvivorPredation.cs` around it. For the color half, the user asked directly to stop
+  deferring the Lantern Mouse hue question -- `SurvivorCreatureVariant.IsPurpleOrGreenLanternMouse`
+  now buckets the already-traced hue formula into a "purple" band (the formula's own common
+  cool-color cluster) and a "green" band (the standard HSL green range, reachable only via the
+  formula's rare 1% fully-random roll) -- explicitly still a judgment call, not a rediscovered
+  certainty, but implemented per the user's own direction rather than left honor-system.
+
+All three carry-tracking trackers (Pilgrimage, Chef, Offering) share the same shape: start
+tracking the first time the character is seen carrying a matching creature in the right starting
+region, abandon if ever not-carried or dead, complete on the relevant terminal event. Chef and
+Offering both needed a small reverse index (creature instance -> character) since their terminal
+events (`OnZapCoilDeath`, `OnLeviathanSwallow`) only hand back the affected creature, not a
+player -- the predator kills/eats autonomously, so there's no player-side hook at that exact
+moment otherwise.
+
+19 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Every vanilla member used (`Room.zapCoils`, `ZapCoil.turnedOn`,
+`BigEel.Swallow`/`clampedObjects`, `BigEelAI` not implementing `IReactToSocialEvents`,
+`LanternMouse.iVars.color.hue`, `Menu/RegionSelectMenu.cs`'s region list) was verified against
+`reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.
