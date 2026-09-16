@@ -511,6 +511,8 @@ namespace Primal.Gimmicks
             new MartyrTracker(),
             new GuardianTracker(),
             new DespicableTracker(),
+            new EnlightenmentTracker(),
+            new FlytrapTracker(),
         };
 
         private static bool _registered;

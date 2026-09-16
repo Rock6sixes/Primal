@@ -1638,4 +1638,101 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, per the user's own confirmation: "SL_AI contains the Looks to
+    /// the Moon iterator entity and if you throw a neuron to her, she stores them." Confirmed via
+    /// decompilation: `SLOracleBehavior.ConvertingSSSwarmer()` increments
+    /// `SLOrcacleState.neuronsLeft` (the same field DespicableTracker's own MoonThief detection
+    /// already reads, confirming this is one persistent, real vanilla counter, not a guess) --
+    /// this is Moon accepting an SSOracleSwarmer (a Five Pebbles neuron) delivered to her.
+    /// Per the CSV's own explicit numeric requirement ("Total neurons at the end of the challenge
+    /// must be 12 or more"), checked as a plain threshold on that persistent counter rather than
+    /// re-deriving "+7 from wherever the player started" -- simpler, and matches the stated
+    /// mechanical requirement exactly rather than the vaguer "bring 7" framing in the main
+    /// description.
+    ///
+    /// "Without passaging" is read as an absolute, permanent, save-file-wide disqualification
+    /// (never, not just during one narrow attempt) -- SurvivorEvents.OnPassageUsed writes a
+    /// permanent PrimalSaveMarkers flag the instant a passage is ever taken, checked here before
+    /// allowing completion. This required extending OnPassageUsed's own signature to also hand
+    /// back DeathPersistentSaveData (see that event's own updated doc comment) -- trivially
+    /// available at its raise site and, since nothing else consumed that event yet, cheaper than
+    /// adding a second event just to carry one already-available value.</summary>
+    internal sealed class EnlightenmentTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Enlightenment");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredNeurons = 12;
+        private const string PassagedMarkerKey = "PRIMAL_ENLIGHTENMENT_PASSAGED";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPassageUsed += (characterID, endgameID, saveData) =>
+            {
+                if (saveData != null)
+                {
+                    PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(PassagedMarkerKey, characterID));
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(game);
+                if (saveData == null || PrimalSaveMarkers.Has(saveData, PrimalSaveMarkers.Marker(PassagedMarkerKey, characterID)))
+                {
+                    return;
+                }
+
+                int neuronsLeft = game?.GetStorySession?.saveState?.miscWorldSaveData?.SLOracleState?.neuronsLeft ?? 0;
+                if (neuronsLeft >= RequiredNeurons)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own confirmed technique. Consumes the new
+    /// SurvivorPoleMimicPredation.OnLiveVultureGrabbed -- see that event's own doc comment for
+    /// why "grabbed" (not a separate kill) is treated as "fed", and why "survive the encounter" is
+    /// checked as "not currently dead" rather than a longer post-event survival window. Since the
+    /// event fires from an autonomous creature-vs-creature Collide call with no player directly
+    /// involved, this iterates the game's own Players list (the same pattern
+    /// PerseveranceTracker's own OnGameEnding consumption already uses) to find whichever gated
+    /// character is present.</summary>
+    internal sealed class FlytrapTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Flytrap");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorPoleMimicPredation.OnLiveVultureGrabbed += (mimic, vulture) =>
+            {
+                RainWorldGame game = mimic.abstractCreature?.world?.game;
+                if (game?.Players == null)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player) || player.dead)
+                    {
+                        continue;
+                    }
+                    if (TryGetEnabledCharacter(player, out string characterID))
+                    {
+                        ReportCompletion(player, characterID, isLive: true);
+                    }
+                }
+            };
+        }
+    }
 }

@@ -137,8 +137,13 @@ namespace Primal.Gimmicks
         /// this. "EXPPASSAGE" (Expedition mode) is a completely separate switch case and is never
         /// matched by this hook. No live Player exists on this screen -- characterID is resolved
         /// via PrimalMenuAccess.GetCharacterID, the same menu-side identity path
-        /// CommunityChallengesButtonHook/KillListButtonHook already use.</summary>
-        public static event Action<string, WinState.EndgameID> OnPassageUsed;
+        /// CommunityChallengesButtonHook/KillListButtonHook already use. Hands back
+        /// DeathPersistentSaveData too (2026-09-16 addition, for EnlightenmentTracker's own
+        /// permanent "has this character EVER passaged" marker -- trivially available at the
+        /// raise site via PrimalMenuAccess.GetSaveState, and extending this signature before any
+        /// other consumer existed is far cheaper than a second event just to carry one more
+        /// already-available value).</summary>
+        public static event Action<string, WinState.EndgameID, DeathPersistentSaveData> OnPassageUsed;
 
         /// <summary>Added 2026-09-16 (gap #7): fires when a live Vulture (regular or King) loses
         /// its mask to player violence WITHOUT dying from that same hit -- Usurper's core
@@ -186,8 +191,8 @@ namespace Primal.Gimmicks
         internal static void RaisePlayerDeath(Player player, string characterID, string killerType, bool inDen, bool inShelter)
             => OnPlayerDeath?.Invoke(player, characterID, killerType, inDen, inShelter);
 
-        internal static void RaisePassageUsed(string characterID, WinState.EndgameID endgameID)
-            => OnPassageUsed?.Invoke(characterID, endgameID);
+        internal static void RaisePassageUsed(string characterID, WinState.EndgameID endgameID, DeathPersistentSaveData saveData)
+            => OnPassageUsed?.Invoke(characterID, endgameID, saveData);
 
         internal static void RaiseNonLethalDemask(Player attacker, string characterID, AbstractCreature vulture, bool isKing)
             => OnNonLethalDemask?.Invoke(attacker, characterID, vulture, isKing);
@@ -434,7 +439,8 @@ namespace Primal.Gimmicks
             string characterID = PrimalMenuAccess.GetCharacterID(__instance);
             if (characterID != null)
             {
-                SurvivorEvents.RaisePassageUsed(characterID, __instance.proceedWithEndgameID);
+                DeathPersistentSaveData saveData = PrimalMenuAccess.GetSaveState(__instance)?.deathPersistentSaveData;
+                SurvivorEvents.RaisePassageUsed(characterID, __instance.proceedWithEndgameID, saveData);
             }
         }
     }

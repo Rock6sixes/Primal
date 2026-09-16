@@ -4764,6 +4764,76 @@ first with no error, no crash, just a subtly wrong tracker.
 real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
 `src/Primal` tree after this change.
 
+## Enlightenment and Flytrap implemented; Triplopia deferred; Outlaw/Broadcast still stuck (2026-09-16, later still)
+
+The user answered all 4 remaining questions from the previous research pass. Two unblocked
+cleanly, one is explicitly deferred by the user's own direction, one is still genuinely
+unresolved.
+
+**Enlightenment — implemented.** "SL_AI contains the Looks to the Moon iterator entity and if you
+throw a neuron to her, she stores them." Traced this to `SLOracleBehavior.ConvertingSSSwarmer()`,
+which increments `SLOrcacleState.neuronsLeft` — confirmed to be the SAME persistent field
+`DespicableTracker`'s own `MoonThief` detection already reads (`neuronsLeft < 5` triggers that
+dream), proving this is one real, continuously-updating vanilla counter rather than something this
+mod would need to invent. `EnlightenmentTracker` checks a plain `neuronsLeft >= 12` threshold,
+matching the CSV's own explicit numeric requirement ("Total neurons at the end of the challenge
+must be 12 or more") directly, rather than trying to derive "+7 from wherever the player started"
+from the vaguer "bring 7" phrasing in the main description.
+
+"Without passaging" needed a genuinely permanent, save-file-wide disqualification — a passage used
+even once, ever, on this character's save disqualifies it forever, not just within one narrow
+attempt. This required extending `SurvivorEvents.OnPassageUsed`'s own signature to also hand back
+`DeathPersistentSaveData` (previously just `(string characterID, WinState.EndgameID endgameID)`)
+so a permanent `PrimalSaveMarkers` flag could be written the instant a passage fires. Safe to
+extend now specifically because nothing else consumed that event yet (confirmed via grep before
+changing it) — extending an event's signature after a second real consumer exists would be a
+different, riskier call.
+
+**Flytrap — implemented.** "Anger the pole mimic so it is in its active state and then have a
+vulture go over it — when the pole mimic tries to latch onto anything passing by, it grabs the
+vulture and drags it into its den." Traced this to `PoleMimic.Collide(PhysicalObject, int, int)`,
+which contains exactly this condition gating its own ambush grab: `base.Consious && WakeUp >
+0.3f && ... Grab(otherObject, 0, otherChunk, ...)` — `Consious`/`WakeUp > 0.3f` is the real state
+behind "angered/active" the user described. Built a new `SurvivorPoleMimicPredation.cs`: a Postfix
+on `Collide` checking `otherObject is Vulture` and confirming the grab actually landed
+(`grasps[0]?.grabbed == vulture` after the call, since several other conditions inside `Collide`
+can prevent the grab from happening at all). **Known simplification, flagged in both the event's
+own doc comment and `FlytrapTracker`'s:** no explicit prey-KILLING method was found on `PoleMimic`
+itself (unlike `BigEel.Swallow`'s own clean, explicit kill call) — this treats the GRAB itself as
+"fed" rather than waiting to confirm an actual death, and reads "survive the encounter" as "the
+player is not currently dead at the moment the grab lands," the same live-framing
+`OfferingTracker`'s own "survive" clause already uses. Since the event fires off an autonomous
+creature-vs-creature collision with no player directly involved, `FlytrapTracker` resolves a
+credited player by iterating the game's own `Players` list — the same pattern
+`PerseveranceTracker`'s own `OnGameEnding` consumption already establishes for "no player handed
+directly, but there's a live game session to search."
+
+**Triplopia — deferred, per the user's own explicit direction:** "there may not be a proper
+technical signature — this may just be a bug that places multiple creatures into dens, which
+would be very difficult to detect reliably. Put this away for now as one of the last trackers to
+implement." Not built. Revisit later, last among the remaining gaps.
+
+**Outlaw — still unresolved.** The user described a real, more complete formula: deaths and quits
+subtract, food eaten and survived cycles add, multiplied by total passages acquired — present in
+Hunter's own "ran out of cycles, died at cycle 0" ending specifically. Traced
+`WinState.CycleCompleted`, the method actually behind the REAL, in-game `WinState.EndgameID
+.Outlaw` passage token (confirmed this is a genuine vanilla passage, not just a community
+challenge name that happens to match) — but its own Outlaw-tracker contribution
+(`num2`, added to `IntegerTracker.progress`) turns out to be nothing more than a per-cycle count
+of kills where `CreatureTemplate.countsAsAKill > 1` — nowhere near the richer formula described.
+Searched `RedsIllness.cs` (Hunter's own cycle-limit/lifespan mechanic) and broadly for
+"quitCount"/"survivalScore"/similar terms across the whole decompiled tree with no match at all.
+Two possibilities remain open: either the real formula lives somewhere this pass's search terms
+simply missed, or (matching the CSV's own "Score calculator" external-tool reference) it's
+genuinely a community-only calculation performed from raw end-of-run stats rather than a single
+number vanilla itself ever computes.
+
+27 of 50 challenges now have a tracker registered (up from 25). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Every vanilla member used
+(`SLOracleBehavior.ConvertingSSSwarmer`, `SLOrcacleState.neuronsLeft`,
+`PoleMimic.Collide`/`Consious`/`WakeUp`) was verified against `reference/GameSource/*.cs` first.
+Brace/paren balance re-checked across the whole `src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

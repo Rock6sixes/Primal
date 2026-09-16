@@ -730,3 +730,45 @@ rather than guessed past.
 **Still not built or tested in-game** -- no .NET toolchain in this container. 25 of 50 challenges
 now have a tracker registered. Brace/paren balance re-checked across the whole `src/Primal` tree
 after this change.
+
+## Status update, 2026-09-16 (later still): Enlightenment and Flytrap implemented; Outlaw/Broadcast still stuck, Triplopia deferred
+
+The user answered all 4 remaining questions. Two unblocked cleanly; Triplopia is explicitly
+deferred; Outlaw still needs a source location this pass couldn't find.
+
+- **Enlightenment -- IMPLEMENTED.** "SL_AI contains the Looks to the Moon iterator entity and if
+  you throw a neuron to her, she stores them." Confirmed via decompilation:
+  `SLOracleBehavior.ConvertingSSSwarmer()` increments `SLOrcacleState.neuronsLeft` -- the SAME
+  persistent field `DespicableTracker`'s own MoonThief detection already reads, confirming this is
+  one real, continuously-updating counter (not a per-attempt tally this mod invents). Checked as a
+  plain `neuronsLeft >= 12` threshold, matching the CSV's own explicit numeric requirement exactly.
+  "Without passaging" is treated as a PERMANENT, save-file-wide disqualification -- required
+  extending `SurvivorEvents.OnPassageUsed`'s own signature to also hand back
+  `DeathPersistentSaveData` (nothing else consumed that event yet, so this was a safe, cheap
+  extension rather than a second event).
+- **Flytrap -- IMPLEMENTED.** "Anger the pole mimic so it is in its active state and then have a
+  vulture go over it." Confirmed via decompilation: `PoleMimic.Collide` contains exactly this
+  condition (`Consious && WakeUp > 0.3f`, the real state behind "angered/active") gating its own
+  ambush `Grab(...)` call. Built `SurvivorPoleMimicPredation.cs` around this. **Known
+  simplification, flagged in the tracker's own doc comment:** no explicit prey-killing method was
+  found on `PoleMimic` (unlike `BigEel.Swallow`'s clean kill call) -- this tracker treats the GRAB
+  ITSELF as "fed" rather than waiting for a confirmed kill, and "survive the encounter" as "player
+  not currently dead at that moment."
+- **Triplopia -- deferred per the user's own direction** ("there may not be a proper technical
+  signature... put this away for now as one of the last trackers to implement"). Not built.
+- **Outlaw -- still unresolved.** The user described a real formula (deaths/quits subtract; food
+  eaten, survived cycles add; multiplied by total passages acquired), present in Hunter's own
+  "ran out of cycles, died at cycle 0" ending. Traced `WinState.CycleCompleted` (the method behind
+  the real, in-game `EndgameID.Outlaw` PASSAGE token -- confirmed Outlaw is also a genuine vanilla
+  passage, not just a community challenge name) and found its own Outlaw-tracker contribution is
+  just `num2` -- a per-cycle count of kills where `CreatureTemplate.countsAsAKill > 1` -- nowhere
+  close to the richer formula described. Searched `RedsIllness.cs` (Hunter's cycle-limit mechanic)
+  and broadly for "quit count," "survival score" and similar terms with no match. Still open:
+  either this formula lives somewhere this pass's search terms missed, or it's a community-only
+  calculation done from raw end-of-run stats rather than anything vanilla computes as one number.
+
+27 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Every vanilla member used (`SLOracleBehavior
+.ConvertingSSSwarmer`, `SLOrcacleState.neuronsLeft`, `PoleMimic.Collide`/`Consious`/`WakeUp`) was
+verified against `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the
+whole `src/Primal` tree after this change.
