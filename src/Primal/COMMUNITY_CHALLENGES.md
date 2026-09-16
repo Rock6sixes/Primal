@@ -772,3 +772,40 @@ deferred; Outlaw still needs a source location this pass couldn't find.
 .ConvertingSSSwarmer`, `SLOrcacleState.neuronsLeft`, `PoleMimic.Collide`/`Consious`/`WakeUp`) was
 verified against `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the
 whole `src/Primal` tree after this change.
+
+## Status update, 2026-09-16 (later still): Manslaughter, Chieftain, Criminal wired up; 30 of 50 now implemented
+
+Requested: "put Outlaw aside next to Triplopia, continue implementing next features." Wired up
+three toll/carry-adjacent challenges whose underlying mechanisms already existed from earlier
+batches (SurvivorTollState, SurvivorTollRoster, SurvivorCreatureTracking) -- no new mechanisms
+needed, just consumers.
+
+- **ManslaughterTracker** -- the first consumer of `SurvivorTollRoster`. All three of its
+  conditions (every guard ever assigned to this outpost dead, zero player kill credit, zero
+  hostility ever triggered) were already directly answerable; only a small local "ever went
+  hostile" set (fed by `SurvivorTollState.OnOutpostTransgression`) needed adding at the tracker
+  level. No cycle-scoping in the challenge's own wording, matching the roster's own already-
+  persistent (not per-cycle) design.
+- **ChieftainTracker** -- "Bring live Scavengers to the Looks to the Moon subregion." The target
+  room, `SL_AI`, fell out of the Enlightenment research from the previous batch (it's the same
+  room Moon's own Oracle behavior runs in) -- lines up with the challenge's own note about a Karma
+  Gate into Shoreline (SL). Scavengers here are tamed allies that follow the player, not carried
+  items, so this is the first consumer of `SurvivorCreatureTracking`'s identity layer WITHOUT
+  `IsBeingCarriedBy` at all. **Known simplification:** requires 2+ Scavengers (the challenge's own
+  text just says "Scavengers," plural, with no explicit count anywhere in its CSV row) -- a
+  judgment call, flagged in the tracker's own doc comment.
+- **CriminalTracker** -- "Travel to the Garbage Wastes Stronghold after passing three Scavenger
+  Tolls without paying on the starting cycle." Direct consumer of `SurvivorTollState.OnTollPassed`
+  (paid == false), deduplicated by outpost room key. **Known simplification:** doesn't verify
+  arrival at the actual "Garbage Wastes Stronghold" room -- its exact room ID wasn't available --
+  completes once the 3rd distinct unpaid toll is passed while the whole attempt stays inside
+  Garbage Wastes during the starting cycle.
+
+Heist and Elder remain unwired: Heist needs the exact "lowest Garbage Wastes toll" identified
+among possibly several GW outposts (not just any one), and Elder needs the still-unbuilt
+Scavenger-wears-a-mask detection (a different mechanic from the demasking event already built for
+Usurper). Both stay open rather than force a much weaker approximation.
+
+30 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.

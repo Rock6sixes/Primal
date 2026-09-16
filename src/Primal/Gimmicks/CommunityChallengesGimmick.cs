@@ -513,6 +513,9 @@ namespace Primal.Gimmicks
             new DespicableTracker(),
             new EnlightenmentTracker(),
             new FlytrapTracker(),
+            new ManslaughterTracker(),
+            new ChieftainTracker(),
+            new CriminalTracker(),
         };
 
         private static bool _registered;

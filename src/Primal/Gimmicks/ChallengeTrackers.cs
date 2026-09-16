@@ -1735,4 +1735,267 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, the first consumer of the toll mechanism's own persistent
+    /// roster (SurvivorTollRoster, built earlier alongside SurvivorTollState). "Cause all of the
+    /// Scavengers at a Scavenger Toll to die without gaining kill credit or angering any
+    /// Scavengers" -- three independent conditions, all already answerable by existing
+    /// mechanisms: SurvivorTollRoster.AllEverSeenGuardsDead (every guard EVER assigned here,
+    /// including replacements, confirmed dead), SurvivorTollRoster.PlayerEverCreditedAGuardKill
+    /// (must be false), and a small local "ever went hostile against this character" set fed by
+    /// SurvivorTollState.OnOutpostTransgression (must never have fired with becameHostile==true
+    /// for this outpost+character pair). No cycle-scoping in the challenge's own wording -- unlike
+    /// Foe/Massacre, this can span as many cycles as it takes, matching how the roster itself is
+    /// already persistent (session-only, not per-cycle). Checked on every room arrival at the
+    /// outpost's own room, so it fires the next time the player happens to walk back through
+    /// after the last guard dies.</summary>
+    internal sealed class ManslaughterTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Manslaughter");
+        public override ChallengeEntry Challenge => _entry;
+
+        // Per (characterID, roomKey) -- has this outpost ever gone hostile against this character.
+        private static readonly HashSet<string> _everHostile = new HashSet<string>();
+
+        private static string HostileKey(string characterID, string roomKey) => characterID + "|" + roomKey;
+
+        public override void Register()
+        {
+            SurvivorTollState.OnOutpostTransgression += (outpost, player, becameHostile) =>
+            {
+                if (!becameHostile || !TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+                string roomKey = SurvivorTollRoster.RoomKeyFor(outpost);
+                if (roomKey != null)
+                {
+                    _everHostile.Add(HostileKey(characterID, roomKey));
+                }
+            };
+
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                ScavengerOutpost outpost = SurvivorTollState.OutpostIn(player.room);
+                string roomKey = SurvivorTollRoster.RoomKeyFor(outpost);
+                if (roomKey == null)
+                {
+                    return;
+                }
+
+                if (!SurvivorTollRoster.AllEverSeenGuardsDead(roomKey)
+                    || SurvivorTollRoster.PlayerEverCreditedAGuardKill(roomKey)
+                    || _everHostile.Contains(HostileKey(characterID, roomKey)))
+                {
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: true);
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16. "Bring live Scavengers to the Looks to the Moon subregion." The
+    /// target room -- SL_AI, the room Moon's own iterator entity lives in -- was confirmed
+    /// investigating Enlightenment's own "throw a neuron to Moon" mechanism
+    /// (SLOracleBehavior.ConvertingSSSwarmer runs on the Oracle in that room), and lines up with
+    /// the challenge's own verification note ("Scavengers at the Karma Gate into Shoreline + the
+    /// same Scavengers in Looks to the Moon" -- Shoreline, SL, is exactly the region SL_AI is in).
+    /// Scavengers here aren't grabbed/carried (unlike Symbiote/Charged/Chef) -- they're tamed
+    /// allies that follow the player on their own -- so this reuses SurvivorCreatureTracking's
+    /// identity layer directly (Touch/AllTrackedAlive/FindInRoom) without IsBeingCarriedBy at all.
+    /// Tracking starts the first time the character is seen in Shoreline with 2+ live Scavengers
+    /// in the same room (the "Karma Gate" moment); "2+" is a judgment call, flagged explicitly --
+    /// the challenge's own text just says "Scavengers" (plural) with no explicit count given
+    /// anywhere in its own CSV row.</summary>
+    internal sealed class ChieftainTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Chieftain");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string Shoreline = "SL";
+        private const string MoonRoom = "SL_AI";
+        private const int RequiredScavengers = 2;
+
+        private static string TrackerKeyFor(string characterID) => "Chieftain:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || region == null)
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    if (region != Shoreline)
+                    {
+                        return;
+                    }
+                    List<AbstractCreature> scavengers = FindNearbyLiveScavengers(player);
+                    if (scavengers.Count < RequiredScavengers)
+                    {
+                        return;
+                    }
+                    foreach (AbstractCreature scav in scavengers)
+                    {
+                        SurvivorCreatureTracking.Touch(trackerKey, scav);
+                    }
+                    return;
+                }
+
+                if (!SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
+                {
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                    return;
+                }
+
+                if (roomName != MoonRoom)
+                {
+                    return;
+                }
+
+                AbstractRoom moonRoom = player.abstractCreature?.Room;
+                if (moonRoom == null)
+                {
+                    return;
+                }
+
+                int foundAlive = 0;
+                foreach (AbstractCreature scav in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+                {
+                    if (SurvivorCreatureTracking.FindInRoom(trackerKey, moonRoom, SurvivorCreatureTracking.KeyOf(scav)) != null)
+                    {
+                        foundAlive++;
+                    }
+                }
+
+                if (foundAlive >= RequiredScavengers)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    SurvivorCreatureTracking.ClearTracker(trackerKey);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
+                }
+            };
+        }
+
+        private static List<AbstractCreature> FindNearbyLiveScavengers(Player player)
+        {
+            var result = new List<AbstractCreature>();
+            AbstractRoom room = player.abstractCreature?.Room;
+            if (room?.entities == null)
+            {
+                return result;
+            }
+            foreach (AbstractWorldEntity entity in room.entities)
+            {
+                if (entity is AbstractCreature creature && !creature.state.dead
+                    && creature.creatureTemplate?.type == CreatureTemplate.Type.Scavenger)
+                {
+                    result.Add(creature);
+                }
+            }
+            return result;
+        }
+    }
+
+    /// <summary>Added 2026-09-16. "Travel to the Garbage Wastes Stronghold after passing three
+    /// Scavenger Tolls without paying on the starting cycle." Consumes the new
+    /// SurvivorTollState.OnTollPassed (paid == false) directly, deduplicated by
+    /// SurvivorTollRoster.RoomKeyFor so passing the SAME toll multiple times only counts once.
+    /// **Known simplification, flagged explicitly:** doesn't verify arrival at the actual
+    /// "Garbage Wastes Stronghold" room -- its exact room ID wasn't available this pass --
+    /// completes as soon as the 3rd distinct unpaid toll is passed while the whole attempt has
+    /// stayed inside Garbage Wastes (GW) during the starting cycle (cycleNumber == 0, checked
+    /// during ordinary room-entry, not a Win-Prefix/Postfix -- no timing gotcha here, cycleNumber
+    /// is stable for the whole cycle once set).</summary>
+    internal sealed class CriminalTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Criminal");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string GarbageWastes = "GW";
+        private const int RequiredUnpaidTolls = 3;
+
+        private sealed class AttemptState
+        {
+            public readonly HashSet<string> UnpaidTollsPassed = new HashSet<string>();
+        }
+
+        private static readonly Dictionary<string, AttemptState> _attempts = new Dictionary<string, AttemptState>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || region == null)
+                {
+                    return;
+                }
+
+                if (region != GarbageWastes)
+                {
+                    _attempts.Remove(characterID);
+                    return;
+                }
+
+                RainWorldGame game = GimmickGate.GameFor(player);
+                if (game?.GetStorySession?.saveState?.cycleNumber != 0)
+                {
+                    _attempts.Remove(characterID);
+                    return;
+                }
+
+                if (!_attempts.ContainsKey(characterID))
+                {
+                    _attempts[characterID] = new AttemptState();
+                }
+            };
+
+            SurvivorTollState.OnTollPassed += (outpost, player, paid) =>
+            {
+                if (paid || !TryGetEnabledCharacter(player, out string characterID) || !_attempts.TryGetValue(characterID, out AttemptState state))
+                {
+                    return;
+                }
+
+                string roomKey = SurvivorTollRoster.RoomKeyFor(outpost);
+                if (roomKey == null)
+                {
+                    return;
+                }
+
+                state.UnpaidTollsPassed.Add(roomKey);
+                if (state.UnpaidTollsPassed.Count >= RequiredUnpaidTolls)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    _attempts.Remove(characterID);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _attempts.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
 }

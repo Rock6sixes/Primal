@@ -4834,6 +4834,63 @@ real game** — no .NET toolchain in this container. Every vanilla member used
 `PoleMimic.Collide`/`Consious`/`WakeUp`) was verified against `reference/GameSource/*.cs` first.
 Brace/paren balance re-checked across the whole `src/Primal` tree after this change.
 
+## Manslaughter, Chieftain, Criminal wired up (2026-09-16, later still)
+
+Requested: "put Outlaw aside next to Triplopia, continue implementing next features." With both
+of those explicitly parked, moved on to challenges whose underlying MECHANISMS already existed
+from earlier batches but had zero consumers yet — `SurvivorTollState`/`SurvivorTollRoster` (toll
+state) and `SurvivorCreatureTracking` (identity tracking). No new shared mechanisms needed this
+round, just wiring.
+
+**ManslaughterTracker** — the first real consumer of `SurvivorTollRoster`, built purely for this
+challenge back when the toll mechanism was extended but never used. All three of its own
+conditions ("every guard here ever died," "zero player kill credit," "zero hostility ever")
+were already directly answerable by that file's own `AllEverSeenGuardsDead`/
+`PlayerEverCreditedAGuardKill` — the only new piece needed at the tracker level was a small local
+`(characterID, roomKey) -> ever hostile` set, fed by the already-existing
+`SurvivorTollState.OnOutpostTransgression`. No cycle-scoping anywhere in the challenge's own CSV
+wording, which matches `SurvivorTollRoster`'s own design — it was already built to persist across
+however many cycles it takes, not reset per attempt.
+
+**ChieftainTracker** — "Bring live Scavengers to the Looks to the Moon subregion." The destination
+room fell straight out of the PREVIOUS batch's own Enlightenment research: `SL_AI` is the room
+Moon's own Oracle behavior (`SLOracleBehavior.ConvertingSSSwarmer`) runs in, and Shoreline (SL) is
+exactly the region the challenge's own verification note references ("Scavengers at the Karma
+Gate into Shoreline + the same Scavengers in Looks to the Moon"). The real design point: Chieftain
+is genuinely different from every other creature-based carry challenge in this mod so far —
+Scavengers here are TAMED ALLIES that follow the player on their own, never grabbed via
+`Player.grasps`, so this is the first tracker to use `SurvivorCreatureTracking`'s own identity
+layer (`Touch`/`AllTrackedAlive`/`FindInRoom`) WITHOUT `IsBeingCarriedBy` at all — confirming that
+helper's earlier design note (from when `IsBeingCarriedBy` was first added) that Chieftain/
+Pilgrimage's own "escort, not carry" cases would need no carry check whatsoever was correct.
+**Known simplification, flagged in the tracker's own doc comment:** requires 2+ live Scavengers
+together in Shoreline as the "brought" set — the challenge's own text only ever says "Scavengers"
+(plural), with no explicit count anywhere in its CSV row, so 2 is a judgment call for the smallest
+number satisfying that plural.
+
+**CriminalTracker** — "Travel to the Garbage Wastes Stronghold after passing three Scavenger
+Tolls without paying on the starting cycle." A direct, simple consumer of
+`SurvivorTollState.OnTollPassed` (`paid == false`), deduplicated by `SurvivorTollRoster
+.RoomKeyFor` so re-passing the same toll twice doesn't double-count. Cycle-0 checked during
+ordinary `Player.NewRoom`-driven room-entry, not a `RainWorldGame.Win` Prefix/Postfix — worth
+noting explicitly that NONE of `DespicableTracker`'s own cycleNumber-timing gotcha applies here,
+since `SaveState.cycleNumber` is simply stable for the whole cycle once set and this reads it
+mid-cycle, not around the Win boundary. **Known simplification:** doesn't verify arrival at the
+actual "Garbage Wastes Stronghold" room (its exact room ID wasn't available this pass) — completes
+as soon as the 3rd distinct unpaid toll is passed while the attempt has stayed inside Garbage
+Wastes the whole time.
+
+**Left unwired on purpose, not forgotten:** Heist (needs identifying the exact "lowest" GW toll
+among potentially several outposts in that region — more precise than "any" toll) and Elder (needs
+the still-entirely-unbuilt "Scavenger wearing a Vulture Mask as an item" detection, a genuinely
+different mechanic from the live-Vulture-demasking event already built for Usurper). Both would
+need real new data or research, not just wiring, so they stayed out of this batch rather than
+shipping a much weaker approximation.
+
+30 of 50 challenges now have a tracker registered (up from 27). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
