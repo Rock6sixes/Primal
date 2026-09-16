@@ -71,26 +71,56 @@ namespace Primal.Gimmicks
         // The real vanilla roster. Display names match the characters' in-game names, not their
         // internal SlugcatStats.Name values, so the Remix screen reads naturally (e.g. "Hunter",
         // not "Red").
-        private static readonly CharacterEntry[] AllCharacters =
+        //
+        // Built by a method rather than a fixed array initializer, and gated by ModManager.MSC/
+        // .Watcher, because MoreSlugcatsEnums.SlugcatStatsName.*/Watcher.WatcherEnums
+        // .SlugcatStatsName.Watcher are only meaningfully registered while their owning DLC is
+        // actually enabled -- every OTHER place in this codebase that touches either enum already
+        // guards it the same way (see PrimalCharacterNames.cs's Watcher branch,
+        // PrimalUnimplementedPortraits.cs's MSC/Watcher checks). This array used to reference all
+        // six DLC characters unconditionally, which is a static field initializer -- evaluated
+        // once, unconditionally, the instant this type is first touched (from
+        // RainWorldHooks.Postfix registering the Remix screen) -- so with MoreSlugcats and/or
+        // Watcher disabled in the in-game Mods menu, this threw and the whole PrimalOptions type
+        // failed to initialize, which is exactly why Remix reported "this mod does not have a
+        // remix config menu" for Primal even though RainWorldHooks.cs did call
+        // MachineConnector.SetRegisteredOI -- the call itself never returned successfully.
+        private static readonly CharacterEntry[] AllCharacters = BuildAllCharacters();
+
+        private static CharacterEntry[] BuildAllCharacters()
         {
-            new CharacterEntry(SlugcatStats.Name.White, "Survivor"),
-            new CharacterEntry(SlugcatStats.Name.Yellow, "Monk"),
-            new CharacterEntry(SlugcatStats.Name.Red, "Hunter"),
-            new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Gourmand, "Gourmand"),
-            new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Artificer, "Artificer"),
-            new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Rivulet, "Rivulet"),
-            new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Saint, "Saint"),
-            new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Spear, "Spearmaster"),
-            new CharacterEntry(Watcher.WatcherEnums.SlugcatStatsName.Watcher, "Watcher"),
-            // "Inv" -- More Slugcats' secret/non-canon slugcat (unlocked via the "sofanthiel"
-            // main-menu code). Internally still SlugcatStats.Name.Sofanthiel -- that's the actual
-            // field name in MoreSlugcatsEnums.SlugcatStatsName (confirmed via the real game
-            // assembly's metadata), the community just calls the character "Inv" everywhere else.
-            // Confirmed via disassembling SlugcatStats.SlugcatCanMaul that Sofanthiel is *also*
-            // one of the two classes (with Artificer) mauling is already restricted to in vanilla
-            // -- see NoMaulingGimmick.cs -- which is why NoMauling was worth giving him too.
-            new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel, "Inv"),
-        };
+            List<CharacterEntry> characters = new List<CharacterEntry>
+            {
+                new CharacterEntry(SlugcatStats.Name.White, "Survivor"),
+                new CharacterEntry(SlugcatStats.Name.Yellow, "Monk"),
+                new CharacterEntry(SlugcatStats.Name.Red, "Hunter"),
+            };
+
+            if (ModManager.MSC)
+            {
+                characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Gourmand, "Gourmand"));
+                characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Artificer, "Artificer"));
+                characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Rivulet, "Rivulet"));
+                characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Saint, "Saint"));
+                characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Spear, "Spearmaster"));
+                // "Inv" -- More Slugcats' secret/non-canon slugcat (unlocked via the "sofanthiel"
+                // main-menu code). Internally still SlugcatStats.Name.Sofanthiel -- that's the
+                // actual field name in MoreSlugcatsEnums.SlugcatStatsName (confirmed via the real
+                // game assembly's metadata), the community just calls the character "Inv"
+                // everywhere else. Confirmed via disassembling SlugcatStats.SlugcatCanMaul that
+                // Sofanthiel is *also* one of the two classes (with Artificer) mauling is already
+                // restricted to in vanilla -- see NoMaulingGimmick.cs -- which is why NoMauling was
+                // worth giving him too.
+                characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel, "Inv"));
+            }
+
+            if (ModManager.Watcher)
+            {
+                characters.Add(new CharacterEntry(Watcher.WatcherEnums.SlugcatStatsName.Watcher, "Watcher"));
+            }
+
+            return characters.ToArray();
+        }
 
         // What the (always-visible) detail area, directly below the (also always-visible)
         // character grid, is currently showing. "None" is the initial placeholder state before
@@ -721,7 +751,26 @@ namespace Primal.Gimmicks
             items.Add(scrollBox);
 
             ShowDetail(items);
-            scrollBox.AddItems(gimmick.BuildSettingsUI(character.ID, contentTopY).ToArray());
+
+            // scrollBox.AddItems forwards each element straight to _tab.AddItems internally (see
+            // OpScrollBox.AddItems in the decompiled source -- it calls tab.AddItems(uIelement) for
+            // every item), which is what makes the controls appear at all. But that means these
+            // elements become the OpTab's own direct children, not children of the scrollBox as far
+            // as ShowDetail's teardown is concerned -- and _detailItems (the list ShowDetail's next
+            // call passes to _tab.RemoveItems) only ever contained `scrollBox` itself, never these.
+            // OpTab._RemoveItem (decompiled) does NOT call Deactivate() on what it removes, only
+            // OpScrollBox.Deactivate() cascades into its own children -- so removing just the empty
+            // scrollBox object left every control it had ever held permanently attached to the tab,
+            // still drawn (their own myContainer was never detached from _container) and still
+            // clickable, silently overlapping whatever the next sub-view rendered in the same screen
+            // space. Confirmed live: after opening one gimmick's settings and navigating away, clicks
+            // meant for the new screen would sometimes silently land on and fire an old, invisible
+            // control's own captured (character, gimmick) closure instead. Tracking these in
+            // _detailItems too (same list already used for everything else in this file) is what
+            // makes the ordinary ShowDetail teardown actually reach them next time.
+            List<UIelement> settingsControls = gimmick.BuildSettingsUI(character.ID, contentTopY);
+            scrollBox.AddItems(settingsControls.ToArray());
+            _detailItems.AddRange(settingsControls);
         }
 
         // ---- detail sub-view: add-a-gimmick picker for the selected character ------------------
@@ -835,7 +884,14 @@ namespace Primal.Gimmicks
 
                 rowY -= RowHeight;
             }
+            // See the identical note in RenderGimmickSettings: OpScrollBox.AddItems forwards every
+            // row straight to _tab.AddItems, so without also tracking them in _detailItems here,
+            // ShowDetail's next teardown (_tab.RemoveItems(_detailItems.ToArray()), which only knows
+            // about `scrollBox` itself) leaves every row permanently attached to the tab -- still
+            // drawn, still clickable, still wired to whichever (character, gimmick) pair it was
+            // originally built for.
             scrollBox.AddItems(scrollItems.ToArray());
+            _detailItems.AddRange(scrollItems);
         }
 
         // ---- detail placeholder: nothing selected yet -----------------------------------------

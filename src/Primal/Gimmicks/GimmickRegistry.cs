@@ -1,3 +1,5 @@
+using MoreSlugcats;
+
 namespace Primal.Gimmicks
 {
     /// <summary>

@@ -40,6 +40,40 @@ excluded — this repo is real git history now, so removing it loses nothing rec
 looking for the pre-rename version of any of this doc's own history, it's in this file's own git
 log, not a second file on disk.
 
+## 2026-09-15 (later): sessions now run directly on the user's own Windows machine, not a cloud container
+
+Every "Container environment notes" section and every "this session's container has no `.NET`
+toolchain / no git / has to push files through `device_commit_files`" caveat elsewhere in this doc
+describes a **different, no-longer-current** setup. As of this update, the working directory
+(`C:\Users\rokas\Documents\RWMods`) **is** the user's real machine — a real git repo (not
+"no git repo here" as the Build & deploy workflow section still claims), with a working `dotnet`
+(confirmed: `dotnet --version` -> 8.0.425) and direct filesystem access to both the source tree and
+the actual Steam game install. `scripts/build-deploy-run.sh` can now be run directly and actually
+builds/deploys/launches for real, instead of being hand-reviewed-only and shipped through a
+device-bridge as described throughout the rest of this file. Don't assume the container limitations
+(no toolchain, no decompiler, file transfer via `SendUserFile`/`device_commit_files`) still apply —
+check directly (`dotnet --version`, `git status`) before assuming either way, the same "verify,
+don't assume" discipline Gotcha #5 already established for build staleness.
+
+**First real build in this environment found the 2026-09-15 whole-codebase refactor didn't actually
+compile.** `dotnet build` (via `scripts/build-deploy-run.sh`) failed with 9x `CS0103: The name
+'MoreSlugcatsEnums' does not exist in the current context`, all in `Gimmicks/GimmickRegistry.cs`
+(the new `homeCharacter:` arguments added that day — see "Gimmick buttons colored by their home
+character" above). Root cause was mundane: that file was missing `using MoreSlugcats;` entirely (no
+`using` directives at all at its top), unlike every sibling file (`GimmickDefaults.cs`, etc.) that
+already has it. **Fixed** by adding the one `using` line. Rebuilt clean (0 errors), the
+`CopyToModFolder` post-build step + the script's own deploy step copied the DLL into
+`...\StreamingAssets\mods\Primal\plugins\Primal.dll`, and `./RainWorld.exe` launched successfully —
+`BepInEx/LogOutput.log` shows a clean chainloader startup with no errors, and no `exceptionLog.txt`
+was generated. This is the first confirmed-clean build+launch since the 2026-09-15 refactor; **it
+does not mean any individual gimmick/feature listed as "not yet tested" elsewhere in this doc is now
+verified** — only that the mod loads without immediately crashing BepInEx's own chainloader. Note
+also: `BepInEx/LogOutput.log` shows `Primal` (along with every other optional local mod --
+moreslugcats, watcher, jollycoop, rwremix, versioning) as **"Skipping loading [Primal] because it's
+not enabled"** — this is the in-game Mods-menu enabled/disabled list, unrelated to the build/deploy
+fix above, and needs to be toggled on from Rain World's own mod-manager screen before any gimmick
+can actually be exercised in-game.
+
 ## Maintenance policy — keep this document current
 
 **This file is a living document, not a one-time snapshot.** Whoever (whichever session) is
@@ -948,6 +982,99 @@ round was root-caused with two pieces of direct, concrete evidence instead:
   wrong place" or "writes work but get overwritten/reset somewhere else," which would each need a
   completely different fix.
 
+## Gotcha #8 — an OpScrollBox's own AddItems'd children are never cleaned up by the ordinary ShowDetail/RemoveItems teardown
+
+**2026-09-15, later session (first one actually run on the user's own machine with a live game
+window, not a container) — the user reported "you dont have a good grasp on the scaling of UI
+elements — some take up significantly less space than they should, others far too much" and asked
+for a better method of getting Remix UI sizing right.** Rather than keep guessing pixel numbers
+blind, this session used `computer-use` to actually launch the game, open Primal's Remix screen live,
+and click through it — the first time any session working on this mod could see the real screen
+instead of reasoning from disassembly alone. That surfaced a real, reproducible bug within a few
+minutes of clicking around, and it isn't a sizing/scaling issue at all: it's a stale-element leak.
+
+**Symptom, live:** open a character's Gimmicks table, click "+" to open the add-gimmick picker
+(`RenderAddGimmick`, an `OpScrollBox`), interact with it (scroll, or just let it render), then
+navigate anywhere else (a different character in the always-visible grid, the "< CharacterName" back
+button, a gimmick's settings view). The new view's own elements often don't respond to clicks at all,
+or a click lands on and silently fires a completely different, invisible control left over from the
+*previous* screen (confirmed directly: a click aimed at the "Monk" grid button instead silently fired
+a stale "Kill List" row from an earlier add-gimmick picker visit, assigning Kill List to Gourmand —
+not Monk — with nothing on screen indicating this happened).
+
+**Root cause, confirmed by reading the decompiled framework source (`reference/GameSource/
+Menu.Remix.MixedUI/OpScrollBox.cs` and `OpTab.cs`), not guessed:**
+- `OpScrollBox.AddItems(items)` (used by both `RenderAddGimmick` for its rows and
+  `RenderGimmickSettings` for a gimmick's settings controls) calls `tab.AddItems(uIelement)` on
+  **each item directly** — so every row/control becomes the `OpTab`'s own direct child, exactly like
+  any other element added straight through `_tab.AddItems(...)`. It also adds each one to the scroll
+  box's own internal `items` set, for its own scrolling/draw logic.
+- `PrimalOptions.ShowDetail(items)` only ever put the `OpScrollBox` *container* itself into
+  `_detailItems` — never the individual rows/controls added to it afterward via `scrollBox.AddItems`
+  (those didn't exist yet at the point `ShowDetail(items)` was called; per the framework's own
+  two-step-commit requirement, the scroll box has to be attached to the tab before it can accept
+  items at all — see "Add-gimmick picker made scrollable" below).
+- `OpTab._RemoveItem` (decompiled) — what `_tab.RemoveItems(_detailItems.ToArray())` calls for each
+  entry — detaches that one element from the tab's item list and container, but **never calls
+  `Deactivate()` on it**. `OpScrollBox.Deactivate()` is what cascades into the scroll box's own
+  children (`foreach (item in items) item.Deactivate();`) — and since removal never calls it, removing
+  just the (by-then-empty-as-far-as-`_detailItems`-knows) scroll box leaves every row/control it ever
+  held permanently attached to `_tab.items`, permanently undetached from `_container` (still drawn,
+  invisibly overlapping whatever renders in that screen region afterward), and still wired to
+  whichever `(characterID, gimmickID)` closure it captured when it was built.
+- This means **every visit** to the add-gimmick picker, and **every visit** to any gimmick's settings
+  sub-view (all of them go through this same `OpScrollBox` wrapper as of the 2026-09-15 scrollable-
+  settings change, not just Chains — see "Per-gimmick settings sub-view made scrollable too" below),
+  permanently leaks that view's controls. They accumulate for the rest of the `OptionInterface`
+  instance's life (i.e., until the player fully closes and reopens the Remix screen), silently
+  stacking up, still clickable, still capable of firing a stale assignment change with no visible sign
+  anything happened.
+
+**Fix, in `PrimalOptions.cs`:** both `RenderAddGimmick` and `RenderGimmickSettings` now also append
+the scroll box's dynamically-built child elements into `_detailItems` (`_detailItems.AddRange(...)`),
+right after handing them to `scrollBox.AddItems(...)` — no new API, just making sure the exact same
+`_detailItems` bookkeeping this file already uses for every other element also covers these. The next
+`ShowDetail` call's `_tab.RemoveItems(_detailItems.ToArray())` then genuinely detaches them along with
+the scroll box container itself, instead of only ever removing the (by-then childless-as-far-as-the-
+tab-knows) container.
+
+**Confirmed fixed by rebuilding, redeploying, and relaunching the actual game** (this session had
+direct machine access — no container limitation this time) — no more stray old rows/controls observed
+after switching characters/views repeatedly post-fix, in the limited testing this session's
+click-reliability issues (below) allowed.
+
+**A live-testing caveat worth recording for next time:** synthetic mouse clicks against this game
+window (via `computer-use`) were unreliable for anything beyond the first click on a freshly-opened
+screen — hover/highlight state always updated correctly (proving click coordinates were accurate),
+but the actual `OnClick` firing was intermittent, sometimes taking 2-3 identical repeated clicks on
+the exact same element to register, and occasionally (the "x" remove button specifically, this
+session) never firing at all despite many attempts. This looks like a timing mismatch between however
+`computer-use` synthesizes a click (down+up) and Unity's own per-frame input polling, not a bug in
+this mod — but it means **a real in-person test pass (the user actually at the keyboard) is still the
+reliable way to confirm any Remix UI fix**, even now that this session can see the screen. Don't treat
+a `computer-use` session's live click-through as equivalent to the user's own hands-on test.
+
+**One side effect of this session's own testing, left behind:** while reproducing the bug, a stray
+click landed on and fired a leftover "Kill List" row, assigning the Kill List gimmick to Gourmand for
+real (confirmed persisted to `ModConfigs\rokas.primal.txt` — it survived a full game restart). Several
+follow-up attempts to click its own "x" to remove it did not register (see the click-reliability
+caveat above). **Left in place rather than force it via `RESET CONFIG`**, since that button resets
+*every* character's assignments back to defaults, which would blow away any real configuration the
+user has made independently of this session. If Gourmand still shows Kill List assigned and that
+wasn't wanted, remove it by hand (one click on its "x") next time the Remix screen is open.
+
+**Methodology takeaway, answering "how do I get UI scaling right" directly:** the fix here was found
+by *reproducing the actual behavior live* and then reading the exact framework source that explains
+it — not by re-guessing pixel coordinates. Now that this project can run on a machine with both the
+game and screen-automation access, that's the reliable path for any future "layout looks wrong"
+report: (1) get it open on screen (this session's own click-reliability issues aside, the user's own
+hands are always reliable for this), (2) if something behaves oddly, don't assume it's a `pos`/`size`
+number that needs nudging — check whether it's actually a *stale/leftover element* problem first
+(anything that goes through `OpScrollBox`, or any other framework object with its own child-tracking,
+is a candidate), by reading that framework class's decompiled source in `reference/GameSource/` for
+what its own `AddItems`/removal really does, the same way this bug was actually found. Only reach for
+adjusting a literal coordinate/size constant once stale elements are ruled out.
+
 ## Misery gimmick, in detail (traced from a real reference mod — read before editing)
 
 The user reported the original Misery implementation (a simple `aerobicLevel` threshold override on
@@ -1554,6 +1681,64 @@ already befriended before you enter a room is not added to the lock (no lock tri
 the only creature present); (3) Arena/Sandbox mode never triggers Chains even if the last story
 save slot used was Primal's reserved one; (4) Garbage Wastes room A24 now behaves like any other
 room (locks normally if it has qualifying creatures, no special-case exemption).
+
+**Update (2026-09-15, later session -- direct user reports from real play, all three fixed): (1)
+den chain-visuals removed, (2) creatures could escape via unguarded shortcuts, (3) LC_SUBWAY02
+unlocked early.** Three reports in one message, and the second and third turned out to share one
+root cause.
+
+1. **"the graphics for chains should not come from creature only pipes - it should come only from
+   pipes slugcat can enter to travel between rooms."** `MultiChain`'s constructor was handed
+   `state.ChainedShortcuts` -- every sealed exit, including `CreatureHole` dens -- and drew one
+   `VoidChain` visual per entry, anchoring one at a den hole the player could never actually walk
+   through in the first place. Fixed by adding a second, narrower list, `ChainState.PipeShortcuts`
+   (built alongside `ChainedShortcuts` in `LockNow`, filtered through a new `IsPlayerPipe` helper --
+   true only for `RoomExit`/`RegionTransportation`) and handing THAT to `MultiChain` instead
+   (`AssignNewChain`). The den itself is still sealed and still defended exactly as before -- only
+   which sealed exits get a chain drawn on them changed.
+2. **"creatures seemed to be able to go through their creature only pipes, either dens or in room
+   shortcuts for them - they shouldnt be able to do that. they can only go through pipes and
+   shortcuts, the same ones slugcat can go through."** Root cause: the per-tick creature-side
+   `enteringShortCut` cancellation (`UpdateLock`) only ever cancelled entry into a tile that was in
+   `state.ChainedShortcuts` -- i.e. one of the three ROOM-sealed types. `NPCTransportation` (the
+   within-room creature-transport shortcut) was deliberately never added there, on the theory it
+   "never leaves the room" the same way `Normal` doesn't -- true of the room-to-room question, but
+   the user's own correction reframes the actual rule: creatures should be held to exactly what the
+   player could use, and the player never has access to `NPCTransportation` (or `CreatureHole`) at
+   all. So a tracked creature riding an `NPCTransportation` shortcut was never guarded against by
+   anything, room-locked or not. Fixed by replacing the old tile-membership check
+   (`IsSealedShortcutTile`, deleted) with `TryGetShortcutTypeAtTile` (resolves a tile to its real
+   type, sealed or not, via `ChainedShortcutOriginalTypes` falling back to the live `room.shortcuts`
+   type) plus a new `IsRestrictedForCreature` predicate -- `IsSealableExit`'s three types PLUS
+   `NPCTransportation` -- so creatures are now blocked from all four non-`Normal` types regardless
+   of which ones happen to be sealed at the room level. The player's own equivalent check still
+   uses `IsSealableExit` alone (correct as-is -- the player never legitimately touches the other
+   two types anyway). Also added a second, independent hardening: the one-shot `ConfuseCreatures`
+   redirect (only ever ran once, at the exact tick a room locked) is now also called every tick from
+   `UpdateLock` for every still-tracked creature (`ConfuseCreature`, extracted out so both call sites
+   share it) -- a creature that decided to flee toward its den a moment AFTER the initial lock, not
+   at the moment of it, was never redirected by the old one-shot call.
+3. **"in LC_SUBWAY02, the room opened prematurely, before all creatures were killed."** Direct
+   consequence of finding 2, not a separate bug: a creature that slipped through an unguarded
+   `NPCTransportation`/`CreatureHole` shortcut and reached `InDen` was force-killed by `UpdateLock`'s
+   existing `if (creature.InDen)` branch (there specifically so a creature can't just vanish into a
+   den this gimmick can no longer see) -- which silently emptied `state.CreatureList` and unlocked
+   the room the instant that ONE creature was gone, even while others were still alive. Fixing
+   finding 2 removes the escape route this depended on; no separate change was needed for this
+   report specifically.
+
+Pushed `ChainsGimmick.cs` with all of the above -- `IsSealableExit`/`IsPlayerPipe`/
+`IsRestrictedForCreature` all live together near the top of the file now, `ConfuseCreature` is a
+new extracted method, `TryGetShortcutTypeAtTile` replaces the deleted `IsSealedShortcutTile`, and
+the file's own 2026-09-13 header note was updated in place rather than left describing the now-wrong
+"NPCTransportation stays open for creatures" rule. Built clean, deployed. **Not yet re-confirmed
+in-game** -- next, in a room with more than one creature: (1) chain visuals only ever appear
+anchored at real doors/pipes, never at a den hole; (2) a creature can no longer be seen using a
+den or an in-room creature-transport shortcut while the room is locked -- confirm by watching a
+lizard or similar try to flee and getting redirected/blocked instead of vanishing; (3) specifically
+in LC_SUBWAY02 (or any multi-creature room), the room stays locked until every tracked creature is
+actually dead, not just until one of them reaches a den; (4) the escape timer and manual
+kill-everything unlock paths still both work normally, since neither was touched.
 
 ## Primal Slot Tab-switch, in detail (base mechanic + round-3 transition confirmed working in-game; round-4 character-preservation and round-5 multiple-Primal-slots both pushed together, unbuilt/untested)
 
@@ -2858,6 +3043,81 @@ only stabbed it); (9) kill something NOT on the 55-species list (e.g. a Watcher 
 confirm nothing is recorded and nothing throws; (10) confirm the "KILL LIST" button only appears
 for a character that actually has the gimmick assigned, and doesn't appear (or doesn't break
 anything) for one that doesn't.
+
+**Update (2026-09-15, later session, first one with a real game window on the user's own machine):
+the popup itself was confirmed broken, in exactly the way flagged above as an unverified risk, and
+rewritten.** The user hit it for real and sent a screenshot: the comma-joined text ran off both edges
+of the screen, and there was no visible way to close it. Root-caused both from the decompiled
+`Menu.DialogNotify`/`Menu.DialogBoxNotify` source rather than guessed: (1) `CalculateDialogBoxSize`
+wraps text at a fixed internal width with no regard for the actual screen size at all -- a long
+enough list was always going to overflow; (2) the specific constructor overload the old code called,
+`DialogNotify(string, Vector2, ProcessManager)`, is the ONE overload that never calls `Init(Action
+onOK)` -- the only thing that actually builds the OK button -- so this popup never had a close button
+to begin with, confirming the user's own suspicion exactly.
+
+Replaced with `KillListDialog` (new class, in `CreatureKillListGimmick.cs` right after
+`KillListSignalHook`) per explicit request: "6 columns of an icon followed by a name," plus a
+guaranteed-working close button. Built as a `Menu.Dialog` subclass (same base
+`ShowDialog`/`StopSideProcess` mechanism, same free full-screen dark backdrop + centered panel +
+Continue/Exit-blocking) rather than a custom `Page`, so only the CONTENT needed rebuilding. Icons
+reuse vanilla's own "Kill_&lt;creature&gt;" sprite set via `CreatureSymbol.SpriteNameOfCreature`/
+`ColorOfCreature`, given an `IconSymbol.IconSymbolData` -- the exact lookup vanilla's own
+`KillsDisplayer` (`reference/GameSource/Menu/KillsDisplayer.cs`) already uses for a similar icon+
+label row elsewhere, so no new art was needed. `KillListEntry` now also keeps the original
+`CreatureTemplate.Type` object (not just its string ID) specifically so this lookup needs no
+string-to-ExtEnum round-trip. Not-yet-killed entries render dimmed (vanilla's own MediumGrey);
+killed entries "reveal" their real color. Size is computed once up front (`ComputeSize`, static,
+since it has to run before the base constructor -- and `this` -- exists) from the same row-count
+formula (`SectionRowsHeight`) the layout code itself uses afterward, so the two can't drift apart.
+At the worst case (55 entries in one bucket) this comes to roughly 1300x650, comfortably inside the
+1366x768 virtual canvas every `Menu.Dialog` centers against (confirmed in `Dialog.Init` -- those two
+numbers are hardcoded there regardless of the player's real screen resolution) -- no scrolling needed
+for this pass. See `KillListDialog`'s own doc comment in the source for the full account.
+
+**Update (2026-09-15, same later session): the user tested it directly and reported it "working
+relatively well," with two further fixes requested.**
+
+1. **Alignment: section headers should be centered like the CLOSE button, and each entry's name
+   text should sit right next to its icon instead of floating off to the right.** Root cause, found
+   by reading `Menu.MenuLabel.GrafUpdate` (`reference/GameSource/Menu/MenuLabel.cs`): a `MenuLabel`
+   always places its underlying `FLabel` at the exact CENTER of its own `pos`/`size` rect
+   (`pos + size / 2`), regardless of `alignment` -- `alignment` only controls which direction the
+   text extends FROM that fixed anchor point (Left = rightward, Center = symmetric, Right =
+   leftward), not where the anchor itself sits. Both the section headers and the per-entry name
+   labels had been given `FLabelAlignment.Left` on a box spanning the FULL available width, which
+   anchors the text at that box's own horizontal middle and grows it rightward from there --
+   nowhere near true left-alignment, and nowhere near true centering either. Fixed two different
+   ways depending on what was actually wanted: the section headers just needed the explicit `Left`
+   removed entirely, falling back to the constructor's own default (`Center`), which correctly
+   centers the text within the box's real width, matching the CLOSE button's own look. The per-entry
+   name labels needed the opposite: kept `Left`, but changed their box to a **zero-width** rect
+   (`size.x = 0`) so the anchor collapses onto `pos.x` itself -- with zero width added, `pos + size/2
+   == pos`, so `Left`-aligned text now genuinely starts exactly at `pos.x` (right after the icon)
+   instead of at the middle of a wide column that was never actually needed for anything else.
+2. **Kill List progress didn't survive a game restart.** Root cause, found by reading
+   `RainWorldGame.Win`'s decompiled body all the way through rather than assumed: `Win` calls
+   `SaveState.SessionEnded(..., survived: true, ...)`, and `SessionEnded`'s own success branch
+   (`reference/GameSource/SaveState.cs`, ~line 473) calls `progression
+   .SaveWorldStateAndProgression(malnourished)` -- the actual save-to-disk call -- SYNCHRONOUSLY,
+   before `Win` itself ever returns. `CreatureKillListCycleWinHook` was a **Postfix** on `Win`,
+   which only ever runs after the entire original method (including that nested disk write) has
+   already finished -- so every kill got committed to `unrecognizedSaveStrings` one save too late.
+   It was real in memory for the rest of that session (re-opening the popup later the same session
+   showed it correctly, which is exactly why this wasn't caught until a real restart), but never
+   reached the disk write `Win` itself had already triggered, so a save that was never touched again
+   before quitting lost it outright. Exactly the same "Postfix runs one step too late" shape as
+   TimeLimitGimmick's and Slugpup's own earlier timing bugs (see this doc's other Gotchas) -- just
+   newly found in this gimmick. **Fixed by changing `Postfix` to `Prefix`** -- everything the method
+   reads (`Players`, `IsStorySession`, `GetStorySession`/`saveState`) already exists for the whole
+   cycle rather than being constructed fresh by `Win`, so running earlier changes nothing about
+   correctness, only timing relative to the disk write. `CreatureKillListCycleGameOverHook` (the
+   discard-on-death path) did NOT need the same fix -- it only ever touches the in-memory `_pending`
+   dictionary, never `unrecognizedSaveStrings`, so save-write timing was never relevant there.
+
+Both fixes built clean and deployed. **Not yet re-confirmed in-game as of this doc** -- next, in
+order: (1) headers visually centered, entry names sitting flush against their icons; (2) kill a
+tracked species, reach a shelter, fully quit and relaunch the game, reopen the Kill List popup for
+that character, and confirm the kill is still there (the specific case that was broken).
 
 ## Primal character names, in detail
 

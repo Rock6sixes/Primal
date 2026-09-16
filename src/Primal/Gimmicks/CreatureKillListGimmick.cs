@@ -167,15 +167,38 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>
-    /// Postfix on RainWorldGame.Win -- the exact method ShelterDoor.cs calls (its only two call
-    /// sites, confirmed via decompilation) the instant a character successfully reaches and closes
-    /// a shelter door, ending the cycle in success. This is where each assigned character's
-    /// pending-this-cycle kills actually become permanent.
+    /// Prefix (NOT Postfix -- see below) on RainWorldGame.Win -- the exact method ShelterDoor.cs
+    /// calls (its only two call sites, confirmed via decompilation) the instant a character
+    /// successfully reaches and closes a shelter door, ending the cycle in success. This is where
+    /// each assigned character's pending-this-cycle kills actually become permanent.
+    ///
+    /// **2026-09-15, later session: this was a Postfix originally, and that's exactly why the Kill
+    /// List never survived a game restart -- fixed by making it a Prefix instead.** Traced by
+    /// reading Win's own decompiled body end to end rather than assumed: `Win` calls
+    /// `GetStorySession.saveState.SessionEnded(this, survived: true, malnourished)`
+    /// (`reference/GameSource/RainWorldGame.cs`), and `SaveState.SessionEnded`'s own success branch
+    /// (`reference/GameSource/SaveState.cs`, ~line 473) calls
+    /// `game.rainWorld.progression.SaveWorldStateAndProgression(malnourished)` -- the actual
+    /// disk-write call -- SYNCHRONOUSLY, before `Win` itself ever returns. A Postfix on `Win` only
+    /// ever runs after the entire original method body (including that nested call) has already
+    /// finished, so `KillListTracker.CommitPending` was always adding this cycle's markers to
+    /// `unrecognizedSaveStrings` one save too late: they were real in memory for the rest of that
+    /// session (so re-opening the Kill List popup later the same session showed them correctly,
+    /// masking the bug), but never actually reached whatever `SaveToDisk` call `Win` itself had
+    /// already triggered -- so a save file that was never touched again before quitting lost them
+    /// entirely. Exactly the same "Postfix runs one step too late" shape as TimeLimitGimmick's and
+    /// Slugpup's own earlier timing bugs elsewhere in this codebase (see AI_CONTEXT.md) -- just
+    /// found here for the first time in this particular gimmick. A Prefix runs before any of `Win`'s
+    /// own body (including the nested save call) ever executes, closing the gap: nothing this method
+    /// reads (`Players`, `IsStorySession`, `GetStorySession`/`saveState`) is something `Win` itself
+    /// constructs fresh -- all of it already exists for the whole cycle -- so moving this earlier
+    /// changes nothing about what it reads, only when its own write happens relative to the disk
+    /// write.
     /// </summary>
     [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.Win))]
     internal static class CreatureKillListCycleWinHook
     {
-        private static void Postfix(RainWorldGame __instance)
+        private static void Prefix(RainWorldGame __instance)
         {
             if (__instance?.Players == null || !__instance.IsStorySession)
             {
@@ -253,10 +276,17 @@ namespace Primal.Gimmicks
         public readonly string ID;
         public readonly string DisplayName;
 
+        // Kept alongside the string ID (rather than reconstructed from it via `new
+        // CreatureTemplate.Type(ID)` when needed) so the Kill List popup's icon grid can hand this
+        // straight to IconSymbol.IconSymbolData/CreatureSymbol.SpriteNameOfCreature without any
+        // ExtEnum round-tripping -- see KillListDialog below.
+        public readonly CreatureTemplate.Type Type;
+
         public KillListEntry(CreatureTemplate.Type type, string displayName)
         {
             ID = type?.value;
             DisplayName = displayName;
+            Type = type;
         }
     }
 
@@ -504,19 +534,16 @@ namespace Primal.Gimmicks
     /// exitButton.pos directly -- one fewer new member access) are trusted directly, matching this
     /// same file's existing precedent.
     ///
-    /// The popup itself is a plain Menu.DialogNotify (Menu.Dialog's own ordinary "OK to dismiss"
-    /// notification, shown via ProcessManager.ShowDialog -- the same mechanism vanilla itself uses
-    /// everywhere from OptionsMenu to ExpeditionMenu), sized via
-    /// Menu.DialogBoxNotify.CalculateDialogBoxSize, which grows to fit however much text it's
-    /// given with no built-in cap or scrolling. With up to ~55 names across two sections this
-    /// produces a tall box that can run past the visible screen -- there is no scrollable
-    /// alternative in wide vanilla use to reach for instead, and building a fully custom
-    /// scrollable in-game Page was judged too large a risk to the actual gameplay screen (unlike a
-    /// broken Remix tab, a broken cycle-end screen could block ordinary play) for a first pass.
-    /// Names are comma-joined into two paragraphs (not one per line) specifically to let
-    /// DialogNotify's own word-wrap keep the box more reasonably proportioned than 55 forced line
-    /// breaks would. Flagged in AI_CONTEXT.md as unverified layout, same honest treatment as this
-    /// mod's other first-pass UI work.
+    /// The popup itself is now `KillListDialog` (see that class, below `KillListSignalHook` in this
+    /// same file) -- a 6-column icon+name grid. **This was originally a plain `Menu.DialogNotify`
+    /// with names comma-joined into two paragraphs of text**; that first pass is gone as of
+    /// 2026-09-15 (later session), replaced after a screenshot showed it rendering with text running
+    /// off both edges of the screen (`Menu.DialogBoxNotify.CalculateDialogBoxSize` wraps at a fixed
+    /// width with no regard for actual screen size) *and*, separately, having no way to close it at
+    /// all (the specific `DialogNotify` constructor overload used never calls the one method that
+    /// builds its OK button -- see `KillListDialog`'s own doc comment for the full trace of both
+    /// bugs). If a future session finds this comment out of date, `KillListDialog` is the current
+    /// source of truth for how the popup is actually built.
     /// </summary>
     [HarmonyPatch(typeof(Menu.SleepAndDeathScreen), nameof(Menu.SleepAndDeathScreen.AddSubObjects))]
     internal static class KillListButtonHook
@@ -572,26 +599,208 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            var notKilled = new List<string>();
-            var killed = new List<string>();
+            manager.ShowDialog(new KillListDialog(manager, characterID, saveData));
+        }
+    }
+
+    /// <summary>
+    /// The Kill List popup itself (rewritten 2026-09-15, later session -- requested directly:
+    /// "instead of this mess, lets do 6 columns of an icon followed by a name", after a screenshot
+    /// showed the original plain-text version rendering with names running off both edges of the
+    /// screen). Replaces Menu.DialogNotify with a proper grid of creature icons + names.
+    ///
+    /// Two distinct problems, both confirmed by reading the decompiled framework source rather than
+    /// guessed:
+    ///  1. Menu.DialogBoxNotify.CalculateDialogBoxSize (what the old code used to size the box) wraps
+    ///     a single block of text at a FIXED internal width with no awareness of actual screen size
+    ///     at all -- a long enough comma-joined list (up to 55 names) produced a box wider than the
+    ///     visible screen, which is exactly the "mess" in the screenshot.
+    ///  2. The specific constructor overload the old code called --
+    ///     `Menu.DialogNotify(string, Vector2, ProcessManager)` -- is the ONE DialogNotify overload
+    ///     that never calls `Init(Action onOK)`, which is the only thing that actually builds
+    ///     `okButton` (confirmed in `reference/GameSource/Menu/DialogNotify.cs`: every OTHER overload
+    ///     that takes an `onOK` callback calls `Init(onOK)`; this one just runs the base constructor
+    ///     and stops). So the old popup never had a close button at all -- confirming exactly the
+    ///     "not sure if there is a close button here" concern directly.
+    ///
+    /// Built as a `Menu.Dialog` subclass -- the same `ProcessManager.ShowDialog`/`StopSideProcess`
+    /// side-process mechanism `DialogNotify` itself already used, and what every vanilla dialog in
+    /// the game uses -- rather than a custom `Page` bolted onto `SleepAndDeathScreen` directly. This
+    /// keeps the full-screen dark backdrop, centered rounded panel, and Continue/Exit-blocking
+    /// behavior the base class already provides "for free" (all already proven, shipped vanilla
+    /// behavior) and only replaces what's drawn inside it. Passing `string.Empty` as the description
+    /// to the `Dialog(string, Vector2, ProcessManager)` base constructor still builds an (empty,
+    /// invisible) `descriptionLabel` as a side effect -- harmless, not worth a special code path to
+    /// avoid.
+    ///
+    /// Icons are vanilla's own "Kill_&lt;creature&gt;" sprites, looked up via
+    /// `CreatureSymbol.SpriteNameOfCreature`/`ColorOfCreature` given an `IconSymbol.IconSymbolData` --
+    /// the exact same lookup vanilla's own `KillsDisplayer` (`reference/GameSource/Menu
+    /// /KillsDisplayer.cs`, the small icon+count row vanilla shows elsewhere for a cycle's kills)
+    /// already uses, so all 55 tracked species already have real, existing icon art with no new
+    /// assets needed. `KillListEntry` now keeps the original `CreatureTemplate.Type` object alongside
+    /// its string `ID` specifically so this lookup needs no ExtEnum round-trip through the string.
+    /// Not-yet-killed entries render dimmed (vanilla's own MediumGrey, both icon and name, the same
+    /// helper `CreatureSymbol.ColorOfCreature`'s own unknown-creature fallback uses) rather than in
+    /// their real color, so overall progress reads at a glance; a killed entry "reveals" its real
+    /// color. `FSprite`/`Menu.MenuLabel`/`Menu.RoundedRect`/`Menu.SimpleButton` are all used directly
+    /// (no reflection) -- ordinary, widely-reused vanilla menu/graphics classes, same judgment call
+    /// already established throughout this file and `PrimalCharacterNames.cs` for this category of
+    /// member.
+    ///
+    /// Sizing is computed once (`ComputeSize`, a static method so it can run before the base
+    /// constructor -- and therefore `this` -- exists) from the same row-count formula the layout
+    /// code itself uses (`SectionRowsHeight`), so the two can't silently drift apart the way a
+    /// separately-guessed constant could. At the current 6-column/55-entry worst case (every species
+    /// still in one bucket) this comes out to roughly 1300x650 -- comfortably inside the 1366x768
+    /// virtual canvas every `Menu.Dialog` is centered against (confirmed in `Dialog.Init`, which
+    /// hardcodes exactly those two numbers regardless of the player's actual screen resolution), so
+    /// no scroll support was added for this pass.
+    ///
+    /// **Not yet built or tested in-game as of this doc** -- next: `dotnet build`, then open the Kill
+    /// List popup (any character with the gimmick assigned, from the cycle-end screen) and confirm
+    /// (1) it compiles and opens without an error screen; (2) the grid renders fully on screen with
+    /// no text running off either edge, at both extremes (a fresh character with 0 kills, and one
+    /// with several banked) plus something in between; (3) each icon matches its own name and looks
+    /// like the right creature; (4) not-yet-killed entries render visibly dimmed/gray, killed ones in
+    /// their real color; (5) the CLOSE button is visible, clickable, and actually dismisses the
+    /// dialog and returns control to the underlying Continue/Exit buttons.
+    /// </summary>
+    internal sealed class KillListDialog : Menu.Dialog
+    {
+        private const int Columns = 6;
+        private const float ColumnWidth = 210f;
+        private const float RowHeight = 40f;
+        private const float IconSize = 32f;
+        private const float IconLabelGap = 6f;
+        private const float Margin = 24f;
+        private const float TitleHeight = 34f;
+        private const float SectionLabelHeight = 26f;
+        private const float SectionGap = 14f;
+        private const float CloseButtonAreaHeight = 60f;
+        private const string CloseSignal = "PRIMAL_KILLLIST_CLOSE";
+
+        public KillListDialog(ProcessManager manager, string characterID, DeathPersistentSaveData saveData)
+            : base(string.Empty, ComputeSize(saveData, characterID), manager)
+        {
+            var notKilled = new List<KillListEntry>();
+            var killed = new List<KillListEntry>();
             foreach (KillListEntry entry in KillListRegistry.All)
             {
                 if (KillListTracker.IsKilled(saveData, characterID, entry.ID))
                 {
-                    killed.Add(entry.DisplayName);
+                    killed.Add(entry);
                 }
                 else
                 {
-                    notKilled.Add(entry.DisplayName);
+                    notKilled.Add(entry);
                 }
             }
 
-            string notKilledText = notKilled.Count > 0 ? string.Join(", ", notKilled) : "(none -- every tracked species killed!)";
-            string killedText = killed.Count > 0 ? string.Join(", ", killed) : "(none yet)";
-            string text = $"KILL LIST -- {killed.Count}/{KillListRegistry.All.Length}\n\nNOT YET KILLED:\n{notKilledText}\n\n----------\n\nKILLED:\n{killedText}";
+            float cursorY = pos.y + size.y - Margin;
 
-            Vector2 size = Menu.DialogBoxNotify.CalculateDialogBoxSize(text);
-            manager.ShowDialog(new Menu.DialogNotify(text, size, manager));
+            var title = new Menu.MenuLabel(this, pages[0], $"KILL LIST -- {killed.Count}/{KillListRegistry.All.Length}", new Vector2(pos.x, cursorY - TitleHeight), new Vector2(size.x, TitleHeight), true);
+            pages[0].subObjects.Add(title);
+            cursorY -= TitleHeight;
+
+            cursorY = RenderSection("NOT YET KILLED:", notKilled, "(none -- every tracked species killed!)", killedSection: false, cursorY);
+            cursorY -= SectionGap;
+            cursorY = RenderSection("KILLED:", killed, "(none yet)", killedSection: true, cursorY);
+
+            var closeButton = new Menu.SimpleButton(this, pages[0], "CLOSE", CloseSignal, new Vector2(pos.x + (size.x - 110f) * 0.5f, pos.y + Mathf.Max(size.y * 0.02f, 10f)), new Vector2(110f, 30f));
+            pages[0].subObjects.Add(closeButton);
+        }
+
+        public override void Singal(Menu.MenuObject sender, string message)
+        {
+            if (message == CloseSignal)
+            {
+                manager.StopSideProcess(this);
+                return;
+            }
+            base.Singal(sender, message);
+        }
+
+        private float RenderSection(string header, List<KillListEntry> entries, string emptyText, bool killedSection, float topY)
+        {
+            // MenuLabel.GrafUpdate always places the underlying FLabel at the CENTER of this
+            // label's own pos/size rect (pos + size / 2) regardless of `alignment` -- alignment only
+            // picks which direction the text extends FROM that anchor (Left = rightward from it,
+            // Center = symmetric around it, Right = leftward from it). Leaving this at the
+            // constructor's own default (Center) is what actually centers the header the same way
+            // the CLOSE button's own label is centered -- setting Left here (the previous version)
+            // anchored the text at the box's horizontal middle and then grew it rightward from
+            // there, landing well right of true center instead of on it.
+            var headerLabel = new Menu.MenuLabel(this, pages[0], header, new Vector2(pos.x + Margin, topY - SectionLabelHeight), new Vector2(size.x - Margin * 2f, SectionLabelHeight), false);
+            pages[0].subObjects.Add(headerLabel);
+            topY -= SectionLabelHeight;
+
+            if (entries.Count == 0)
+            {
+                var placeholder = new Menu.MenuLabel(this, pages[0], emptyText, new Vector2(pos.x + Margin, topY - RowHeight), new Vector2(size.x - Margin * 2f, RowHeight), false);
+                placeholder.label.alignment = FLabelAlignment.Left;
+                pages[0].subObjects.Add(placeholder);
+                return topY - RowHeight;
+            }
+
+            int rows = Mathf.CeilToInt(entries.Count / (float)Columns);
+            for (int i = 0; i < entries.Count; i++)
+            {
+                int row = i / Columns;
+                int col = i % Columns;
+                float cellX = pos.x + Margin + col * ColumnWidth;
+                float cellCenterY = topY - row * RowHeight - RowHeight * 0.5f;
+                RenderEntry(entries[i], killedSection, cellX, cellCenterY);
+            }
+            return topY - rows * RowHeight;
+        }
+
+        private void RenderEntry(KillListEntry entry, bool killed, float cellX, float cellCenterY)
+        {
+            var iconData = new IconSymbol.IconSymbolData(entry.Type, AbstractPhysicalObject.AbstractObjectType.Creature, 0);
+            Color color = killed ? CreatureSymbol.ColorOfCreature(iconData) : Menu.Menu.MenuRGB(Menu.Menu.MenuColors.MediumGrey);
+
+            var icon = new FSprite(CreatureSymbol.SpriteNameOfCreature(iconData))
+            {
+                color = color,
+                x = cellX + IconSize * 0.5f,
+                y = cellCenterY
+            };
+            pages[0].Container.AddChild(icon);
+
+            // Same MenuLabel anchor-is-always-the-box-center behavior as the section headers above
+            // -- with the previous non-zero size.x, Left alignment anchored at the column's own
+            // horizontal middle and grew the text rightward from there, landing well right of the
+            // icon instead of right next to it. A zero-width box puts the anchor at exactly pos.x,
+            // so Left-aligned text now genuinely starts right where the icon ends.
+            var label = new Menu.MenuLabel(this, pages[0], entry.DisplayName, new Vector2(cellX + IconSize + IconLabelGap, cellCenterY - 10f), new Vector2(0f, 20f), false);
+            label.label.alignment = FLabelAlignment.Left;
+            label.label.color = color;
+            pages[0].subObjects.Add(label);
+        }
+
+        private static Vector2 ComputeSize(DeathPersistentSaveData saveData, string characterID)
+        {
+            int killedCount = 0;
+            foreach (KillListEntry entry in KillListRegistry.All)
+            {
+                if (KillListTracker.IsKilled(saveData, characterID, entry.ID))
+                {
+                    killedCount++;
+                }
+            }
+            int notKilledCount = KillListRegistry.All.Length - killedCount;
+
+            float width = Columns * ColumnWidth + Margin * 2f;
+            float height = Margin * 2f + TitleHeight + CloseButtonAreaHeight
+                + SectionRowsHeight(notKilledCount) + SectionGap + SectionRowsHeight(killedCount);
+            return new Vector2(width, height);
+        }
+
+        private static float SectionRowsHeight(int count)
+        {
+            int rows = count > 0 ? Mathf.CeilToInt(count / (float)Columns) : 1;
+            return SectionLabelHeight + rows * RowHeight;
         }
     }
 }
