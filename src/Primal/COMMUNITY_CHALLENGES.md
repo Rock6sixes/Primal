@@ -634,3 +634,45 @@ flagged explicitly rather than guessed.
 20 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
 .NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): Collector, Devotee, Martyr, Guardian implemented; 24 of 50 now done
+
+The user answered all 4 open questions from the previous batch directly, unblocking every one of
+them:
+
+- **Collector**: "all means all that are collectible by either monk, survivor or hunter... select
+  all of the unlockables for sandbox, arena and safari that are intended for vanilla." Confirmed
+  `ExtEnum<T>.values.entries` is a plain public `List<string>` -- the full registered
+  `SandboxUnlockID` roster, no reflection needed. With MSC disabled, only vanilla's own
+  registrations ever run, so this comes back correctly scoped with no extra filtering. Added
+  `SurvivorVanillaProgress.AllSandboxUnlockIDs()` and `CollectorTracker` (checked at hibernation,
+  same shape as `PassagesTracker`).
+- **Devotee**: "reaching the Depths" = arriving in room `SB_E05`. Rather than reactively reading
+  the permanent `HasMetGhost` flag (which can't tell an Echo met long ago from one met just now,
+  and never resets), built a new `SurvivorEchoEncounter.cs` hooking `SaveState.GhostEncounter`
+  directly (confirmed via decompilation to unconditionally set `ghostsTalkedTo[ghost] = 2` right
+  at the top of its own body) for a genuinely LIVE per-Echo signal. `DevoteeTracker` locks in a
+  "home shelter" on each hibernation, resets the whole attempt if a hibernation happens from a
+  different shelter (matching "all from one shelter"), and only credits Echo encounters to
+  whichever attempt is currently active -- naturally handling "does not need to be completed in
+  consecutive successful cycles" (a death doesn't touch the shelter-chain state at all).
+- **Martyr**: the rot-less Memory Conflux rooms are `SS_LAB7` and `SS_A01`. `MartyrTracker` checks
+  the whole cycle stays inside Five Pebbles and touches one of those two rooms before ending in a
+  successful hibernation. **Known simplifications, flagged in the tracker's own doc comment:**
+  doesn't verify the exact starting shelter or that the return route specifically passes back
+  through Unfortunate Development -- neither UD's own room list nor the starting shelter's room ID
+  were given this round; happy to tighten this further if that data comes up later.
+- **Guardian**: the Guardians room is `SB_D03`; "Grapple Worm" is vanilla's own `TubeWorm`
+  (confirmed via its own `grappleToPos`/`GrappleToPosition()` fields -- the exact zipline/grapple
+  mechanic the nickname refers to). `GuardianTracker` tracks both the Worm and the Snail
+  simultaneously under one `SurvivorCreatureTracking` key (that class's existing multi-creature
+  support needed no changes at all), reads `Player.Malnourished` on each room transition for the
+  "without starving" clause, and completes on arrival at `SB_D03` with both still alive and
+  carried. **Known simplification:** doesn't verify the "highest room in Communication Arrays"
+  waypoint (its room ID wasn't given this round either).
+
+24 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Every vanilla member used (`ExtEnum<T>.values.entries`,
+`SaveState.GhostEncounter`, `Player.Malnourished`, `TubeWorm.grappleToPos`) was verified against
+`reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.

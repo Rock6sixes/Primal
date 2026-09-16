@@ -49,6 +49,30 @@ namespace Primal.Gimmicks
             return rainWorld?.progression?.miscProgressionData?.GetTokenCollected(unlock) ?? false;
         }
 
+        /// <summary>Added 2026-09-16 for Collector. Every currently-registered SandboxUnlockID --
+        /// `ExtEnum&lt;T&gt;.values.entries` (confirmed public `List&lt;string&gt;`) turns out to
+        /// be a direct, complete read of the registered roster, no reflection needed at all (this
+        /// class's own older KillScores comment assumed no such read existed -- it does). With MSC
+        /// disabled (this mod's whole target), only vanilla's own SandboxUnlockID registrations
+        /// ever run, so this naturally comes back scoped to the vanilla set with no extra
+        /// filtering -- confirmed by the user directly: "select all of the unlockables for
+        /// sandbox, arena and safari that are intended for vanilla."</summary>
+        public static MultiplayerUnlocks.SandboxUnlockID[] AllSandboxUnlockIDs()
+        {
+            List<string> entries = MultiplayerUnlocks.SandboxUnlockID.values?.entries;
+            if (entries == null)
+            {
+                return Array.Empty<MultiplayerUnlocks.SandboxUnlockID>();
+            }
+
+            var result = new MultiplayerUnlocks.SandboxUnlockID[entries.Count];
+            for (int i = 0; i < entries.Count; i++)
+            {
+                result[i] = new MultiplayerUnlocks.SandboxUnlockID(entries[i], register: false);
+            }
+            return result;
+        }
+
         public static bool HasSteamAchievement(RainWorld rainWorld, RainWorld.AchievementID achievement)
         {
             return rainWorld != null && rainWorld.AchievementAlreadyDisplayed(achievement);

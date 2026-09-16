@@ -1270,4 +1270,338 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, per the user's own direction: "all means all that are
+    /// collectible by either monk, survivor or hunter... select all of the unlockables for
+    /// sandbox, arena and safari that are intended for vanilla." Consumes the new
+    /// SurvivorVanillaProgress.AllSandboxUnlockIDs() directly -- with MSC disabled, that list is
+    /// already naturally scoped to the vanilla roster (see that method's own doc comment), so no
+    /// extra category filtering is applied here.</summary>
+    internal sealed class CollectorTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Collector");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                RainWorld rainWorld = GimmickGate.RainWorldFor(player);
+                if (rainWorld == null)
+                {
+                    return;
+                }
+
+                foreach (MultiplayerUnlocks.SandboxUnlockID unlock in SurvivorVanillaProgress.AllSandboxUnlockIDs())
+                {
+                    if (!SurvivorVanillaProgress.HasSandboxUnlock(rainWorld, unlock))
+                    {
+                        return;
+                    }
+                }
+
+                ReportCompletion(player, characterID, isLive: false);
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own confirmation: "reaching the Depths" means
+    /// arriving in room SB_E05 (the first room of the Depths subregion). Consumes the new
+    /// SurvivorEchoEncounter.OnGhostEncountered (a LIVE per-Echo signal, not a reactive read of
+    /// the permanent HasMetGhost flag) specifically to avoid crediting an Echo met long ago, under
+    /// a different shelter chain, to a fresh attempt -- see that event's own doc comment. The 6
+    /// Echo regions (GhostWorldPresence.GhostID: CC, SI, LF, SH, UW, SB) are a small, fixed,
+    /// compile-time roster, confirmed via decompilation to be declared directly as static fields
+    /// (no dynamic registration to worry about, unlike SandboxUnlockID).
+    ///
+    /// "All from one shelter": a per-character "home shelter" locks in on the first hibernation
+    /// once this tracker starts paying attention, and resets (starting a fresh attempt, discarding
+    /// prior encounters) the moment a hibernation happens from a DIFFERENT shelter -- an Echo
+    /// encountered before a home shelter is established, or during a broken chain, simply isn't
+    /// credited to anything. Per the CSV's own Notes column ("Does not need to be completed in
+    /// consecutive successful cycles"), a cycle ending in DEATH does NOT reset the chain (only a
+    /// hibernation from a different shelter does) -- Devotee's own OnCycleFailed handler is
+    /// deliberately absent for this reason.</summary>
+    internal sealed class DevoteeTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Devotee");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string DepthsRoom = "SB_E05";
+
+        private static readonly GhostWorldPresence.GhostID[] EchoRegions =
+        {
+            GhostWorldPresence.GhostID.CC,
+            GhostWorldPresence.GhostID.SI,
+            GhostWorldPresence.GhostID.LF,
+            GhostWorldPresence.GhostID.SH,
+            GhostWorldPresence.GhostID.UW,
+            GhostWorldPresence.GhostID.SB,
+        };
+
+        private sealed class AttemptState
+        {
+            public string HomeShelter;
+            public readonly HashSet<string> MetThisAttempt = new HashSet<string>();
+            public bool DepthsReached;
+        }
+
+        private static readonly Dictionary<string, AttemptState> _attempts = new Dictionary<string, AttemptState>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string currentShelter = SurvivorShelterContents.ShelterRoomFor(player)?.name;
+                if (currentShelter == null)
+                {
+                    return;
+                }
+
+                if (!_attempts.TryGetValue(characterID, out AttemptState state) || state.HomeShelter != currentShelter)
+                {
+                    // First hibernation this tracker has seen for this character, or the shelter
+                    // chain just broke -- start a fresh attempt from here.
+                    _attempts[characterID] = new AttemptState { HomeShelter = currentShelter };
+                }
+            };
+
+            SurvivorEchoEncounter.OnGhostEncountered += (characterID, ghost) =>
+            {
+                if (_attempts.TryGetValue(characterID, out AttemptState state))
+                {
+                    state.MetThisAttempt.Add(ghost.value);
+                }
+            };
+
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !_attempts.TryGetValue(characterID, out AttemptState state))
+                {
+                    return;
+                }
+
+                if (roomName == DepthsRoom)
+                {
+                    state.DepthsReached = true;
+                }
+
+                if (state.DepthsReached && state.MetThisAttempt.Count >= EchoRegions.Length)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own confirmation: the rot-less Memory Conflux
+    /// rooms on this route are SS_LAB7 and SS_A01. **Known simplifications, flagged explicitly:**
+    /// this doesn't verify the cycle started at the specific "first Five Pebbles shelter" (only
+    /// that the WHOLE attempt stays inside Five Pebbles), and doesn't verify the return route
+    /// specifically passes back through Unfortunate Development (the CSV's own "must go through
+    /// UD" clause) -- neither UD's own room list nor the exact starting shelter's room ID were
+    /// available for this pass. What IS checked: the entire cycle stays within Five Pebbles (SS)
+    /// from the moment this tracker starts paying attention, touches one of the two rot-less
+    /// rooms at some point, and ends in a successful hibernation -- leaving Five Pebbles at any
+    /// point abandons the attempt.</summary>
+    internal sealed class MartyrTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Martyr");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string FivePebbles = "SS";
+        private static readonly string[] RotlessMemoryConfluxRooms = { "SS_LAB7", "SS_A01" };
+
+        private sealed class AttemptState
+        {
+            public bool ReachedRotlessConflux;
+        }
+
+        private static readonly Dictionary<string, AttemptState> _attempts = new Dictionary<string, AttemptState>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || region == null)
+                {
+                    return;
+                }
+
+                if (region != FivePebbles)
+                {
+                    _attempts.Remove(characterID);
+                    return;
+                }
+
+                if (!_attempts.TryGetValue(characterID, out AttemptState state))
+                {
+                    state = new AttemptState();
+                    _attempts[characterID] = state;
+                }
+
+                foreach (string room in RotlessMemoryConfluxRooms)
+                {
+                    if (roomName == room)
+                    {
+                        state.ReachedRotlessConflux = true;
+                    }
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !_attempts.TryGetValue(characterID, out AttemptState state))
+                {
+                    return;
+                }
+
+                _attempts.Remove(characterID);
+                if (state.ReachedRotlessConflux)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _attempts.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, per the user's own confirmation: the "Guardians room" is
+    /// SB_D03, and the real class behind "Grapple Worm" is TubeWorm (confirmed via decompiling
+    /// TubeWorm.cs -- it has its own grappleToPos/GrappleToPosition()/grapplingCounter fields, the
+    /// exact zipline/grapple mechanic the community nickname refers to). "Carry a live Grapple
+    /// Worm and a Snail together" tracks BOTH simultaneously under one SurvivorCreatureTracking
+    /// key (that class's own multi-creature support handles this without any special-casing).
+    /// "Survive that cycle without starving" reads Player.Malnourished (confirmed public bool
+    /// property) on every room-entry while the attempt is active -- flagged as checked
+    /// opportunistically per room-transition, not continuously every tick, so a starve-then-
+    /// instantly-refeed within the same room could theoretically be missed. **Known
+    /// simplification:** doesn't verify the "highest room in Communication Arrays" waypoint (its
+    /// exact room ID wasn't available this pass) -- only the final Guardians-room arrival with
+    /// both creatures alive, uninterrupted carrying, and no starving is checked.</summary>
+    internal sealed class GuardianTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Guardian");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string Subterranean = "SB";
+        private const string GuardiansRoom = "SB_D03";
+
+        private static readonly HashSet<string> _starvedThisAttempt = new HashSet<string>();
+
+        private static string TrackerKeyFor(string characterID) => "Guardian:" + characterID;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string trackerKey = TrackerKeyFor(characterID);
+
+                if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
+                {
+                    if (!TryFindBothCarried(player, out AbstractCreature worm, out AbstractCreature snail))
+                    {
+                        return;
+                    }
+                    SurvivorCreatureTracking.Touch(trackerKey, worm);
+                    SurvivorCreatureTracking.Touch(trackerKey, snail);
+                    _starvedThisAttempt.Remove(characterID);
+                }
+
+                if (!SurvivorCreatureTracking.AllTrackedAlive(trackerKey) || !StillCarryingBoth(player, trackerKey))
+                {
+                    Abandon(trackerKey, characterID);
+                    return;
+                }
+
+                if (player.Malnourished)
+                {
+                    _starvedThisAttempt.Add(characterID);
+                }
+
+                if (!_starvedThisAttempt.Contains(characterID) && region == Subterranean && roomName == GuardiansRoom)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    Abandon(trackerKey, characterID);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    Abandon(TrackerKeyFor(eventCharacterID), eventCharacterID);
+                }
+            };
+        }
+
+        private static bool TryFindBothCarried(Player player, out AbstractCreature worm, out AbstractCreature snail)
+        {
+            worm = null;
+            snail = null;
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return false;
+            }
+
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (!(grasp?.grabbed is Creature creature) || creature.dead)
+                {
+                    continue;
+                }
+                CreatureTemplate.Type type = creature.abstractCreature?.creatureTemplate?.type;
+                if (type == CreatureTemplate.Type.TubeWorm)
+                {
+                    worm = creature.abstractCreature;
+                }
+                else if (type == CreatureTemplate.Type.Snail)
+                {
+                    snail = creature.abstractCreature;
+                }
+            }
+            return worm != null && snail != null;
+        }
+
+        private static bool StillCarryingBoth(Player player, string trackerKey)
+        {
+            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
+            {
+                if (!SurvivorCreatureTracking.IsBeingCarriedBy(player, creature))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        private static void Abandon(string trackerKey, string characterID)
+        {
+            SurvivorCreatureTracking.ClearTracker(trackerKey);
+            _starvedThisAttempt.Remove(characterID);
+        }
+    }
 }
