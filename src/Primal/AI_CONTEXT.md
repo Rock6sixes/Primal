@@ -4108,6 +4108,69 @@ counts distinct kills directly off the save marker prefix, so it no longer needs
 
 **Still entirely unbuilt/untested** — no .NET toolchain in this container.
 
+## 5 more ChallengeTrackers: Foe, Massacre, Mother, Sleepover, Passages (2026-09-16, later still)
+
+Requested plainly: "build the remaining difficulty 1 or 2 trackers." Picked the ones genuinely
+buildable off already-confirmed primitives, and explicitly skipped the rest of the nominal
+"2 (easy)" bucket rather than force them — Visitor/Nomad/Journey/U-Turn all need a "player entered
+this room" event this mod doesn't have yet (a natural next shared mechanism, given how many
+pending challenges want it — not built this pass); Tasty/Leukocyte/Visions/Mycologist/Desperado
+all need an "ate X" or "died while being eaten inside a den" detection this mod also doesn't have;
+Outlaw needs real research into Hunter's own scoring formula (food/survival/spear-hit bonuses on
+top of kills, not just kills) before a "10k points" tally means anything; Collector needs the full
+SandboxUnlockID roster enumerated, which — unlike AchievementID below — is an ExtEnum, not a plain
+C# enum, so `Enum.GetValues` doesn't apply and enumerating it needs its own research pass; Devotee
+needs "same shelter across cycles" tracking and a firm definition of "Depths"; and Pilgrimage's
+own overall rating is still dominated by cross-region carry tracking, unaffected by the earlier
+color-variant-is-actually-easy finding for its "revised down" entry in this doc's own table
+(re-reading that entry, it overstated things -- flagging that here rather than treating it as
+settled).
+
+- **FoeTracker** (kill all 9 Lizard types in one cycle) and **MassacreTracker** (300 kill points
+  in one cycle) both needed a genuinely new PrimalKillTracker capability: "what did this
+  CHARACTER kill THIS CYCLE specifically", not "ever" (what IsKilled/UniqueKillCount already
+  answer). Building it surfaced a real Harmony bug worth remembering broadly: `SurvivorEvents`'
+  own Win Prefix and `PrimalKillTracker`'s own commit Prefix are two independent Prefixes on
+  `RainWorldGame.Win` with NO relative-ordering guarantee from Harmony. Fixed by adding
+  `[HarmonyPriority(Priority.First)]` to the commit hook's Prefix -- the first actual use of
+  Harmony's priority system in this codebase -- so it's now guaranteed to run before any other
+  same-method Prefix that doesn't also claim a priority (every other one, as of this comment).
+  That guarantee is what makes the new `WasKilledThisCycle`/`ThisCycleKillPointTotal` (both read
+  a `_lastCommitted` snapshot, reset fresh at the top of every `CommitPending` call so a
+  zero-kill cycle can't leak an older cycle's data forward) safe to call from
+  `OnSuccessfulHibernation` subscribers. **General lesson, not specific to kill tracking: two
+  independent same-type patches (Prefix+Prefix or Postfix+Postfix) on the same vanilla method
+  have no ordering guarantee in this codebase unless one explicitly claims priority** -- the
+  earlier IsKilled/UniqueKillCount fix worked around this by making the query itself order-
+  independent (folding pending into permanent); this one solves it the other way, by forcing an
+  order, because "what happened this cycle" genuinely can't be answered without one.
+- **MotherTracker** (7 Noodlefly Eggs in a shelter, starting cycle) needed one new
+  `SurvivorShelterContents.CountObjectsOfType` -- confirmed via decompilation that eggs are
+  `AbstractPhysicalObject.AbstractObjectType.NeedleEgg`, an ITEM type distinct from any
+  `CreatureTemplate.Type`, so the existing `HasLiveCreatureOfType`/`CountDistinct` (creature- and
+  distinct-type-shaped) didn't fit a raw same-type instance count. "Starting cycle" reuses
+  `SaveState.cycleNumber == 0`, read at Win-Prefix time (before `RainCycleTick`'s own
+  `cycleNumber++` runs later inside Win's body) -- same "this cycle, not the next one" timing
+  already established for other Win-Prefix reads in this codebase.
+- **SleepoverTracker** (hibernate with the Red Lizard in Industrial Complex, un-killed) reuses
+  `HasLiveCreatureOfType`/`ShelterRoomFor` outright. **Deliberately simplified and flagged, not
+  silently assumed:** doesn't check "without taming it" at all -- this mod has no read on a
+  Lizard's tamed/friendship state yet, and confirming the real field (likely something on
+  `LizardAI`'s own friend-tracker) needs its own research pass.
+- **PassagesTracker** (all vanilla Steam achievements) uses a new
+  `SurvivorVanillaProgress.AllAchievements()`, enumerating `RainWorld.AchievementID` via
+  `Enum.GetValues` -- confirmed via decompilation that, unlike `SandboxUnlockID`, this is a plain
+  C# enum with a fixed compile-time member list, so this needed no ExtEnum-registration research
+  at all. Checked once per successful cycle end (isLive: false) rather than the instant the last
+  achievement pops -- no live-popup path investigated this pass.
+
+Also: `SurvivorVanillaProgress.KillPointValue` gained a plain-`string` overload (the
+`CreatureTemplate.Type` one now just delegates to it) since `PrimalKillTracker
+.ThisCycleKillPointTotal` only ever has a killed creature's type as a string already and had no
+reason to reconstruct a full `CreatureTemplate.Type` just to hand back to this file.
+
+**Still entirely unbuilt/untested** — no .NET toolchain in this container.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

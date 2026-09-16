@@ -77,6 +77,17 @@ namespace Primal.Gimmicks
         // comment already covers.
         private static readonly Dictionary<string, HashSet<string>> _pending = new Dictionary<string, HashSet<string>>();
 
+        // Exactly what CommitPending just merged into permanent storage, for THIS character's
+        // most recent successful cycle end -- overwritten (not merged) at the start of every
+        // CommitPending call, so it never holds anything older than the cycle that just ended.
+        // See WasKilledThisCycle/ThisCycleKillPointTotal for why this exists as a separate table
+        // from _pending rather than just reading _pending directly: CommitPending clears _pending
+        // as part of committing, so anything checking "what did this cycle kill" from a handler
+        // that runs AFTER commit (which PrimalKillCommitHook's own [HarmonyPriority(Priority
+        // .First)] guarantees happens before every other same-method Prefix -- see that hook's own
+        // comment) would find _pending already empty. This table is what survives that.
+        private static readonly Dictionary<string, HashSet<string>> _lastCommitted = new Dictionary<string, HashSet<string>>();
+
         // "Who last handled this creature" -- fallback attribution for death causes that never set
         // vanilla's own Creature.killTag at all (e.g. Leech's airDrown-out-of-water death).
         internal sealed class HandlerRecord
@@ -125,9 +136,15 @@ namespace Primal.Gimmicks
         }
 
         /// <summary>Merges this character's pending-this-cycle kills into the real, permanent save
-        /// data, then clears the pending set.</summary>
+        /// data, then clears the pending set. Always resets _lastCommitted for this character
+        /// first, even if there's nothing to commit -- so a cycle with zero kills correctly reads
+        /// as "nothing killed this cycle" rather than leaking a STALE snapshot forward from
+        /// whichever earlier cycle last actually committed something.</summary>
         internal static void CommitPending(DeathPersistentSaveData saveData, string characterID)
         {
+            var committedThisCall = new HashSet<string>();
+            _lastCommitted[characterID] = committedThisCall;
+
             if (saveData == null || !_pending.TryGetValue(characterID, out HashSet<string> set) || set.Count == 0)
             {
                 return;
@@ -135,6 +152,7 @@ namespace Primal.Gimmicks
             foreach (string creatureID in set)
             {
                 PrimalSaveMarkers.Add(saveData, Marker(characterID, creatureID));
+                committedThisCall.Add(creatureID);
             }
             set.Clear();
         }
@@ -195,6 +213,41 @@ namespace Primal.Gimmicks
             }
 
             return unique.Count;
+        }
+
+        /// <summary>Whether this creature type was among the kills committed at this character's
+        /// MOST RECENT successful cycle end -- i.e. killed specifically THIS cycle, not merely
+        /// "ever" the way IsKilled answers. Only meaningful when checked from a
+        /// SurvivorEvents.OnSuccessfulHibernation handler -- see PrimalKillCommitHook's own
+        /// [HarmonyPriority(Priority.First)] for why _lastCommitted is guaranteed already
+        /// populated for this cycle by the time any other Win-Prefix subscriber runs.</summary>
+        public static bool WasKilledThisCycle(string characterID, string creatureID)
+        {
+            return characterID != null
+                && creatureID != null
+                && _lastCommitted.TryGetValue(characterID, out HashSet<string> set)
+                && set.Contains(creatureID);
+        }
+
+        /// <summary>Sum of SurvivorVanillaProgress.KillPointValue across every DISTINCT creature
+        /// type killed at this character's most recent successful cycle end (see
+        /// WasKilledThisCycle's own doc comment on when this is valid to call) -- Massacre's own
+        /// "kill points in one cycle" need. Each type counts once, matching how this whole tracker
+        /// only ever records "did you kill at least one of these", never a running per-kill tally
+        /// -- a real limitation if the community rules for a future challenge ever needed to count
+        /// repeat kills of the same species, which this can't currently answer.</summary>
+        public static int ThisCycleKillPointTotal(string characterID)
+        {
+            if (characterID == null || !_lastCommitted.TryGetValue(characterID, out HashSet<string> set))
+            {
+                return 0;
+            }
+            int total = 0;
+            foreach (string creatureID in set)
+            {
+                total += SurvivorVanillaProgress.KillPointValue(creatureID) ?? 0;
+            }
+            return total;
         }
     }
 
@@ -284,10 +337,22 @@ namespace Primal.Gimmicks
     /// <summary>Prefix (not Postfix) on RainWorldGame.Win for the same reason
     /// CreatureKillListGimmick.cs's own original version already documented at length: Win's own
     /// body synchronously triggers the real save-to-disk write before returning, so a Postfix here
-    /// would bank kills one save too late.</summary>
+    /// would bank kills one save too late.
+    ///
+    /// [HarmonyPriority(Priority.First)] added 2026-09-16: SurvivorEvents' own Win Prefix
+    /// (SurvivorWinHook) is a SEPARATE Prefix on this same method, and Harmony gives no ordering
+    /// guarantee between multiple Prefixes on one method unless one explicitly claims priority --
+    /// without this, a this-cycle-scoped challenge check (Foe, Massacre) running from
+    /// SurvivorEvents.OnSuccessfulHibernation could read this cycle's kills before they'd actually
+    /// been committed, or after _pending had already been cleared by a commit it couldn't see
+    /// happen first. Priority.First forces this Prefix to run before any other Prefix on Win that
+    /// doesn't ALSO claim a priority (every other one in this codebase, as of this comment,
+    /// doesn't) -- see WasKilledThisCycle/ThisCycleKillPointTotal for the query methods this
+    /// ordering guarantee actually makes safe to use.</summary>
     [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.Win))]
     internal static class PrimalKillCommitHook
     {
+        [HarmonyPriority(Priority.First)]
         private static void Prefix(RainWorldGame __instance)
         {
             if (__instance?.Players == null || !__instance.IsStorySession || !PrimalSlot.IsActive(__instance.rainWorld))

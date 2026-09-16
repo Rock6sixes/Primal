@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Primal.Gimmicks
 {
     /// <summary>
@@ -32,6 +35,12 @@ namespace Primal.Gimmicks
     ///    Hunter-specific one -- Outlaw/Massacre only need OUR OWN point tally to reach the
     ///    thresholds their community rules define, which this table is explicitly designed for
     ///    regardless of what vanilla's own Hunter score screen happens to use internally.
+    ///
+    /// **2026-09-16 additions:** KillPointValue now also has a plain-string overload (for
+    /// PrimalKillTracker's own per-cycle point summing, which already only has a killed
+    /// creature's type as a string and has no reason to reconstruct a full CreatureTemplate.Type
+    /// just to hand back here), and AllAchievements() enumerates every real AchievementID for
+    /// Passages to check without hand-copying the game's own achievement list.
     /// </summary>
     internal static class SurvivorVanillaProgress
     {
@@ -44,6 +53,32 @@ namespace Primal.Gimmicks
         {
             return rainWorld != null && rainWorld.AchievementAlreadyDisplayed(achievement);
         }
+
+        /// <summary>Every real achievement -- i.e. every RainWorld.AchievementID value except the
+        /// `None` sentinel -- for Passages ("obtain all vanilla steam achievements") to check each
+        /// of without hand-copying the game's own achievement list a second time. AchievementID is
+        /// a plain C# enum (confirmed via decompilation, not an ExtEnum like SandboxUnlockID), so
+        /// Enum.GetValues gives the complete, always-up-to-date member list directly -- no
+        /// registration-order concerns the way ExtEnum-based lookups elsewhere in this file have.</summary>
+        public static RainWorld.AchievementID[] AllAchievements()
+        {
+            if (_allAchievements == null)
+            {
+                var values = (RainWorld.AchievementID[])Enum.GetValues(typeof(RainWorld.AchievementID));
+                var list = new List<RainWorld.AchievementID>(values.Length);
+                foreach (RainWorld.AchievementID id in values)
+                {
+                    if (id != RainWorld.AchievementID.None)
+                    {
+                        list.Add(id);
+                    }
+                }
+                _allAchievements = list.ToArray();
+            }
+            return _allAchievements;
+        }
+
+        private static RainWorld.AchievementID[] _allAchievements;
 
         /// <summary>True only if vanilla's own GhostEncounter has actually run for this Echo (value
         /// 2 -- see this class's own header comment for why that specific value, not just "key
@@ -79,16 +114,25 @@ namespace Primal.Gimmicks
         /// comment on the round-trip assumption).</summary>
         public static int? KillPointValue(CreatureTemplate.Type type)
         {
-            if (type?.value == null)
+            return type?.value == null ? null : KillPointValue(type.value);
+        }
+
+        /// <summary>Same as the CreatureTemplate.Type overload, but takes the raw type string
+        /// directly -- for a caller (PrimalKillTracker's own per-cycle point summing) that already
+        /// only has the string form of a killed creature's type and has no reason to reconstruct a
+        /// full CreatureTemplate.Type just to hand it back here.</summary>
+        public static int? KillPointValue(string creatureTypeValue)
+        {
+            if (creatureTypeValue == null)
             {
                 return null;
             }
 
             // register: false -- confirmed via ExtEnum's own base constructor that this leaves
-            // `index` at -1, with no exception, when `type.value` doesn't match an already-
+            // `index` at -1, with no exception, when the value doesn't match an already-
             // registered SandboxUnlockID name, rather than registering a bogus new one just to
             // look it up.
-            var unlockID = new MultiplayerUnlocks.SandboxUnlockID(type.value, register: false);
+            var unlockID = new MultiplayerUnlocks.SandboxUnlockID(creatureTypeValue, register: false);
             int index = (int)unlockID;
             int[] scores = KillScores();
             return index >= 0 && index < scores.Length ? scores[index] : (int?)null;

@@ -140,4 +140,191 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Kill all 9 Lizard types in a single cycle and hibernate. Unlike Ranger (any 32
+    /// EVER, whole save file), this is scoped to one cycle -- built on PrimalKillTracker
+    /// .WasKilledThisCycle rather than IsKilled for exactly that reason.</summary>
+    internal sealed class FoeTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Foe");
+        public override ChallengeEntry Challenge => _entry;
+
+        // Vanilla's full 9-color Lizard roster -- the same 9 already in KillListRegistry.All.
+        private static readonly CreatureTemplate.Type[] LizardTypes =
+        {
+            CreatureTemplate.Type.GreenLizard,
+            CreatureTemplate.Type.PinkLizard,
+            CreatureTemplate.Type.WhiteLizard,
+            CreatureTemplate.Type.BlueLizard,
+            CreatureTemplate.Type.YellowLizard,
+            CreatureTemplate.Type.RedLizard,
+            CreatureTemplate.Type.BlackLizard,
+            CreatureTemplate.Type.CyanLizard,
+            CreatureTemplate.Type.Salamander,
+        };
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                foreach (CreatureTemplate.Type lizard in LizardTypes)
+                {
+                    if (!PrimalKillTracker.WasKilledThisCycle(characterID, lizard.value))
+                    {
+                        return;
+                    }
+                }
+
+                ReportCompletion(player, characterID, isLive: false);
+            };
+        }
+    }
+
+    /// <summary>Earn 300 kill points in one cycle. Same "this cycle only" scoping as Foe, via
+    /// PrimalKillTracker.ThisCycleKillPointTotal -- see that method's own doc comment for the one
+    /// real limitation (each distinct species counts once, not per-kill).</summary>
+    internal sealed class MassacreTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Massacre");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredPoints = 300;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (PrimalKillTracker.ThisCycleKillPointTotal(characterID) >= RequiredPoints)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+    }
+
+    /// <summary>Collect and sleep in the same shelter as 7 Noodlefly Eggs on the starting cycle.
+    /// Uses the new SurvivorShelterContents.CountObjectsOfType (an item-instance count, not a
+    /// distinct-type count -- all 7 eggs share the same AbstractObjectType) plus SaveState
+    /// .cycleNumber == 0 for "starting cycle" (confirmed via decompilation: cycleNumber only
+    /// increments on a SUCCESSFUL cycle end, inside RainCycleTick, which Win's own body calls
+    /// AFTER this Prefix-driven check already ran -- so reading it here, at Win-Prefix time,
+    /// still correctly reflects "which cycle is this cycle" rather than the next one).</summary>
+    internal sealed class MotherTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Mother");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredEggs = 7;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (game?.GetStorySession?.saveState?.cycleNumber != 0)
+                {
+                    return;
+                }
+
+                if (SurvivorShelterContents.CountObjectsOfType(player, AbstractPhysicalObject.AbstractObjectType.NeedleEgg) >= RequiredEggs)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+    }
+
+    /// <summary>Hibernate with the Red Lizard in Industrial Complex without taming or killing it.
+    /// **Simplified, flagged rather than silently assumed:** only checks "a live Red Lizard is
+    /// present in the shelter" (SurvivorShelterContents.HasLiveCreatureOfType already excludes
+    /// dead ones, covering "without killing it") plus the region -- does NOT yet check "without
+    /// taming it", since this mod has no existing read on a Lizard's own tamed/friendship state.
+    /// A future pass adding that would need to confirm the real field (LizardAI's own friend-
+    /// tracker state, likely) before this can distinguish a tamed Red Lizard from a wild one.</summary>
+    internal sealed class SleepoverTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Sleepover");
+        public override ChallengeEntry Challenge => _entry;
+
+        // Industrial Complex's region acronym -- same roster DescensionTracker.Regions already
+        // confirmed via decompiling Menu/RegionSelectMenu.cs.
+        private const string IndustrialComplex = "HI";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                AbstractRoom shelter = SurvivorShelterContents.ShelterRoomFor(player);
+                if (shelter?.world?.name != IndustrialComplex)
+                {
+                    return;
+                }
+
+                if (SurvivorShelterContents.HasLiveCreatureOfType(player, CreatureTemplate.Type.RedLizard))
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+    }
+
+    /// <summary>Obtain all vanilla Steam achievements. Checked off SurvivorEvents
+    /// .OnSuccessfulHibernation the same as every other Win-scoped tracker here, even though
+    /// achievements themselves can unlock at any moment, not just at a cycle end -- this just
+    /// means the challenge is detected the next time this character successfully sleeps after the
+    /// last achievement pops, not the instant it happens (no live popup for this one; isLive:
+    /// false). A future pass could patch RainWorld.ShowAchievement (or similar) for the live
+    /// case, if one exists and turns out to fire achievement-by-achievement -- not investigated
+    /// this pass.</summary>
+    internal sealed class PassagesTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Passages");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                RainWorld rainWorld = GimmickGate.RainWorldFor(player);
+                if (rainWorld == null)
+                {
+                    return;
+                }
+
+                foreach (RainWorld.AchievementID achievement in SurvivorVanillaProgress.AllAchievements())
+                {
+                    if (!SurvivorVanillaProgress.HasSteamAchievement(rainWorld, achievement))
+                    {
+                        return;
+                    }
+                }
+
+                ReportCompletion(player, characterID, isLive: false);
+            };
+        }
+    }
 }

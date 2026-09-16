@@ -102,5 +102,24 @@ namespace Primal.Gimmicks
             }
             return false;
         }
+
+        /// <summary>How many INSTANCES of this exact AbstractObjectType are present in the
+        /// shelter -- Mother's "7 Noodlefly Eggs" needs a raw instance count of one item type, not
+        /// a distinct-type count the way CountDistinct answers, since all 7 eggs share the same
+        /// type. Items only (AbstractPhysicalObject), not creatures -- eggs, pearls, spears etc.
+        /// are all inanimate AbstractPhysicalObjects with their own `type` field (a different enum,
+        /// AbstractObjectType, from creatures' own CreatureTemplate.Type).</summary>
+        public static int CountObjectsOfType(Player player, AbstractPhysicalObject.AbstractObjectType type)
+        {
+            int count = 0;
+            foreach (AbstractWorldEntity entity in EntitiesInShelter(player))
+            {
+                if (entity is AbstractPhysicalObject obj && !(obj is AbstractCreature) && obj.type == type)
+                {
+                    count++;
+                }
+            }
+            return count;
+        }
     }
 }

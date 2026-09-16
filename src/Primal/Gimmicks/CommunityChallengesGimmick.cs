@@ -489,6 +489,11 @@ namespace Primal.Gimmicks
             new DescensionTracker(),
             new RangerTracker(),
             new SpearfisherTracker(),
+            new FoeTracker(),
+            new MassacreTracker(),
+            new MotherTracker(),
+            new SleepoverTracker(),
+            new PassagesTracker(),
         };
 
         private static bool _registered;

@@ -270,3 +270,28 @@ run first. Fixed by having `PrimalKillTracker.IsKilled`/`UniqueKillCount` both f
 pending (not yet committed) kills directly, rather than trying to force an order.
 
 Still entirely unbuilt/untested -- no .NET toolchain in this container.
+
+## Status update, 2026-09-16 (later still): 5 more trackers -- 8 of 50 now implemented
+
+**FoeTracker**, **MassacreTracker**, **MotherTracker**, **SleepoverTracker**, **PassagesTracker**
+join Descension/Ranger/Spearfisher. Full trace in AI_CONTEXT.md; short version: Foe/Massacre
+needed a genuinely new PrimalKillTracker capability ("what did this character kill THIS CYCLE",
+not "ever"), which surfaced a real Harmony bug -- two independent Prefix patches on the same
+vanilla method have no ordering guarantee -- fixed with this codebase's first use of
+`[HarmonyPriority]`. Mother needed one new SurvivorShelterContents helper for a raw item-instance
+count (eggs are an item type, not a creature type). Sleepover and Passages both reused existing
+mechanisms outright, Passages via `Enum.GetValues` since `AchievementID` (unlike `SandboxUnlockID`)
+is a plain C# enum.
+
+**Deliberately NOT attempted this pass, and why** (revising the ratings table's own overly tidy
+"now ~1-2" framing for a few of these): Visitor/Nomad/Journey/U-Turn need a "player entered this
+room" event this mod doesn't have; Tasty/Leukocyte/Visions/Mycologist/Desperado need an "ate X" or
+"eaten inside a den" detection mechanism that doesn't exist either; Outlaw needs real research
+into Hunter's actual scoring formula (this doc's own table undersold it -- kills alone likely
+aren't what "10k points" means); Collector needs the full SandboxUnlockID roster, which is an
+ExtEnum (no `Enum.GetValues` shortcut the way Passages got); Devotee needs "same shelter across
+cycles" tracking plus a firm definition of "Depths"; Pilgrimage's overall difficulty is still
+dominated by cross-region carry tracking, not the color-variant check this doc's table implied
+was the only blocker.
+
+Still entirely unbuilt/untested -- no .NET toolchain in this container.
