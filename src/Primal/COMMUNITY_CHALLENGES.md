@@ -223,3 +223,34 @@ direct `CreatureTemplate.Type` checks, no variant research needed), Collector, D
 Passages, Massacre (now ~1-2: confirmed direct reads of vanilla's own already-tracked state).
 Safari stays slightly higher than those since one of its three creatures (Spitter Spider) wasn't
 checked this pass. Every other rating in the table above still stands.
+
+## Status update, 2026-09-16 (later): first 3 trackers implemented
+
+`ChallengeTrackers.cs` now has real `ChallengeTracker` subclasses for **Descension**, **Ranger**,
+and **Spearfisher** -- picked without deliberating over which were "most" easy, per explicit
+request; all three turned out to need essentially no new detection logic at all:
+
+- **Descension** needed only the 12-region roster itself (confirmed via decompiling
+  `Menu/RegionSelectMenu.cs`'s own ordered acronym/display-name pairing: SU, DS, HI, CC, SI, GW,
+  SH, SL, LF, UW, SB, SS) -- `SurvivorEvents.OnFallDamageDeath` and `SurvivorRegionMarkers`
+  already did all the actual detection and persistence from the shared-mechanisms pass.
+- **Ranger** and **Spearfisher** both reduce to a straight read of the Kill List gimmick's own
+  already-tracked permanent kill records (`KillListTracker.IsKilled`) -- no detection mechanism
+  of their own, just a threshold check (32 unique species) and a single-species check
+  (`CreatureTemplate.Type.BigEel`, already in `KillListRegistry.All` labeled "Leviathan").
+
+**A cross-gimmick dependency this surfaced, worth remembering for any future kill-based
+tracker:** Ranger and Spearfisher only ever see kills at all for a character that ALSO has the
+separate "Kill List" gimmick assigned -- `CreatureKillListCycleWinHook` gates every kill it
+commits on `GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID)`, independent
+of whether CommunityChallenges is assigned to that same character. Not a bug, just means both
+gimmicks need assigning together for either of these two to ever complete.
+
+**One deliberate simplification, flagged rather than silently assumed:** Ranger's "in one run" is
+implemented against Kill List's own PERMANENT (whole-save-file) record, not anything scoped to a
+single continuous life -- this mod has no existing "run boundary" concept to check against
+(Kill List's own records don't reset on death either). Same spirit as this doc's own note on
+Massacre/Outlaw using "our own tally, not vanilla's" -- revisit if a real run-boundary mechanism
+gets built later.
+
+Still entirely unbuilt/untested -- no .NET toolchain in this container.

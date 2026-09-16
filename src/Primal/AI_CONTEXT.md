@@ -4004,6 +4004,49 @@ grid and nothing to actually exercise this harness against without it.
 **Not yet built or tested in-game** — no .NET toolchain in this container, and no concrete
 `ChallengeTracker` exists yet to actually populate a "completed" entry to look at.
 
+## First 3 concrete ChallengeTrackers: Descension, Ranger, Spearfisher (2026-09-16, later still)
+
+`ChallengeTrackers.cs` (new file) — three real `ChallengeTracker` subclasses, picked "at random"
+per explicit request rather than deliberated over. All three turned out to need essentially no
+new detection logic at all, just wiring existing pieces together:
+
+- **DescensionTracker** — the 12-region roster (`SU, DS, HI, CC, SI, GW, SH, SL, LF, UW, SB, SS`),
+  confirmed via decompiling `Menu/RegionSelectMenu.cs`'s own ordered acronym/display-name array
+  pairing (its `new string[12]` of names lines up 1:1 with its own `startRooms` array's region
+  prefixes) — this is the same 12-region roster every "all regions" community challenge means.
+  Subscribes to `SurvivorEvents.OnFallDamageDeath`; on each fall death, checks all 12 regions
+  directly (the current death's own region, plus `SurvivorRegionMarkers.HasDiedByFallIn` for the
+  other 11) rather than trusting that `SurvivorRegionMarkers.Init()`'s own subscription already
+  ran first and wrote the marker — both are registered from `RainWorldHooks.Postfix` in that
+  order today, but not depending on it holding removes a subtle future footgun for free.
+  `isLive: true` (a death is as live/real-time a moment as this mod ever sees).
+- **RangerTracker** / **SpearfisherTracker** — both reduce entirely to reading Kill List's own
+  already-tracked permanent record (`KillListTracker.IsKilled`) off
+  `SurvivorEvents.OnSuccessfulHibernation`: Ranger counts distinct killed species across
+  `KillListRegistry.All` against a 32 threshold, Spearfisher checks one specific entry
+  (`CreatureTemplate.Type.BigEel`, already in the roster as "Leviathan"). `isLive: false` in both
+  cases (confirmed only at Win-commit time, same as Kill List's own commit timing).
+
+**A real cross-gimmick dependency surfaced here, worth remembering for every future kill-based
+tracker**: `CreatureKillListCycleWinHook` only commits kills for a character that has the
+separate "Kill List" gimmick assigned (`GimmickAssignments.IsEnabled(characterID,
+CreatureKillListGimmick.ID)`), independent of whether CommunityChallenges is also assigned to
+that character. Ranger/Spearfisher have no completion path at all unless BOTH gimmicks are
+assigned to the same character — not a bug, just a real dependency to keep in mind.
+
+**One deliberate simplification, flagged rather than silently assumed**: Ranger's "in one run" is
+checked against Kill List's PERMANENT (whole-save-file) record, not anything scoped to a single
+continuous life — this mod has no existing "run boundary" concept, and Kill List's own records
+don't reset on death either. Same spirit as COMMUNITY_CHALLENGES.md's own note on Massacre/Outlaw
+using "our own tally, not vanilla's".
+
+Also added: `ChallengeTrackerRegistry.RegisterAll()` gained the same idempotent `_registered`
+guard `SurvivorRegionMarkers.Init()` already has, and `CommunityChallengesRegistry.Find(id)` (a
+small lookup helper every `ChallengeTracker.Challenge` property now uses instead of hand-copying
+each entry's DisplayName a second time).
+
+**Still entirely unbuilt/untested** — no .NET toolchain in this container.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

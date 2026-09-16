@@ -125,6 +125,22 @@ namespace Primal.Gimmicks
             new ChallengeEntry("UTurn", "U-Turn"),
             new ChallengeEntry("Perseverance", "Perseverance"),
         };
+
+        /// <summary>Looks up one roster entry by its config-safe ID -- the way a concrete
+        /// ChallengeTracker (see ChallengeTrackers.cs) gets its own Challenge property without
+        /// hand-copying the entry's DisplayName a second time. Null if `id` doesn't match
+        /// anything here, which would only ever mean a typo in the tracker's own ID string.</summary>
+        public static ChallengeEntry Find(string id)
+        {
+            foreach (ChallengeEntry entry in All)
+            {
+                if (entry.ID == id)
+                {
+                    return entry;
+                }
+            }
+            return null;
+        }
     }
 
     /// <summary>
@@ -461,19 +477,36 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>
-    /// Where each concrete ChallengeTracker subclass registers itself, once written. Empty as of
-    /// this pass -- per explicit request, this pass builds the harness (this registry, the
-    /// abstract base, completion/notification/summary plumbing) and NOT any of the 50 trackers
-    /// themselves. Add one entry per implemented challenge; RegisterAll() (already wired into
+    /// Where each concrete ChallengeTracker subclass registers itself. Add one entry per
+    /// implemented challenge (see ChallengeTrackers.cs); RegisterAll() (already wired into
     /// RainWorldHooks.Postfix) picks up everything listed here automatically, no other
     /// integration point needed.
     /// </summary>
     internal static class ChallengeTrackerRegistry
     {
-        public static readonly ChallengeTracker[] All = { };
+        public static readonly ChallengeTracker[] All =
+        {
+            new DescensionTracker(),
+            new RangerTracker(),
+            new SpearfisherTracker(),
+        };
 
+        private static bool _registered;
+
+        /// <summary>Idempotent, matching SurvivorRegionMarkers.Init()'s own guard and for the
+        /// same reason: without it, RainWorld.OnModsInit firing more than once would double-
+        /// subscribe every tracker's own event handler. ReportCompletion's own idempotency would
+        /// still prevent a second PERSISTED completion or notification, but a double subscription
+        /// would still mean every future event silently does its detection work twice for
+        /// nothing.</summary>
         public static void RegisterAll()
         {
+            if (_registered)
+            {
+                return;
+            }
+            _registered = true;
+
             foreach (ChallengeTracker tracker in All)
             {
                 tracker.Register();
