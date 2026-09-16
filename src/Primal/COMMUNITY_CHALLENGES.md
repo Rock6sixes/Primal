@@ -295,3 +295,35 @@ dominated by cross-region carry tracking, not the color-variant check this doc's
 was the only blocker.
 
 Still entirely unbuilt/untested -- no .NET toolchain in this container.
+
+## Next proposed shared mechanics, ranked by leverage (2026-09-16, later still)
+
+Requested directly after verifying Mother/Sleepover: a list of what's still needed across the
+remaining 42 challenges, ranked by how many each unlocks.
+
+| # | Mechanism | Unlocks | Notes |
+|---|---|---|---|
+| 1 | **Room/region transition event** -- "player entered room X" | Visitor, Nomad, Journey, U-Turn, Circuit, Criminal, Symbiote, Charged, Martyr, Pilgrimage, Enlightenment (~11) | The single biggest gap. Everything needing a hardcoded start/end room, a loop, or a route has no way to detect it yet. Needs confirming the right vanilla hook point (candidates: wherever `Player`'s own room changes, `Room.Loaded`, or similar). Once built, `SurvivorCheckpointRun` (already written, zero consumers) becomes usable immediately. |
+| 2 | **"Ate/consumed X" event** | Visions, Mycologist, Desperado, Vegan, Chef (partial), Offering (partial) (~5-6) | No hook exists for "player ate this specific object" -- likely `Player.SwallowObject` or each consumable's own eaten-callback. |
+| 3 | **Generalize the fall-death pattern to "died to creature type X in location Y"** | Tasty, Leukocyte | Cheap -- `SurvivorFallDeathHook`'s wasDead/isDead trick already proves the pattern; swap the terrain-impact check for a killTag-creature-type + den/shelter-location check. |
+| 4 | **Wire up `SurvivorCreatureTracking`** (already built, zero consumers) | Chieftain, Fishtank, Guardian, Symbiote, Charged, Pilgrimage, Chef, Offering (~8) | Not new code -- just needs a tracker to use it. The "arrived in destination room/region" half depends on #1. |
+| 5 | **Wire up `SurvivorTollState`** (already built, zero consumers) | Heist, Manslaughter, Elder, Usurper, Criminal (~5) | Same story. Criminal also needs #1. |
+| 6 | **Passage-usage detection** | Enlightenment | Hook wherever a passage actually triggers travel. |
+| 7 | **Non-lethal "demasking" detection** | Elder, Usurper | Distinct from a kill -- removing a mask while the creature survives. Needs its own trace through Vulture/King Vulture mask-drop code. |
+| 8 | **"Same starting shelter across cycles" tracking** | Devotee | Echo-met tracking already solved (`SurvivorVanillaProgress.HasMetGhost`) -- this is the one missing piece. |
+| 9 | **Neuron-carry tracking** (SSOracleSwarmer "follow" objects) | Enlightenment | Neurons aren't grabbed items -- a distinct follow-mechanic. |
+| 10 | **Rot-stat reading** (Unfortunate Development) | Martyr | Single obscure stat, needs locating. |
+| 11 | **Dream/DreamsState reading** | Despicable | Identify which field picks "Stolen Enlightenment" specifically. |
+| 12 | **"Pinned to a surface" detection** | Ornaments | Needs the real state a spear-stuck creature carries. |
+| 13 | **Enumerate the full `SandboxUnlockID` roster** (ExtEnum, no `Enum.GetValues` shortcut) | Collector | Needs reflection into `ExtEnumType`'s registered-values list -- same idea as `AllAchievements()`, harder since it isn't a plain enum. |
+| 14 | **Real Hunter scoring formula** (food/survival/spear-hit, not just kills) | Outlaw | Research-only; `PrimalKillTracker`'s point table alone likely won't reach realistic thresholds. |
+| 15 | **Guardian-visit trigger** | Guardian | A specific vanilla cutscene/trigger. |
+| 16 | **Pole plant mechanics** | Flytrap | Never touched by this codebase; a hazard object, not a creature. |
+| 17 | **Triple-spawn heuristic** | Triplopia | Inherently fragile -- indirect inference, not a clean state check. |
+| 18 | **Communications Array laser/signal tracking** | Broadcast | Single-purpose, obscure system. |
+| 19 | **Wire up existing `SurvivorEvents.OnGameEnding`** (zero-cost, already built) | Ascension, Perseverance | Not really a gap -- just hasn't been done yet. |
+
+**Recommendation:** #1 is the clear next investment -- same shape as `SurvivorEvents` itself,
+unlocking ~11 challenges directly and making two already-built-but-idle mechanisms
+(`SurvivorCheckpointRun`, half of `SurvivorCreatureTracking`'s use cases) actually usable. #19 is
+free and worth bundling into whichever batch comes next.
