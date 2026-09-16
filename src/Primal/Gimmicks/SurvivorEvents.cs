@@ -18,19 +18,21 @@ namespace Primal.Gimmicks
     /// vanilla method, each patching it exactly once) re-expose each moment as a plain C# event any
     /// number of future subscribers can add themselves to, at zero additional Harmony-patch cost.
     /// Each patch class is its own top-level type, not nested inside SurvivorEvents itself --
-    /// matching every existing [HarmonyPatch] class in this codebase (CreatureKillListCycleWinHook
-    /// and friends), rather than introducing an untested nested-patch-class structure Harmony's
+    /// matching every existing [HarmonyPatch] class in this codebase (PrimalKillCommitHook and
+    /// friends), rather than introducing an untested nested-patch-class structure Harmony's
     /// PatchAll has never been exercised against here.
     ///
     /// **Gating.** Every patch below still gates on the cheap, mod-wide `PrimalSlot.IsActive`
     /// check every other gimmick in this mod already gates on first -- so none of this does
     /// anything on an ordinary, non-reserved save slot. It deliberately does NOT gate on any
-    /// specific gimmick assignment (unlike GimmickGate.IsActiveFor), because there is no
-    /// "Survivor" gimmick ID registered yet to check against -- per the user's own request, this
-    /// pass only builds the shared mechanisms, not the gimmick itself. Once Survivor exists in
-    /// GimmickRegistry, every event below should be re-gated to only fire for a player it's
-    /// actually assigned to (via GimmickGate.IsActiveFor(player, SurvivorGimmick.ID)) rather than
-    /// firing for every player on a reserved slot regardless of their own assignments.
+    /// specific gimmick assignment (unlike GimmickGate.IsActiveFor) -- CommunityChallenges now
+    /// exists in GimmickRegistry, but these events fire for every player on a reserved slot
+    /// regardless of whether that specific gimmick is assigned to them, on purpose: individual
+    /// ChallengeTracker subscribers (see CommunityChallengesGimmick.cs) are each responsible for
+    /// their own narrower gating via TryGetEnabledCharacter, which checks BOTH the gimmick
+    /// assignment and the specific challenge's own settings checkbox -- a blanket gate here would
+    /// only duplicate that, one layer too early to know which challenge (if any) a given
+    /// subscriber even cares about.
     ///
     /// **Nothing here has been built or tested** -- no .NET toolchain in this container; verified
     /// against the decompiled reference source only (RainWorldGame.Win/GameOver/BeatGameMode's own
@@ -41,17 +43,18 @@ namespace Primal.Gimmicks
     {
         /// <summary>Fires once per assigned-slot player whose cycle just ended in a successful
         /// sleep -- a Prefix on RainWorldGame.Win, not a Postfix, for the exact reason
-        /// CreatureKillListCycleWinHook is one: Win's own body synchronously triggers the real
-        /// save-to-disk write before it returns (see that hook's doc comment for the full trace),
-        /// so a Postfix here would suffer the identical "one save too late" bug that gimmick had
-        /// until 2026-09-15. Handed the live Player (not just the AbstractCreature) since most
-        /// subscribers will want to inspect real-time state -- inventory, room, stats -- as of the
-        /// moment of waking, and the character ID, since almost every challenge tracker needs to
-        /// key its own persisted markers off it (see PrimalSaveMarkers).</summary>
+        /// PrimalKillCommitHook is one: Win's own body synchronously triggers the real save-to-
+        /// disk write before it returns (see that hook's doc comment for the full trace), so a
+        /// Postfix here would suffer the identical "one save too late" bug Kill List's own
+        /// kill-commit had until 2026-09-15. Handed the live Player (not just the
+        /// AbstractCreature) since most subscribers will want to inspect real-time state --
+        /// inventory, room, stats -- as of the moment of waking, and the character ID, since
+        /// almost every challenge tracker needs to key its own persisted markers off it (see
+        /// PrimalSaveMarkers).</summary>
         public static event Action<RainWorldGame, Player, string> OnSuccessfulHibernation;
 
         /// <summary>Fires once per assigned-slot player whose cycle just ended in death -- a
-        /// Postfix on RainWorldGame.GameOver, matching CreatureKillListCycleGameOverHook's own
+        /// Postfix on RainWorldGame.GameOver, matching PrimalKillDiscardHook's own
         /// confirmed-safe timing (nothing this needs to read is affected by GameOver's own body,
         /// unlike Win's synchronous save). For any per-cycle tracker (Visions, Mycologist,
         /// Catalogue, Nomad, ...) that needs to know a cycle ended in failure so it can discard
@@ -153,7 +156,7 @@ namespace Primal.Gimmicks
 
                 // realizedCreature can legitimately be null here for a death that already tore
                 // down the Player object by the time GameOver runs (e.g. PermaDie) -- matches
-                // CreatureKillListCycleGameOverHook's own null-tolerant handling of the same
+                // PrimalKillDiscardHook's own null-tolerant handling of the same
                 // field, so subscribers get null rather than this silently swallowing the event.
                 SurvivorEvents.RaiseCycleFailed(__instance, abstractPlayer.realizedCreature as Player, characterID);
             }

@@ -4047,6 +4047,67 @@ each entry's DisplayName a second time).
 
 **Still entirely unbuilt/untested** — no .NET toolchain in this container.
 
+## Kill tracking made global: PrimalKillTracker.cs (2026-09-16, later still, same branch)
+
+The cross-gimmick dependency flagged in the previous section (Ranger/Spearfisher needing Kill
+List separately assigned to ever see any kills) turned out to be a real architecture problem, not
+just a footnote — the user's own framing: "the kill list gimmick is supposed to be more for
+forcing/rewarding the character for doing all of these kills... the tracker, which is now needed
+across multiple gimmicks, should be moved out as a global effect, always tracking primal
+characters' kills." Fixed by literally moving the recording mechanism, not duplicating it.
+
+**What moved, verbatim, from `CreatureKillListGimmick.cs` to the new `PrimalKillTracker.cs`:**
+the `Creature.killTag` attribution Postfix on `Creature.Die`, the `PhysicalObject.Grabbed`
+fallback-handler Postfix, the pending/commit/discard cycle-success/cycle-failure split, and the
+`PrimalSaveMarkers`-based persistence — including the exact same save marker key
+(`"PRIMAL_KILLLIST"`), kept unchanged specifically so any kill records already written during
+this session's own earlier live testing round-trip correctly rather than silently going missing
+under a renamed key.
+
+**What actually changed, two things:**
+1. **Gating relaxed.** Every hook now checks only `GimmickGate.TryGetCharacter` (reserved Primal
+   slot, real character resolved) instead of also requiring
+   `GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID)` — kills are recorded
+   for every Primal-slot character unconditionally now, regardless of which gimmicks (if any)
+   they have assigned. `CreatureKillListGimmick.cs` itself keeps its OWN separate gate for its own
+   UI (the cycle-end button still only shows if Kill List is actually assigned) — only the
+   underlying recording became unconditional.
+2. **The 55-species roster restriction dropped entirely from the recording step.** The original
+   hooks both skipped anything not in `KillListRegistry.ByID` (now removed, it's unused); the
+   global version records every `CreatureTemplate.Type` a character kills, full stop. This is
+   what actually makes the mechanism usable by something like Ranger ("any 32 unique creatures",
+   no restriction to a curated list) without tying its own rule to Kill List's own display
+   curation. Vanilla registers ~90 `CreatureTemplate.Type` values total across every DLC, so this
+   is still a small, bounded marker set per character — no unbounded-growth concern from dropping
+   the restriction.
+
+**A real ordering bug found and fixed while doing this, worth remembering for any future
+Win-Prefix consumer:** `SurvivorEvents`'s own `SurvivorWinHook` and this file's `PrimalKillCommit
+Hook` are BOTH separate Prefix patches on `RainWorldGame.Win` — Harmony gives no ordering
+guarantee between multiple Prefixes on the same method unless one explicitly declares a priority
+relative to the other, which neither does. A `ChallengeTracker` subscribed to `OnSuccessfulHibernation`
+could therefore run before OR after `PrimalKillCommitHook` has actually moved this cycle's kills
+from "pending" into permanent storage — reading only the permanent record would be a coin flip on
+whether the cycle's own final, decisive kill (the one that pushes Ranger over 32, or the
+Leviathan Spearfisher needed) is visible yet. Fixed not by forcing an order (fragile —
+`HarmonyPriority` would silently need revisiting the moment a third patch on the same method shows
+up) but by making `PrimalKillTracker.IsKilled`/`UniqueKillCount` both fold the in-memory pending
+set into their answer directly, correct regardless of which Prefix Harmony happens to run first.
+This is a general lesson, not specific to kill tracking: **any two independent Prefix (or two
+independent Postfix) patches on the same vanilla method have no relative ordering guarantee in
+this codebase**, and any data one of them writes should be readable in a way that doesn't assume
+the other has already run.
+
+`CreatureKillListGimmick.cs` is now purely a consumer: its own curated `KillListRegistry.All` (55
+species, unchanged) plus its own cycle-end button/dialog (unchanged behavior, still gated on Kill
+List's own assignment), reading `PrimalKillTracker.IsKilled` instead of a now-removed local
+`KillListTracker`. `RangerTracker`/`SpearfisherTracker` (ChallengeTrackers.cs) were updated the
+same way — Ranger in particular got simpler, not just fixed: `PrimalKillTracker.UniqueKillCount`
+counts distinct kills directly off the save marker prefix, so it no longer needs to iterate
+`KillListRegistry.All` at all.
+
+**Still entirely unbuilt/untested** — no .NET toolchain in this container.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

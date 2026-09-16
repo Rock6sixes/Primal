@@ -10,18 +10,18 @@ namespace Primal.Gimmicks
     ///  - Descension needed nothing but the 12-region roster itself; SurvivorEvents
     ///    .OnFallDamageDeath and SurvivorRegionMarkers already do all the actual detection and
     ///    persistence.
-    ///  - Ranger and Spearfisher both reduce to a straight read of the Kill List gimmick's own
-    ///    already-tracked permanent kill records (KillListTracker.IsKilled) -- no new detection
-    ///    mechanism at all, just a threshold/single-species check against existing data.
+    ///  - Ranger and Spearfisher both reduce to a straight read of PrimalKillTracker's own
+    ///    already-tracked kill records -- no new detection mechanism at all, just a threshold/
+    ///    single-species check against existing data.
     ///
-    /// **Cross-gimmick dependency worth remembering:** both Ranger and Spearfisher only ever see
-    /// any kills at all for a character that ALSO has the separate "Kill List" gimmick assigned --
-    /// CreatureKillListCycleWinHook itself gates every kill it commits on
-    /// GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID), independently of
-    /// whether CommunityChallenges is assigned to that same character. This isn't a bug in either
-    /// tracker below; it just means a character needs BOTH gimmicks assigned for these two
-    /// challenges to ever be able to complete -- has no completion path with Kill List
-    /// unassigned, since KillListTracker's own records would simply stay empty.
+    /// **2026-09-16 update: the cross-gimmick dependency this file originally had to flag is
+    /// gone.** Ranger and Spearfisher both originally read Kill List's OWN records
+    /// (KillListTracker.IsKilled), which only ever existed for a character that ALSO had the
+    /// separate "Kill List" gimmick assigned -- per the user's own request ("the tracker...
+    /// should be moved out as a global effect, always tracking primal characters' kills"), kill
+    /// recording is now PrimalKillTracker.cs, a global, mod-wide mechanism that tracks every
+    /// Primal-slot character's kills unconditionally. Both trackers below now read that instead,
+    /// so either can complete independent of whether Kill List is assigned at all.
     ///
     /// **Not yet built or tested in-game** -- no .NET toolchain in this container.
     /// </summary>
@@ -102,25 +102,12 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                int uniqueKills = 0;
-                foreach (KillListEntry entry in KillListRegistry.All)
+                if (PrimalKillTracker.UniqueKillCount(saveData, characterID) >= RequiredUniqueKills)
                 {
-                    if (KillListTracker.IsKilled(saveData, characterID, entry.ID))
-                    {
-                        uniqueKills++;
-                        if (uniqueKills >= RequiredUniqueKills)
-                        {
-                            break;
-                        }
-                    }
-                }
-
-                if (uniqueKills >= RequiredUniqueKills)
-                {
-                    // Checked once per successful cycle end, off Kill List's own PERMANENT
-                    // (whole-save-file) record rather than anything scoped to "this run" --
-                    // Ranger's own community rules mean a single continuous life, but this mod
-                    // has no existing "run boundary" concept to check against (Kill List's own
+                    // Checked once per successful cycle end, off PrimalKillTracker's own
+                    // PERMANENT (whole-save-file) record rather than anything scoped to "this
+                    // run" -- Ranger's own community rules mean a single continuous life, but
+                    // this mod has no existing "run boundary" concept to check against (kill
                     // records intentionally never reset on death either). Simplified,
                     // deliberately, the same way COMMUNITY_CHALLENGES.md already flags Massacre/
                     // Outlaw's own scoring as "our own tally, not vanilla's" -- revisit if a real
@@ -146,7 +133,7 @@ namespace Primal.Gimmicks
                 }
 
                 DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(game);
-                if (saveData != null && KillListTracker.IsKilled(saveData, characterID, CreatureTemplate.Type.BigEel.value))
+                if (saveData != null && PrimalKillTracker.IsKilled(saveData, characterID, CreatureTemplate.Type.BigEel.value))
                 {
                     ReportCompletion(player, characterID, isLive: false);
                 }

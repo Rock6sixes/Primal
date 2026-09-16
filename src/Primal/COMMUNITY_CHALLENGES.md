@@ -239,18 +239,34 @@ request; all three turned out to need essentially no new detection logic at all:
   of their own, just a threshold check (32 unique species) and a single-species check
   (`CreatureTemplate.Type.BigEel`, already in `KillListRegistry.All` labeled "Leviathan").
 
-**A cross-gimmick dependency this surfaced, worth remembering for any future kill-based
-tracker:** Ranger and Spearfisher only ever see kills at all for a character that ALSO has the
-separate "Kill List" gimmick assigned -- `CreatureKillListCycleWinHook` gates every kill it
-commits on `GimmickAssignments.IsEnabled(characterID, CreatureKillListGimmick.ID)`, independent
-of whether CommunityChallenges is assigned to that same character. Not a bug, just means both
-gimmicks need assigning together for either of these two to ever complete.
+**A cross-gimmick dependency this surfaced -- since fixed, see below, not left standing:**
+Ranger and Spearfisher originally only ever saw kills for a character that ALSO had the separate
+"Kill List" gimmick assigned, since kill recording was Kill List's own gimmick-gated mechanism.
 
 **One deliberate simplification, flagged rather than silently assumed:** Ranger's "in one run" is
-implemented against Kill List's own PERMANENT (whole-save-file) record, not anything scoped to a
-single continuous life -- this mod has no existing "run boundary" concept to check against
-(Kill List's own records don't reset on death either). Same spirit as this doc's own note on
-Massacre/Outlaw using "our own tally, not vanilla's" -- revisit if a real run-boundary mechanism
-gets built later.
+implemented against a PERMANENT (whole-save-file) record, not anything scoped to a single
+continuous life -- this mod has no existing "run boundary" concept to check against (kill records
+don't reset on death either). Same spirit as this doc's own note on Massacre/Outlaw using "our
+own tally, not vanilla's" -- revisit if a real run-boundary mechanism gets built later.
+
+## Status update, 2026-09-16 (later still): kill tracking made global
+
+Per the user's own architectural note ("the kill list gimmick is supposed to be more for forcing/
+rewarding the character for doing all of these kills... the tracker... should be moved out as a
+global effect, always tracking primal characters' kills"), the kill-recording mechanism moved
+from `CreatureKillListGimmick.cs` into a new `PrimalKillTracker.cs` -- a global, mod-wide
+mechanism tracking every Primal-slot character's kills unconditionally, with no roster
+restriction at recording time (vanilla's own ~90 `CreatureTemplate.Type` values total, no
+unbounded-growth concern). The cross-gimmick dependency noted above is gone: `RangerTracker`/
+`SpearfisherTracker` now read `PrimalKillTracker` directly, independent of Kill List's own
+assignment. `CreatureKillListGimmick.cs` is now purely a consumer -- its own 55-species curated
+roster plus its own cycle-end button/dialog, reading from the same global record.
+
+Also found and fixed a real Harmony-ordering bug while doing this: two independent Prefix patches
+on the same vanilla method (`SurvivorEvents`' own Win hook and `PrimalKillTracker`'s commit hook)
+have no relative execution-order guarantee, so a challenge tracker checking kills from inside
+`OnSuccessfulHibernation` could have read stale data depending on which Prefix Harmony happened to
+run first. Fixed by having `PrimalKillTracker.IsKilled`/`UniqueKillCount` both fold in still-
+pending (not yet committed) kills directly, rather than trying to force an order.
 
 Still entirely unbuilt/untested -- no .NET toolchain in this container.
