@@ -94,12 +94,15 @@ namespace Primal.Gimmicks
                 : System.Array.Empty<AbstractCreature>();
         }
 
-        /// <summary>True only if every creature tracked under this key is both currently alive
-        /// (CreatureState.dead, confirmed via decompilation to be `!alive`) and has a live realized
-        /// body (realizedCreature != null) -- the "still alive, not just abstractly not-yet-marked-
-        /// dead" check most of these challenges actually mean by "alive". False (not true-by-
-        /// default) if nothing is tracked yet, since "all zero of them are alive" isn't a
-        /// meaningful pass for any of these challenges.</summary>
+        /// <summary>True only if every creature tracked under this key is currently alive
+        /// (CreatureState.dead, confirmed via decompilation to be `!alive`). Deliberately does NOT
+        /// also require `realizedCreature != null` -- confirmed via AbstractCreature.Realize()
+        /// that a creature routinely cycles between realized (in an active/loaded room) and
+        /// unrealized (abstract-only, e.g. far from the player) with no relationship to whether
+        /// it's alive at all; requiring a live realized body here would wrongly report a perfectly
+        /// alive but merely distant creature as "not alive". False (not true-by-default) if nothing
+        /// is tracked yet, since "all zero of them are alive" isn't a meaningful pass for any of
+        /// these challenges.</summary>
         public static bool AllTrackedAlive(string trackerKey)
         {
             if (!_watches.TryGetValue(trackerKey, out Watch watch) || watch.ByNumber.Count == 0)

@@ -3919,6 +3919,91 @@ gets built next: selection = Remix (shared across slots), progress = save file (
 
 **Not yet built or tested in-game as of this doc** — no .NET toolchain in this container.
 
+## Community Challenges gimmick: completion harness, abstract tracker base, cycle-end UI (2026-09-16, later, same branch)
+
+Before writing any of the 50 concrete trackers, the user asked for a review pass over the shared
+mechanisms plus "a good abstract class to work with for all of the tracker implementations",
+along with a concrete set of new behavior: a live popup+sound when a challenge completes mid-
+cycle, a button above CONTINUE on the cycle-end screen showing progress, and three visual states
+for that list (bold white = completed this cycle, default grey = completed earlier, darkened =
+never completed) built only from the challenges checked in settings.
+
+**Review findings, both real bugs, both fixed:**
+1. `SurvivorCreatureTracking.AllTrackedAlive`'s own doc comment claimed it also required
+   `realizedCreature != null` — the CODE never checked that, and confirmed via
+   `AbstractCreature.Realize()` that the code was right and the comment was wrong: a creature
+   routinely cycles between realized (in an active room) and unrealized (merely far from the
+   player) with no relation to whether it's alive, so requiring a live body would have wrongly
+   flagged a perfectly fine, just-distant creature as "not alive". Comment corrected to match the
+   (correct) code.
+2. The abstract `ChallengeTracker.IsEnabledFor(characterID)` this pass first drafted checked only
+   `CommunityChallengesSettings.IsChallengeEnabled` — the per-challenge checkbox — not whether the
+   CommunityChallenges GIMMICK ITSELF is assigned to that character. Since every per-challenge
+   Configurable is bound eagerly for every real character regardless of gimmick assignment (Gotcha
+   #7) and now defaults true, that check alone would have treated a character who never touched
+   this gimmick as having all 50 challenges "enabled". Replaced with
+   `TryGetEnabledCharacter(Player, out characterID)`, which runs `GimmickGate.IsActiveFor(player,
+   CommunityChallengesGimmick.ID, out characterID)` first (the real PrimalSlot+assignment gate)
+   before checking the per-challenge flag.
+
+**New pieces, all in `CommunityChallengesGimmick.cs`** (kept in one file, matching
+`CreatureKillListGimmick.cs`'s own precedent of keeping one gimmick's whole mechanism — tracker,
+hooks, registry, dialog — together rather than fragmenting across files):
+
+- `ChallengeCompletion` — permanent completion persistence (a thin `PrimalSaveMarkers` wrapper,
+  same shape as Kill List's own records) plus "completed this cycle" freshness tracking for the
+  summary dialog's bold-white state. Needs TWO sets, not one, because the summary dialog is
+  opened on demand and might never be opened at all for a given cycle: `_accumulating` collects
+  newly-completed IDs live throughout a cycle (both mid-cycle live detections and anything
+  reported at Win time — both always finish before the corresponding `SleepAndDeathScreen` is
+  built), and `SnapshotAndResetForNewScreen` (called once per cycle-end screen build, from
+  `CommunityChallengesButtonHook`) freezes that into `_lastScreenSnapshot` and resets the live set
+  — so the dialog can be opened, closed, and reopened off the same screen showing the same
+  "fresh" set, while the NEXT cycle starts clean regardless of whether the button was ever
+  clicked. `ReportCompletion` is idempotent: a challenge already completed on some earlier cycle
+  is a silent no-op, no re-notify, no re-marking fresh.
+- `ChallengeNotification` — the live mid-cycle popup+sound. Confirmed via decompiling
+  `HUD/KarmaMeter.cs` that the user's own description ("a quiet sound heard after finishing a
+  cycle and seeing your karma up or after eating a karma flower and the karma gets protected")
+  is literally the SAME effect either way: `KarmaMeter.reinforceAnimation` plays
+  `HUD_Karma_Reinforce_Flicker` → `_Small_Circle` + `_Contract` → `_Bump` on any karma-meter
+  change, not exclusively the flower-shield case. Reuses only `_Bump` (the "settled" beat) rather
+  than replaying the whole ~140-frame animated sequence outside of the widget it belongs to —
+  which exact one of the three reads best is a judgment call, not yet confirmed by ear. The
+  message itself goes through `HUD.TextPrompt.AddMessage` (vanilla's own on-screen text-popup
+  mechanism, confirmed public), not a custom UI element.
+- `ChallengeTracker` (abstract) — the base for all 50 future implementations. Deliberately does
+  NOT standardize HOW a challenge detects completion (the 8 shared mechanisms already cover too
+  many different shapes — an event subscription, a per-tick check, a plain vanilla-state read —
+  for one abstract method to fit all of them); it only standardizes what happens AFTER detection:
+  `TryGetEnabledCharacter` for the corrected gating above, and `ReportCompletion` to route through
+  `ChallengeCompletion`. `ChallengeTrackerRegistry.All` is intentionally empty — this pass is the
+  harness only, no concrete trackers yet — with `RegisterAll()` wired into `RainWorldHooks
+  .Postfix` alongside `SurvivorRegionMarkers.Init()` so future entries need no other integration
+  point.
+- `CommunityChallengesButtonHook`/`CommunityChallengesSignalHook`/`CommunityChallengesDialog` —
+  the cycle-end summary UI, built the same `AddSubObjects`/`Singal` way
+  `KillListButtonHook`/`KillListSignalHook`/`KillListDialog` already are. Positioned directly
+  above CONTINUE (not EXIT, where Kill List's own button sits) — confirmed via decompiling
+  `Menu/KarmaLadderScreen.cs` that CONTINUE sits at `ContinueAndExitButtonsXPos - 180f -
+  SafeScreenOffset.x` (EXIT is at `-320f`), so this button reuses that same X lane with the
+  identical "+40f, stack directly above" offset Kill List's own button already uses one lane over.
+  The dialog is text-only (no icons -- unlike creatures, challenges have no vanilla sprite to
+  reuse), built only from `CommunityChallengesSettings.IsChallengeEnabled` challenges, row-major
+  5-column grid (matching `KillListDialog`'s own fill order, not the settings screen's column-
+  major one — no strict convention either way in this codebase yet). Bold-white uses `MenuLabel`'s
+  own `bigText` flag (confirmed via decompiling `Menu/MenuLabel.cs` that this actually switches
+  `Custom.GetDisplayFont()` vs `Custom.GetFont()` — there's no separate bold-weight font in this
+  engine) plus `Color.white`; "completed earlier" leaves color unset (vanilla's own default read
+  as "grey" already); "never completed" reuses `KillListDialog`'s own `MediumGrey` dimming.
+
+**Also changed:** `CommunityChallengesSettings.Bind`'s default flipped `false` → `true` — "for the
+time being check everything as enabled", since there's no bulk-select control on the settings
+grid and nothing to actually exercise this harness against without it.
+
+**Not yet built or tested in-game** — no .NET toolchain in this container, and no concrete
+`ChallengeTracker` exists yet to actually populate a "completed" entry to look at.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

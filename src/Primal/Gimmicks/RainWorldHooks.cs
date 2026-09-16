@@ -84,6 +84,18 @@ namespace Primal.Gimmicks
             {
                 Plugin.Log?.LogError($"SurvivorRegionMarkers.Init() threw -- Survivor community-challenge tracking may be incomplete this session: {ex}");
             }
+
+            try
+            {
+                // Same reasoning as SurvivorRegionMarkers.Init() just above -- each ChallengeTracker
+                // subscribes to SurvivorEvents/mechanism callbacks from its own Register(), a plain
+                // method call PatchAll has no way to discover on its own.
+                ChallengeTrackerRegistry.RegisterAll();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"ChallengeTrackerRegistry.RegisterAll() threw -- one or more community challenge trackers may not be active this session: {ex}");
+            }
         }
     }
 }
