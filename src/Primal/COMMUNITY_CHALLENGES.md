@@ -846,3 +846,53 @@ Every vanilla member used (`SlugNPCAI.GetFoodType`, `SeedCob`, `PlayerSessionRec
 `.playerNumber`, `CreatureTemplate.Type.SmallCentipede`/`CicadaA`/`CicadaB`) was verified against
 `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
+
+## Status update, 2026-09-16 (later still): the 6-challenge accounting gap -- Catalogue and Ascension implemented; Vegan, Friend, Saint, Scholar re-examined
+
+The user caught a real gap: 36 implemented + 8 explicitly flagged as difficult (Journey, Visitor,
+Fishtank, Outlaw, Triplopia, Broadcast, Heist, Elder) only accounts for 44 of 50. The missing 6 --
+Catalogue, Vegan, Friend, Scholar, Saint, Ascension -- had simply never been revisited since the
+original ratings pass. Checked each against what's actually buildable now:
+
+- **Catalogue -- IMPLEMENTED.** "Place 15 unique objects/creatures into a shelter in one cycle."
+  A direct, overdue consumer of `SurvivorShelterContents.CountDistinct` -- shared mechanism #2,
+  built in the very first batch, sitting unused for creature/item dedup until now (Mother already
+  used its sibling `CountObjectsOfType`, but nothing had used `CountDistinct` itself). Dedupes by
+  a combined creature-or-item type key. **Known simplification:** the challenge's own rule is
+  "every unique ICON is a unique object" -- this dedupes by raw type instead, since this mod has
+  no icon-grouping data; could diverge if vanilla's own icon system groups some types together.
+- **Ascension -- IMPLEMENTED.** Reuses the same ending hook Perseverance already consumes.
+  Confirmed `RainWorldGame.clock` accumulates for the whole game session with no reset anywhere in
+  `RainWorldGame.cs`/`SaveState.cs` -- exactly "IGT from game start," no extra timer needed.
+  **Known simplification:** the CSV's own notes say the real measurement is "the Remix speedrun
+  timer's value when it stops" -- this uses the mod's own raw `game.clock` instead, which could
+  diverge from that real timer.
+- **Vegan** -- re-examined, genuinely belongs alongside Visitor: both need exact room/position
+  data inside the tutorial area (7 fruit locations + the charge-hop gap threshold) that hasn't
+  been supplied. Same category of gap, not a new one.
+- **Friend** -- re-examined, this is a REAL, distinct architectural gap that was correctly
+  identified in the original ratings pass but never followed up on: "tamed" detection itself is
+  solved (the same `friendTracker.friend` check `SleepoverTracker` already uses), but the
+  challenge needs the RESULT tracked as a set SHARED ACROSS EVERY PRIMAL CHARACTER on the save
+  slot ("Friends can be tamed in any amount of campaigns"), not per-character the way
+  `PrimalSaveMarkers`/`DeathPersistentSaveData` are scoped. This mod's only existing
+  cross-character persistence is the Remix-config-backed `Configurable&lt;T&gt;` layer
+  `GimmickAssignments` already uses -- reusing that for a hidden, non-UI "which Lizard types has
+  ANY character tamed" bitmask is plausible but genuinely new infrastructure, not investigated
+  deeply enough this pass to build with confidence.
+- **Scholar** -- re-examined. The enumeration mechanism is trivial now that Collector proved it
+  out (`DataPearl.AbstractDataPearl.DataPearlType` is also confirmed an ExtEnum, so the same
+  `values.entries` trick applies with zero new research). The real open question is SCOPE, and
+  it's sharper here than it was for Collector: some registered pearl colors are tied to unique,
+  one-off STORY pearls that may never appear as a loose collectible at all, so treating "all
+  registered types" as the threshold (Collector's own approach) risks shipping a tracker that can
+  never actually complete. Needs the same kind of scope confirmation Collector got before
+  building it the same way.
+- **Saint** -- re-confirmed as genuinely underspecified rather than newly noticed: "complete all 3
+  objectives without killing anything, or eating live prey," with exclusions ("no karma caching,"
+  "no echo-negated kills") that were already flagged in the very first ratings pass as "may end up
+  partially honor-system by necessity, not just by choice." Nothing new found to change that.
+
+38 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.

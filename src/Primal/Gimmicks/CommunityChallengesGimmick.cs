@@ -522,6 +522,8 @@ namespace Primal.Gimmicks
             new UTurnTracker(),
             new SymbioteTracker(),
             new ChargedTracker(),
+            new CatalogueTracker(),
+            new AscensionTracker(),
         };
 
         private static bool _registered;

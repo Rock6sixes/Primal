@@ -4962,6 +4962,74 @@ or tested in a real game** — no .NET toolchain in this container. Every vanill
 `reference/GameSource/*.cs` first. Brace/paren balance re-checked across the whole `src/Primal`
 tree after this change.
 
+## The 6-challenge accounting gap: Catalogue and Ascension implemented (2026-09-16, later still)
+
+The user caught a real bookkeeping gap: 36 implemented + 8 explicitly flagged as difficult
+(Journey, Visitor, Fishtank, Outlaw, Triplopia, Broadcast, Heist, Elder) only accounts for 44 of
+50 — Catalogue, Vegan, Friend, Scholar, Saint, and Ascension had simply fallen through the cracks
+since the original ratings pass and were never revisited. Went through all 6 properly.
+
+**Catalogue — implemented.** "Place 15 unique objects/creatures into a shelter in one cycle." A
+direct, overdue consumer of `SurvivorShelterContents.CountDistinct` — shared mechanism #2, built
+in the very first shared-mechanisms batch, and (unlike its sibling `CountObjectsOfType`, already
+used by `MotherTracker`) never actually consumed until now. Dedupes by a combined
+creature-or-item type key (`"C:" + creatureType`/`"I:" + itemType`, so the two enum namespaces
+can never collide). **Known simplification:** the challenge's own rule is "every unique ICON is a
+unique object" — this dedupes by raw type instead, since this mod has no icon-grouping data to
+check against; could diverge if vanilla's own icon system groups some distinct types under one
+shared icon, or vice versa.
+
+**Ascension — implemented.** Reuses the exact same `standardVoidSea` ending flag
+`PerseveranceTracker` already consumes — reaching this ending at all already implies having
+traveled through Five Pebbles, so (matching Perseverance's own reasoning for "reaching Depths")
+no separate waypoint check was added. Confirmed via decompilation that `RainWorldGame.clock` (a
+plain public int, incremented exactly once per `RawUpdate` call) has NO reset call anywhere in
+either `RainWorldGame.cs` or `SaveState.cs` — it accumulates for the entire game session from
+creation, which is exactly "IGT from game start," no separate start-time bookkeeping needed at
+all. 38 minutes converts to 91200 ticks at the confirmed 40-ticks/second rate. **Known
+simplification:** the CSV's own notes say completion is really measured by "the Remix speedrun
+timer's value when it stops" — this reads the mod's own raw `game.clock` instead, which could
+diverge from that real timer (e.g. if the Remix timer excludes paused time this reading doesn't).
+"No skipping Guardians" is left as an honor-system note, matching Perseverance's own treatment of
+its "no Guardian skip" clause.
+
+**The other 4 — re-examined and correctly re-categorized, not silently dropped a second time:**
+
+- **Vegan** genuinely belongs alongside Visitor in the "hard task" bucket — both need exact
+  room/position data inside the tutorial area (Vegan's 7 fruit locations plus the charge-hop gap
+  threshold) that hasn't been supplied. Not a new category of gap, just one that got missed when
+  Visitor was called out but Vegan wasn't.
+- **Friend** is a genuinely distinct, real architectural gap correctly identified back in the
+  original ratings pass but never followed up on since: the TAMING check itself is already solved
+  (the same `friendTracker.friend` expression `SleepoverTracker` already trusts), but the
+  challenge needs the RESULT (which Lizard types have been tamed) tracked as a set SHARED ACROSS
+  EVERY PRIMAL CHARACTER on the save slot — "Friends can be tamed in any amount of campaigns" —
+  not per-character the way every other persistent marker in this mod
+  (`PrimalSaveMarkers`/`DeathPersistentSaveData`) is scoped. The only existing cross-character
+  persistence layer in this mod is the Remix-config-backed `Configurable<T>` mechanism
+  `GimmickAssignments` already uses for gimmick-to-character assignments — reusing that pattern
+  for a hidden, non-UI "which Lizard types has ANY character ever tamed" bitmask seems plausible,
+  but wasn't investigated deeply enough this pass (in particular, whether a `Configurable<T>`
+  persists correctly without ever being attached to an actual on-screen UI element, only bound
+  programmatically) to build with real confidence.
+- **Scholar** — the enumeration mechanism is now trivial: `DataPearl.AbstractDataPearl
+  .DataPearlType` is confirmed to also be an ExtEnum, so the exact same `values.entries` trick
+  Collector uses applies with zero new research. The real open question is SCOPE, and it's
+  sharper here than Collector's own version of the same question: some registered pearl colors
+  are tied to unique, one-off STORY pearls that may never spawn as a loose collectible at all, so
+  blindly treating "every registered DataPearlType" as the completion threshold (Collector's own
+  approach) risks shipping a tracker that can mathematically never complete. Needs the same kind
+  of scope confirmation Collector got before this gets built the same way.
+- **Saint** — re-confirmed as genuinely underspecified, not newly discovered: "complete all 3
+  objectives without killing anything, or eating live prey," with exclusion clauses ("no karma
+  caching," "no echo-negated kills") the very first ratings pass already flagged as likely
+  "partially honor-system by necessity, not just by choice." Nothing new turned up to change that
+  assessment.
+
+38 of 50 challenges now have a tracker registered (up from 36). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

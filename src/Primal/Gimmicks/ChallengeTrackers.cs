@@ -2476,4 +2476,98 @@ namespace Primal.Gimmicks
             return null;
         }
     }
+
+    /// <summary>Added 2026-09-16. "Place 15 unique objects/creatures into a shelter in one
+    /// cycle." Direct consumer of SurvivorShelterContents.CountDistinct (shared mechanism #2,
+    /// built in the original batch, this is its own first real consumer alongside Mother's
+    /// CountObjectsOfType). Deduplicates by a combined key -- creature type (prefixed "C:") or
+    /// item type (prefixed "I:") -- rather than by species/object roster position, so any 15
+    /// distinct types (mixing creatures and items freely) satisfy it. **Known simplification,
+    /// flagged explicitly:** the challenge's own rule is "every unique ICON is a unique object"
+    /// -- this dedupes by raw type instead, since this mod has no icon-grouping data. The two
+    /// could diverge if vanilla's own icon system groups some distinct types under one shared
+    /// icon (or vice versa) -- not verified either way this pass.</summary>
+    internal sealed class CatalogueTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Catalogue");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredUniqueObjects = 15;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (SurvivorShelterContents.CountDistinct(player, KeyFor) >= RequiredUniqueObjects)
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+
+        private static string KeyFor(AbstractWorldEntity entity)
+        {
+            if (entity is AbstractCreature creature)
+            {
+                return creature.creatureTemplate?.type?.value == null ? null : "C:" + creature.creatureTemplate.type.value;
+            }
+            if (entity is AbstractPhysicalObject obj)
+            {
+                return obj.type?.value == null ? null : "I:" + obj.type.value;
+            }
+            return null;
+        }
+    }
+
+    /// <summary>Added 2026-09-16. "Travel to Five Pebbles and then reach the final camera
+    /// transition in the Void Sea in under 38 minutes IGT from game start." Reuses the same
+    /// `standardVoidSea` ending flag PerseveranceTracker already consumes -- reaching this ending
+    /// at all already implies having traveled through Five Pebbles, so no separate waypoint check
+    /// is needed (same reasoning Perseverance's own doc comment already gives for "reaching
+    /// Depths"). Confirmed via decompilation that RainWorldGame.clock (a plain public int,
+    /// incremented exactly once per RawUpdate call, confirmed via `grep` to have no reset call
+    /// anywhere in RainWorldGame.cs or SaveState.cs) accumulates for the WHOLE GAME SESSION from
+    /// creation, never resetting per cycle -- exactly "IGT from game start", no extra state needed
+    /// to track a start time separately. 38 minutes converts to 91200 ticks at the confirmed 40
+    /// ticks/second nominal rate. **Known simplification, flagged explicitly:** the CSV's own
+    /// notes say completion is really measured by "the Remix speedrun timer's value when it
+    /// stops" -- this uses the mod's own raw `game.clock` read instead, which could diverge from
+    /// that real timer (e.g. if the Remix timer excludes paused time this mod's own reading
+    /// doesn't). "No skipping Guardians" is left as an honor-system note, the same treatment
+    /// Perseverance's own "no Guardian skip" gets.</summary>
+    internal sealed class AscensionTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Ascension");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int TimeLimitTicks = 38 * 60 * 40;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            {
+                if (!standardVoidSea || game?.Players == null || game.clock > TimeLimitTicks)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player))
+                    {
+                        continue;
+                    }
+                    if (TryGetEnabledCharacter(player, out string characterID))
+                    {
+                        ReportCompletion(player, characterID, isLive: false);
+                    }
+                }
+            };
+        }
+    }
 }
