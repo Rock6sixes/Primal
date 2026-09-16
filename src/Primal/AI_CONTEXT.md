@@ -4178,6 +4178,80 @@ reason to reconstruct a full `CreatureTemplate.Type` just to hand back to this f
 
 **Still entirely unbuilt/untested** — no .NET toolchain in this container.
 
+## 5 more shared mechanics realized: room transitions, eating, generalized death, passages, demasking (2026-09-16, later still)
+
+Requested plainly: "realize 5 of the first and most useful shared mechanics not yet realized" —
+referring to COMMUNITY_CHALLENGES.md's own 19-item gap list a few sections up. Picked #1, #2, #3,
+#6, #7 from that list (highest-leverage genuinely-unbuilt ones; #4 and #5 were skipped on purpose
+— both are already-built mechanisms with zero consumers, not "not yet realized"). All 5 landed as
+new events + Harmony patches on the existing `SurvivorEvents` bus (`SurvivorEvents.cs`), each
+following that file's own established shape exactly: one top-level `[HarmonyPatch]` class per
+vanilla hook point, an `Action<...>` event plus `Raise*`/`Has*Subscribers` pair, gated the same
+broad way the original four events already are (no per-gimmick gating here — that's still each
+future `ChallengeTracker`'s own job via `TryGetEnabledCharacter`).
+
+- **`OnPlayerEnteredRoom`** — Postfix on `Player.NewRoom(Room)`. Confirmed via decompilation to
+  be Player's own override of the virtual `PhysicalObject.NewRoom` — the same "just arrived"
+  moment vanilla itself uses (tongue repositioning, MSC's item-tracker spawn logic, transition-
+  ripple reassignment). Hands back room name (`AbstractRoom.name`) and region name (`World.name`)
+  as plain strings rather than the Room/AbstractRoom objects, since every planned consumer
+  (`SurvivorCheckpointRun.NotifyRoomEntered`, future region-visited trackers) only keys off the
+  name anyway. This is the one `SurvivorCheckpointRun` (built earlier, zero consumers) was
+  waiting on.
+- **`OnObjectEaten`** — Postfix on `Player.ObjectEaten(IPlayerEdible)`. Confirmed via 14 separate
+  call sites across the decompiled source (KarmaFlower, Mushroom, DangleFruit, Centipede,
+  EggBugEgg, Fly, Hazer, JellyFish, OracleSwarmer, SLOracleSwarmer, SlimeMold, SmallNeedleWorm,
+  SwollenWaterNut, VultureGrub — each calls `(grasp.grabber as Player).ObjectEaten(this)` on
+  itself once fully eaten) to be THE universal "finished eating this" hook. Hands back the raw
+  `IPlayerEdible` — that interface alone exposes no type info (just `BitesLeft`/`FoodPoints`/
+  `Edible`/`AutomaticPickUp`), and its implementers span both items and creatures (e.g. Hazer), so
+  each subscriber pattern-matches for whatever specific thing it cares about.
+- **`OnPlayerDeath`** — the "gap #3" generalization of the fall-death pattern: a Postfix on
+  `Player.Die()` itself, using the identical wasDead/isDead transition trick
+  `SurvivorFallDeathHook` already proved (see that hook's own comment). Confirmed via
+  decompilation that Player.Die() is Player's own override of the virtual `Creature.Die()` and —
+  outside an MSC/Coop-only branch this mod doesn't target — does NOT call `base.Die()`, which
+  means `PrimalKillDieHook`'s existing patch on the BASE `Creature.Die` never actually fires for a
+  player's own death; this new hook is the only one that sees it. Reads killer creature type off
+  the same `PrimalKillTracker.KillTagField` reflected handle (no second reflection lookup needed —
+  promoted no further, just reused) and hands back `AbstractWorldEntity.InDen` and
+  `AbstractRoom.shelter` as the two location flags Tasty ("pulled into a den") and Leukocyte
+  ("died inside a shelter") each need.
+- **`OnPassageUsed`** — a Prefix/Postfix pair on `Menu.SleepAndDeathScreen.Singal`, mirroring the
+  exact body of its own `"PASSAGE"` case (confirmed via decompilation: only actually calls
+  `endgameTokens.Passage(...)` if `proceedWithEndgameID` was null on entry AND
+  `winState.GetNextEndGame()` returned non-null) — fires only on that real null→non-null
+  transition, the same before/after-state trick used everywhere else in this file. **Deliberate
+  simplification, flagged on purpose:** doesn't distinguish which passage was taken, just that one
+  was — a conservative reading that happens to be the correct, stricter one for Enlightenment's
+  "without ever passaging" condition. No live `Player` exists on this screen; characterID comes
+  from `PrimalMenuAccess.GetCharacterID`, the same menu-side identity path
+  `CommunityChallengesButtonHook`/`KillListButtonHook` already use.
+- **`OnNonLethalDemask`** — a Postfix on `Vulture.Violence` comparing
+  mask-before/mask-after/dead-after, NOT a patch on `Vulture.DropMask` itself: decompilation
+  confirms `DropMask` (Vulture.cs:1624) has exactly one call site in the whole source, inside
+  `Violence`, before `Violence`'s own trailing `base.Violence(...)` call actually applies the
+  damage that could kill the creature — so patching `DropMask` directly would run too early to
+  know if that same hit turned out fatal. Attribution reuses `PrimalKillTracker.KillTagField`
+  rather than parsing `Violence`'s own `BodyChunk`-ownership chain: `Creature.SetKillTag` is
+  called by `Weapon`'s own hit-resolution code on every connecting hit, not just fatal ones
+  (`Weapon.cs`'s projectile-collision handling calls it unconditionally on any `Creature` result),
+  decaying only after 200 ticks (`killTagCounter`) if the creature survives — so `killTag` is
+  already exactly "who most recently hit this creature" at the moment `Violence`'s Postfix runs,
+  the same signal kill-tracking already trusts for lethal hits. `Vulture.VultureState.mask`
+  (a plain public bool) is trusted directly rather than reflected, matching the direct-trust
+  precedent already set for `ArtificialIntelligence.FriendTracker.friend` in `ChainsGimmick.cs`.
+  **Known gap, flagged on purpose:** this is ONLY the mask-falls-off-a-live-Vulture mechanic
+  (Usurper's need). Elder's "6 Scavengers simultaneously wearing Vulture Masks" is a completely
+  different, not-yet-researched mechanic — Scavengers picking up and equipping a `VultureMask`
+  item as decoration, unrelated to `Vulture.Violence`/`DropMask` at all.
+
+**Zero consumers wired up for any of these 5** — matches the original 8-mechanism batch's own
+"mechanism only, no gimmick logic yet" scope. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change (all files balanced). **Still entirely unbuilt/untested** — no
+.NET toolchain in this container; every vanilla member used above was verified against
+`reference/GameSource/*.cs` first, per this project's standing rule.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

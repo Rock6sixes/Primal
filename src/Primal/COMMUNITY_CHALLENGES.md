@@ -327,3 +327,58 @@ remaining 42 challenges, ranked by how many each unlocks.
 unlocking ~11 challenges directly and making two already-built-but-idle mechanisms
 (`SurvivorCheckpointRun`, half of `SurvivorCreatureTracking`'s use cases) actually usable. #19 is
 free and worth bundling into whichever batch comes next.
+
+## Status update, 2026-09-16 (later still): 5 more shared mechanics realized (#1, #2, #3, #6, #7)
+
+Requested directly: "realize 5 of the first and most useful shared mechanics not yet realized."
+Selected the 5 highest-leverage genuinely-unbuilt mechanisms from the list above (#4 and #5 were
+excluded on purpose -- both are already-built mechanisms with zero consumers, not "not yet
+realized"). All 5 landed as new events on the existing `SurvivorEvents` bus in
+`SurvivorEvents.cs`, following that file's own established pattern exactly (one Harmony patch
+class per vanilla hook, each top-level, gated the same broad way the existing four events are).
+
+- **#1, room/region transition** -- `SurvivorEvents.OnPlayerEnteredRoom`, a Postfix on
+  `Player.NewRoom(Room)`. Confirmed via decompilation to be Player's own override of the virtual
+  `PhysicalObject.NewRoom`, the same "just arrived" moment vanilla itself uses (tongue
+  repositioning, MSC's item-tracker spawn logic). Hands back room name + region name as plain
+  strings. This is the mechanism `SurvivorCheckpointRun` (built earlier, zero consumers) was
+  waiting on -- it's now wireable.
+- **#2, "ate X"** -- `SurvivorEvents.OnObjectEaten`, a Postfix on
+  `Player.ObjectEaten(IPlayerEdible)`. Confirmed as the universal "fully consumed" hook via 14
+  separate call sites across the decompiled source (every edible class calls it on itself once
+  eaten). Hands back the raw `IPlayerEdible` -- that interface exposes no type info and spans both
+  items and creatures (e.g. Hazer), so each subscriber pattern-matches for what it needs.
+- **#3, generalized death-cause detection** -- `SurvivorEvents.OnPlayerDeath`, a Postfix on
+  `Player.Die()` using the same wasDead/isDead transition trick `SurvivorFallDeathHook` already
+  proved. Confirmed Player.Die() does NOT call `base.Die()` outside an MSC/Coop branch this mod
+  doesn't target, so this is the only hook that actually sees a player's own death (separate from
+  `PrimalKillDieHook`'s patch on the base `Creature.Die`). Hands back killer creature type (off
+  the same `PrimalKillTracker.KillTagField` handle, not a second reflection), plus `InDen` and
+  `AbstractRoom.shelter` flags for Tasty/Leukocyte's location checks.
+- **#6, passage usage** -- `SurvivorEvents.OnPassageUsed`, a Prefix/Postfix pair on
+  `Menu.SleepAndDeathScreen.Singal`, gated on the exact `"PASSAGE"` case body (only fires if
+  `proceedWithEndgameID` actually transitioned from null to non-null, i.e. a real passage was
+  available and taken). **Deliberate simplification, flagged on purpose:** this is a
+  conservative proxy for "used a passage" -- it can't distinguish which specific passage, only
+  that one was taken -- which happens to be the stricter, safer reading for Enlightenment's
+  "without ever passaging" rule anyway.
+- **#7, non-lethal demasking** -- `SurvivorEvents.OnNonLethalDemask`, a Postfix on
+  `Vulture.Violence` comparing mask-before/mask-after/dead-after (not a patch on
+  `Vulture.DropMask` itself, which runs too early in `Violence`'s own body to know if that same
+  hit was fatal). Attribution reuses `PrimalKillTracker.KillTagField`: `Creature.SetKillTag` is
+  called by weapon-hit resolution on every connecting hit, not just fatal ones, decaying after
+  200 ticks if the creature survives -- already the same trustworthy "who last hit this" signal
+  kill-tracking relies on. **Known gap, flagged on purpose:** this only covers the
+  mask-falls-off-a-live-Vulture mechanic (Usurper). Elder's "6 Scavengers wearing Vulture Masks"
+  is a Scavenger-equips-an-item mechanic with no relationship to this event -- still a genuine gap,
+  not touched by this batch.
+
+**Nothing here has been built or tested** -- no .NET toolchain in this container. Every vanilla
+member used (`Player.NewRoom`, `Player.ObjectEaten`, `Player.Die`, `AbstractWorldEntity.InDen`,
+`Menu.SleepAndDeathScreen.Singal`/`proceedWithEndgameID`, `Vulture.Violence`,
+`Vulture.VultureState.mask`, `Creature.SetKillTag`) was verified against
+`reference/GameSource/*.cs` before use, matching this project's standing rule. Brace/paren balance
+re-checked across the whole `src/Primal` tree after this change.
+
+Zero consumers wired up yet for any of these 5 -- same "mechanism only" scope as the original
+8-mechanism batch. Gap-list items #4, #5, and #8-#19 above are still open.

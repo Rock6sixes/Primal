@@ -80,6 +80,91 @@ namespace Primal.Gimmicks
         /// once-per-(character,key) shape PrimalSaveMarkers already exists for.</summary>
         public static event Action<Player, string, string> OnFallDamageDeath;
 
+        /// <summary>Added 2026-09-16 (shared mechanism #1 from COMMUNITY_CHALLENGES.md's gap
+        /// list): fires every time an assigned-slot player arrives in a new room -- a Postfix on
+        /// Player.NewRoom(Room), confirmed via decompilation to be Player's own override of
+        /// Creature.NewRoom (itself overriding the virtual PhysicalObject.NewRoom), the exact
+        /// moment vanilla's own code uses for tongue repositioning, MSC's item-tracker spawn
+        /// logic, and transition-ripple reassignment -- the standard "just arrived" hook, not
+        /// something this mod has to infer from position deltas. Hands back the room and region
+        /// as plain name strings (AbstractRoom.name, World.name) rather than the Room/AbstractRoom
+        /// objects themselves, since every currently-planned consumer (SurvivorCheckpointRun
+        /// .NotifyRoomEntered, any future region-visited tracker) only ever keys off the name.
+        /// Region can legitimately be null (e.g. a single-room world) even when the room name
+        /// isn't.</summary>
+        public static event Action<Player, string, string, string> OnPlayerEnteredRoom;
+
+        /// <summary>Added 2026-09-16 (gap #2): fires once per fully-eaten object -- a Postfix on
+        /// Player.ObjectEaten(IPlayerEdible), confirmed via decompilation to be THE single
+        /// universal "finished eating this" hook (14 separate edible classes across the source
+        /// tree -- KarmaFlower, Mushroom, DangleFruit, Centipede, EggBugEgg, Fly, Hazer, JellyFish,
+        /// OracleSwarmer, SLOracleSwarmer, SlimeMold, SmallNeedleWorm, SwollenWaterNut,
+        /// VultureGrub -- each call it themselves via `(grasp.grabber as Player).ObjectEaten(this)`
+        /// once the last bite is taken). Hands back the raw IPlayerEdible rather than trying to
+        /// resolve a single common "type" up front -- that interface alone exposes no type info,
+        /// and the concrete classes it's implemented by span both AbstractPhysicalObject items and
+        /// creatures (e.g. Hazer), so each subscriber is expected to pattern-match for whatever it
+        /// actually cares about (a specific object type, a specific creature type, etc.).</summary>
+        public static event Action<Player, string, IPlayerEdible> OnObjectEaten;
+
+        /// <summary>Added 2026-09-16 (gap #3): a generalized "died to creature type X in location
+        /// Y" event, for any future tracker with the same shape as the existing fall-death one but
+        /// keyed on killer type and den/shelter location instead of terrain impact (Tasty:
+        /// "pulled into a den" by a specific killer type; Leukocyte: "died inside a shelter room"
+        /// to a specific killer type). A Postfix on Player.Die() using the identical wasDead/
+        /// isDead transition trick SurvivorFallDeathHook already proves (see that hook's own doc
+        /// comment) -- confirmed via decompilation that Player.Die() is Player's own override of
+        /// the virtual Creature.Die(), and that (outside an MSC/Coop-only branch this mod doesn't
+        /// target) it does NOT call base.Die(), so PrimalKillDieHook's own patch on the base
+        /// Creature.Die does not separately fire for player deaths -- this is the only hook that
+        /// sees a player's own death. Killer type is read off the same Creature.killTag field
+        /// PrimalKillTracker.KillTagField already reflects (trusted here via that existing handle,
+        /// not a second reflection lookup) -- null if nothing set it (e.g. starvation, or a killer
+        /// whose attribution already decayed). Den/shelter location comes straight off
+        /// AbstractWorldEntity.InDen (confirmed public, inherited by AbstractCreature via
+        /// AbstractPhysicalObject) and AbstractRoom.shelter (already trusted elsewhere in this
+        /// codebase, e.g. SurvivorShelterContents.ShelterRoomFor).</summary>
+        public static event Action<Player, string, string, bool, bool> OnPlayerDeath;
+
+        /// <summary>Added 2026-09-16 (gap #6): fires when a player actually commits to a passage
+        /// from the cycle-end screen. A Postfix/Prefix pair on Menu.SleepAndDeathScreen.Singal,
+        /// gated on the exact "PASSAGE" message case's own body (confirmed via decompilation:
+        /// `proceedWithEndgameID == null` on entry, set from `winState.GetNextEndGame()`, and only
+        /// followed by the real `endgameTokens.Passage(...)` call if that came back non-null) --
+        /// this is a deliberately conservative proxy for "used a passage", chosen so a stricter
+        /// reading is what challenges like Enlightenment's "without ever passaging" get: clicking
+        /// the button with nothing left to passage into does nothing and correctly does not fire
+        /// this. "EXPPASSAGE" (Expedition mode) is a completely separate switch case and is never
+        /// matched by this hook. No live Player exists on this screen -- characterID is resolved
+        /// via PrimalMenuAccess.GetCharacterID, the same menu-side identity path
+        /// CommunityChallengesButtonHook/KillListButtonHook already use.</summary>
+        public static event Action<string, WinState.EndgameID> OnPassageUsed;
+
+        /// <summary>Added 2026-09-16 (gap #7): fires when a live Vulture (regular or King) loses
+        /// its mask to player violence WITHOUT dying from that same hit -- Usurper's core
+        /// interaction. A Postfix on Vulture.Violence comparing mask-before/mask-after/dead-after,
+        /// rather than patching Vulture.DropMask (Vulture.cs:1624) directly: DropMask has exactly
+        /// one call site in the whole decompiled source, inside Violence, BEFORE Violence's own
+        /// trailing base.Violence(...) call actually applies the damage that could kill the
+        /// creature -- so a Postfix on DropMask itself would run too early to know whether this
+        /// same hit turned out to be fatal. Attribution reuses PrimalKillTracker.KillTagField
+        /// (Creature.killTag) rather than parsing Violence's own BodyChunk-ownership chain: Weapon
+        /// hit-resolution calls Creature.SetKillTag on every connecting hit, not only fatal ones
+        /// (confirmed via Weapon.cs's own TraceProjectileAgainstBodyChunks handling, unconditional
+        /// on death), decaying only after 200 ticks (killTagCounter) if the creature survives --
+        /// so killTag is already exactly "who most recently hit this creature" at the moment
+        /// Violence's Postfix runs, the same signal PrimalKillTracker's own kill-time recording
+        /// already trusts. VultureState.mask is a plain public bool (Vulture.cs:188), trusted
+        /// directly here rather than reflected, the same direct-trust precedent already set for
+        /// ArtificialIntelligence.FriendTracker.friend in ChainsGimmick.cs.
+        ///
+        /// **Known gap, flagged explicitly:** this is ONLY the mask-falls-off-a-live-Vulture
+        /// mechanic (Usurper's need). Elder's "6 Scavengers simultaneously wearing Vulture Masks"
+        /// is Scavengers picking up and equipping a VultureMask ITEM as decoration -- a completely
+        /// different, not-yet-researched mechanic with no relationship to this event at all.
+        /// </summary>
+        public static event Action<Player, string, AbstractCreature, bool> OnNonLethalDemask;
+
         internal static void RaiseSuccessfulHibernation(RainWorldGame game, Player player, string characterID)
             => OnSuccessfulHibernation?.Invoke(game, player, characterID);
 
@@ -92,10 +177,30 @@ namespace Primal.Gimmicks
         internal static void RaiseFallDamageDeath(Player player, string characterID, string region)
             => OnFallDamageDeath?.Invoke(player, characterID, region);
 
+        internal static void RaisePlayerEnteredRoom(Player player, string characterID, string roomName, string region)
+            => OnPlayerEnteredRoom?.Invoke(player, characterID, roomName, region);
+
+        internal static void RaiseObjectEaten(Player player, string characterID, IPlayerEdible edible)
+            => OnObjectEaten?.Invoke(player, characterID, edible);
+
+        internal static void RaisePlayerDeath(Player player, string characterID, string killerType, bool inDen, bool inShelter)
+            => OnPlayerDeath?.Invoke(player, characterID, killerType, inDen, inShelter);
+
+        internal static void RaisePassageUsed(string characterID, WinState.EndgameID endgameID)
+            => OnPassageUsed?.Invoke(characterID, endgameID);
+
+        internal static void RaiseNonLethalDemask(Player attacker, string characterID, AbstractCreature vulture, bool isKing)
+            => OnNonLethalDemask?.Invoke(attacker, characterID, vulture, isKing);
+
         internal static bool HasSuccessfulHibernationSubscribers => OnSuccessfulHibernation != null;
         internal static bool HasCycleFailedSubscribers => OnCycleFailed != null;
         internal static bool HasGameEndingSubscribers => OnGameEnding != null;
         internal static bool HasFallDamageDeathSubscribers => OnFallDamageDeath != null;
+        internal static bool HasPlayerEnteredRoomSubscribers => OnPlayerEnteredRoom != null;
+        internal static bool HasObjectEatenSubscribers => OnObjectEaten != null;
+        internal static bool HasPlayerDeathSubscribers => OnPlayerDeath != null;
+        internal static bool HasPassageUsedSubscribers => OnPassageUsed != null;
+        internal static bool HasNonLethalDemaskSubscribers => OnNonLethalDemask != null;
     }
 
     [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.Win))]
@@ -221,6 +326,152 @@ namespace Primal.Gimmicks
             {
                 SurvivorEvents.RaiseFallDamageDeath(__instance, characterID, region);
             }
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), nameof(Player.NewRoom))]
+    internal static class SurvivorRoomEnterHook
+    {
+        private static void Postfix(Player __instance, Room newRoom)
+        {
+            if (!SurvivorEvents.HasPlayerEnteredRoomSubscribers || newRoom == null)
+            {
+                return;
+            }
+            if (!GimmickGate.TryGetCharacter(__instance, out string characterID))
+            {
+                return;
+            }
+
+            string roomName = newRoom.abstractRoom?.name;
+            if (roomName == null)
+            {
+                return;
+            }
+            string region = newRoom.world?.name;
+            SurvivorEvents.RaisePlayerEnteredRoom(__instance, characterID, roomName, region);
+        }
+    }
+
+    [HarmonyPatch(typeof(Player), nameof(Player.ObjectEaten))]
+    internal static class SurvivorObjectEatenHook
+    {
+        private static void Postfix(Player __instance, IPlayerEdible edible)
+        {
+            if (!SurvivorEvents.HasObjectEatenSubscribers || edible == null)
+            {
+                return;
+            }
+            if (!GimmickGate.TryGetCharacter(__instance, out string characterID))
+            {
+                return;
+            }
+
+            SurvivorEvents.RaiseObjectEaten(__instance, characterID, edible);
+        }
+    }
+
+    /// <summary>See SurvivorEvents.OnPlayerDeath's own doc comment for why this patches
+    /// Player.Die() directly rather than the base Creature.Die() PrimalKillDieHook already
+    /// patches.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.Die))]
+    internal static class SurvivorPlayerDeathHook
+    {
+        private static void Prefix(Player __instance, out bool __state)
+        {
+            __state = __instance != null && __instance.dead;
+        }
+
+        private static void Postfix(Player __instance, bool __state)
+        {
+            if (!SurvivorEvents.HasPlayerDeathSubscribers || __state || __instance == null || !__instance.dead)
+            {
+                // __state true means this player was already dead before Die() ran -- not a
+                // death this call caused.
+                return;
+            }
+            if (!GimmickGate.TryGetCharacter(__instance, out string characterID))
+            {
+                return;
+            }
+
+            AbstractCreature killer = PrimalKillTracker.KillTagField?.GetValue(__instance) as AbstractCreature;
+            string killerType = killer?.creatureTemplate?.type?.value;
+
+            AbstractCreature abstractPlayer = __instance.abstractCreature;
+            bool inDen = abstractPlayer != null && abstractPlayer.InDen;
+            bool inShelter = abstractPlayer?.Room?.shelter ?? false;
+
+            SurvivorEvents.RaisePlayerDeath(__instance, characterID, killerType, inDen, inShelter);
+        }
+    }
+
+    /// <summary>See SurvivorEvents.OnPassageUsed's own doc comment for the exact "PASSAGE" case
+    /// body this mirrors.</summary>
+    [HarmonyPatch(typeof(Menu.SleepAndDeathScreen), nameof(Menu.SleepAndDeathScreen.Singal))]
+    internal static class SurvivorPassageUsedHook
+    {
+        private static void Prefix(Menu.SleepAndDeathScreen __instance, string message, out bool __state)
+        {
+            __state = message == "PASSAGE" && __instance != null && __instance.proceedWithEndgameID == null;
+        }
+
+        private static void Postfix(Menu.SleepAndDeathScreen __instance, bool __state)
+        {
+            if (!__state || !SurvivorEvents.HasPassageUsedSubscribers || __instance?.proceedWithEndgameID == null)
+            {
+                // __state false means this wasn't a "PASSAGE" click that had a passage still
+                // available -- either a different message, or the button did nothing.
+                return;
+            }
+
+            RainWorld rainWorld = __instance.manager?.rainWorld;
+            if (rainWorld == null || !PrimalSlot.IsActive(rainWorld))
+            {
+                return;
+            }
+
+            string characterID = PrimalMenuAccess.GetCharacterID(__instance);
+            if (characterID != null)
+            {
+                SurvivorEvents.RaisePassageUsed(characterID, __instance.proceedWithEndgameID);
+            }
+        }
+    }
+
+    /// <summary>See SurvivorEvents.OnNonLethalDemask's own doc comment for the full trace of why
+    /// this patches Vulture.Violence rather than Vulture.DropMask.</summary>
+    [HarmonyPatch(typeof(Vulture), nameof(Vulture.Violence))]
+    internal static class SurvivorVultureDemaskHook
+    {
+        private static void Prefix(Vulture __instance, out bool __state)
+        {
+            __state = __instance != null && !__instance.dead
+                && (__instance.State as Vulture.VultureState)?.mask == true;
+        }
+
+        private static void Postfix(Vulture __instance, bool __state)
+        {
+            if (!__state || !SurvivorEvents.HasNonLethalDemaskSubscribers || __instance == null || __instance.dead)
+            {
+                return;
+            }
+
+            // Default to "still masked" if the state cast ever fails, so a bad cast can't
+            // falsely report a demask.
+            bool stillMasked = (__instance.State as Vulture.VultureState)?.mask ?? true;
+            if (stillMasked)
+            {
+                return;
+            }
+
+            AbstractCreature striker = PrimalKillTracker.KillTagField?.GetValue(__instance) as AbstractCreature;
+            if (!(striker?.realizedCreature is Player player) || !GimmickGate.TryGetCharacter(player, out string characterID))
+            {
+                return;
+            }
+
+            SurvivorEvents.RaiseNonLethalDemask(player, characterID, __instance.abstractCreature, __instance.IsKing);
         }
     }
 }
