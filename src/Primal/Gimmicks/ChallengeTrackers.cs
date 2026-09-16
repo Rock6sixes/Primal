@@ -656,4 +656,134 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-16, the first consumer of the color-variant mechanism
+    /// (SurvivorCreatureVariant.cs / COMMUNITY_CHALLENGES.md's own confirmation that RedCentipede
+    /// is its own distinct CreatureTemplate.Type, no runtime-field check needed). "Lineage, kill
+    /// and eat one Red Centipede" -- "Lineage" means the SAME creature instance must be both
+    /// killed and eaten, not merely "killed one and separately ate a different one". That needed
+    /// one small new capability, added to PrimalKillTracker itself rather than bespoke to this
+    /// tracker (see PrimalKillTracker.RecordInstanceKill's own doc comment): per-instance kill
+    /// attribution, keyed on EntityID.number, alongside its existing per-TYPE record. Centipede
+    /// implements IPlayerEdible directly (confirmed via decompilation -- its own dead body is what
+    /// SurvivorEvents.OnObjectEaten eventually reports being eaten), so checking `edible is
+    /// Centipede` and cross-referencing its own abstractCreature.ID.number against
+    /// WasInstanceKilledBy is a direct, non-guessed correlation, not an approximation.</summary>
+    internal sealed class FeastTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Feast");
+        public override ChallengeEntry Challenge => _entry;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnObjectEaten += (player, eventCharacterID, edible) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (!(edible is Centipede centipede)
+                    || centipede.abstractCreature?.creatureTemplate?.type != CreatureTemplate.Type.RedCentipede)
+                {
+                    return;
+                }
+
+                if (PrimalKillTracker.WasInstanceKilledBy(characterID, centipede.abstractCreature.ID.number))
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-16, the second consumer of the color-variant mechanism -- and the
+    /// one that closed out Safari's own remaining gap: CreatureTemplate.Type.SpitterSpider is
+    /// confirmed its own distinct registered Type (SurvivorCreatureVariant.cs), so all three of
+    /// Safari's creatures (Red Lizard, Red Centipede, Spitter Spider) are plain Type comparisons,
+    /// no runtime color/variant field needed for any of them. "Record ... on the same screen, then
+    /// sleep" -- checked once per room arrival (SurvivorEvents.OnPlayerEnteredRoom) against the
+    /// player's own CURRENT room contents (AbstractRoom.entities directly, not
+    /// SurvivorShelterContents -- that class deliberately only looks at SHELTER rooms, and this
+    /// challenge cares about any ordinary room). **Known simplification, flagged explicitly:**
+    /// only re-checked on the player's OWN room transitions, not on a continuous per-tick basis --
+    /// if a third creature wanders into an already-occupied room while the player stays put
+    /// without changing rooms themselves, this won't catch that until the player's next room
+    /// change. "Red Lizard spit doesn't count as on-screen" needs no special handling here at all
+    /// -- this checks real AbstractCreature entities of each type directly, never anything a spit
+    /// projectile could be mistaken for. Scoped to one cycle -- the community's own verification
+    /// method (a video of the full cycle) implies the sighting and the sleep happen in the same
+    /// attempt, so the "seen together" flag resets on both a successful sleep (whether or not it
+    /// completed the challenge) and a failed cycle.</summary>
+    internal sealed class SafariTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Safari");
+        public override ChallengeEntry Challenge => _entry;
+
+        // In-memory only, per characterID -- has this character seen all three alive together at
+        // some point THIS cycle.
+        private static readonly HashSet<string> _seenTogetherThisCycle = new HashSet<string>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                AbstractRoom room = player.abstractCreature?.Room;
+                if (room?.entities == null)
+                {
+                    return;
+                }
+
+                bool hasRedLizard = false;
+                bool hasRedCentipede = false;
+                bool hasSpitterSpider = false;
+                foreach (AbstractWorldEntity entity in room.entities)
+                {
+                    if (!(entity is AbstractCreature creature) || creature.state.dead)
+                    {
+                        continue;
+                    }
+
+                    CreatureTemplate.Type type = creature.creatureTemplate?.type;
+                    if (type == CreatureTemplate.Type.RedLizard)
+                    {
+                        hasRedLizard = true;
+                    }
+                    else if (type == CreatureTemplate.Type.RedCentipede)
+                    {
+                        hasRedCentipede = true;
+                    }
+                    else if (type == CreatureTemplate.Type.SpitterSpider)
+                    {
+                        hasSpitterSpider = true;
+                    }
+                }
+
+                if (hasRedLizard && hasRedCentipede && hasSpitterSpider)
+                {
+                    _seenTogetherThisCycle.Add(characterID);
+                }
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (TryGetEnabledCharacter(player, out string characterID) && _seenTogetherThisCycle.Remove(characterID))
+                {
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _seenTogetherThisCycle.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
 }

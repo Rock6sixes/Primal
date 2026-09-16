@@ -71,6 +71,18 @@ namespace Primal.Gimmicks
         // Guards against double-counting: Die() can run more than once on the same instance.
         internal static readonly ConditionalWeakTable<Creature, object> Recorded = new ConditionalWeakTable<Creature, object>();
 
+        // Added 2026-09-16 for Feast ("kill AND eat the SAME Red Centipede", a lineage-tracked
+        // individual, not just "killed one and ate a different one"). Every OTHER record in this
+        // class is per-TYPE (a character either has or hasn't ever killed a CreatureTemplate.Type),
+        // which can't answer "was THIS specific creature instance's death credited to me" --
+        // that's genuinely different information, so it gets its own table rather than overloading
+        // _pending's own string-keyed sets with instance numbers. Keyed on EntityID.number (the
+        // plain int), per the same Equals/GetHashCode gotcha SurvivorCreatureTracking's own header
+        // comment documents -- never on EntityID itself. Session-only, in-memory, unbounded but
+        // trivially small in practice (bounded by total lifetime kill count of one save's
+        // characters, not by anything this mod multiplies).
+        private static readonly Dictionary<string, HashSet<int>> _instanceKills = new Dictionary<string, HashSet<int>>();
+
         // In-memory only, per characterID -- never itself persisted. See this class's own header
         // comment for why IsKilled/UniqueKillCount both fold this in alongside the permanent
         // record, not just the "pending vs. committed" story CreatureKillListGimmick's own header
@@ -133,6 +145,32 @@ namespace Primal.Gimmicks
                 _pending[characterID] = set;
             }
             set.Add(creatureID);
+        }
+
+        /// <summary>Records that this character was credited with killing this SPECIFIC creature
+        /// instance (by EntityID.number) -- see this class's own header comment on _instanceKills
+        /// for why this is separate from the per-type pending/permanent record above. Not gated on
+        /// cycle success/failure the way _pending is -- a "kill and eat the same creature" check
+        /// only ever cares about "did I kill this one", regardless of whether the cycle it happened
+        /// in was later survived, since the corpse itself is what gets eaten, cycle-outcome-
+        /// independent.</summary>
+        internal static void RecordInstanceKill(string characterID, int instanceNumber)
+        {
+            if (!_instanceKills.TryGetValue(characterID, out HashSet<int> set))
+            {
+                set = new HashSet<int>();
+                _instanceKills[characterID] = set;
+            }
+            set.Add(instanceNumber);
+        }
+
+        /// <summary>Whether this character was ever credited with killing this specific creature
+        /// instance -- Feast's own "kill AND eat the SAME Red Centipede" need.</summary>
+        public static bool WasInstanceKilledBy(string characterID, int instanceNumber)
+        {
+            return characterID != null
+                && _instanceKills.TryGetValue(characterID, out HashSet<int> set)
+                && set.Contains(instanceNumber);
         }
 
         /// <summary>Merges this character's pending-this-cycle kills into the real, permanent save
@@ -296,6 +334,7 @@ namespace Primal.Gimmicks
 
             PrimalKillTracker.Recorded.Add(__instance, null);
             PrimalKillTracker.RecordPendingKill(characterID, type.value);
+            PrimalKillTracker.RecordInstanceKill(characterID, __instance.abstractCreature.ID.number);
         }
     }
 

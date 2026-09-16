@@ -478,3 +478,55 @@ used (`Creature.grasps`, `ScavengerAI.SocialEvent`/`outpostModule`, `ScavengerOu
 tree after this change. Still open: Scholar's own pearl-color-roster enumeration (a data-entry
 task, not a variant-identification one) and every remaining single-purpose research item from the
 original 19-item gap list.
+
+## Status update, 2026-09-16 (later still): color-variant trackers -- Feast and Safari, 16 of 50 now implemented
+
+Requested: "implement the color variant mechanic needed trackers." Of the six challenges the
+color-variant mechanism was originally rated against (Feast, Safari, Sleepover, Offering, Chef,
+Pilgrimage), Sleepover was already implemented earlier. Checked the other four against the exact
+CSV wording:
+
+- **Feast** and **Safari** were genuinely blocked ONLY on the variant check itself, now resolved
+  (RedCentipede/SpitterSpider both confirmed distinct `CreatureTemplate.Type` values) -- both
+  implemented this pass.
+- **Offering** and **Chef** and **Pilgrimage** are NOT actually unblocked by this mechanism alone,
+  despite being on the original list:
+  - Offering needs the Lantern Mouse purple/green check, which `SurvivorCreatureVariant.cs`
+    deliberately leaves unimplemented (see that file's own doc comment -- confirmed this pass to
+    be a genuine continuous-value judgment call, not just unresearched), AND a wholly separate,
+    unbuilt "fed a carried creature to a predator" event. Skipped.
+  - Chef's albino-Jetfish check is done, but "kill it on a zapper" needs a specific
+    death-by-hazard-object detection this mod has never built (a Zapper is an environmental
+    object, not a `Creature`, so the killTag-based `OnPlayerDeath`/kill-attribution mechanisms
+    don't apply). Skipped.
+  - Pilgrimage's own Cyan Lizard check is trivial (already a confirmed distinct Type, already
+    used by `FoeTracker`), but the route itself ("Memory Crypts, The Leg and Underhang") doesn't
+    resolve to real region acronyms -- checked the authoritative source this pass
+    (`Menu/RegionSelectMenu.cs`'s own debug region list: SU/HI/DS/CC/LF/SI/SH/GW/SL/UW/SB/SS, with
+    UW = "THE WALL", confirming Pilgrimage's own "No climbing The Wall!" note lines up with a real
+    region on the route) -- but "Memory Crypts," "The Leg," and "Underhang" are none of these 12
+    official names, so they must be community nicknames for specific SUB-areas, not resolvable
+    without further research. Same category of gap as Nomad/Journey/Circuit/Desperado/U-Turn/
+    Visitor from the earlier batch (room/sub-area name data-entry, not a missing mechanism).
+    Skipped.
+
+**FeastTracker** ("kill AND eat the SAME Red Centipede") needed one genuinely new small piece:
+"Lineage" means the specific creature instance matters, not just "killed a Red Centipede and
+separately ate a different one" -- every existing kill record in `PrimalKillTracker` is per-TYPE,
+which can't answer that. Added `RecordInstanceKill`/`WasInstanceKilledBy` to `PrimalKillTracker`
+itself (populated from the SAME existing `PrimalKillDieHook` Postfix, no new patch needed), keyed
+on `EntityID.number` per the usual gotcha. `Centipede` implements `IPlayerEdible` directly (its
+own corpse is what eventually reports being eaten), so cross-referencing `OnObjectEaten`'s edible
+against that instance record is a direct correlation, not a guess.
+
+**SafariTracker** ("Red Lizard, Red Centipede and Spitter Spider alive on the same screen, then
+sleep") checks the player's current room contents directly (not `SurvivorShelterContents`, which
+is shelter-only) once per room arrival (`SurvivorEvents.OnPlayerEnteredRoom`), setting a per-cycle
+"seen together" flag checked at the next successful hibernation. **Known simplification:** only
+re-checked on the player's own room changes, not continuously -- a third creature wandering into
+an already-occupied room without the player also changing rooms won't be caught until the
+player's next transition.
+
+16 of 50 challenges now have a tracker registered. **Still not built or tested in-game** -- no
+.NET toolchain in this container. Brace/paren balance re-checked across the whole `src/Primal`
+tree after this change.

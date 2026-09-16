@@ -500,6 +500,8 @@ namespace Primal.Gimmicks
             new MycologistTracker(),
             new UsurperTracker(),
             new PerseveranceTracker(),
+            new FeastTracker(),
+            new SafariTracker(),
         };
 
         private static bool _registered;

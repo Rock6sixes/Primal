@@ -4414,6 +4414,68 @@ member used (`Creature.grasps`, `ScavengerAI.SocialEvent`, `ScavengerAI.outpostM
 `LanternMouse.GenerateIVars`) was verified against `reference/GameSource/*.cs` first. Brace/paren
 balance re-checked across the whole `src/Primal` tree after this change.
 
+## Color-variant trackers: Feast and Safari (2026-09-16, later still)
+
+Requested: "implement the color variant mechanic needed trackers." The color-variant mechanism
+was originally rated against six challenges (Feast, Safari, Sleepover, Offering, Chef,
+Pilgrimage) — Sleepover was already done. Checked the other five against the exact CSV wording
+before assuming the variant check alone was enough to unblock them:
+
+- **Feast** and **Safari** really were blocked only on the variant check, now resolved. Both
+  implemented.
+- **Offering, Chef, Pilgrimage** turned out to each need something ELSE the color-variant
+  mechanism doesn't provide, despite being on the original list:
+  - Offering: Lantern Mouse purple/green (deliberately left unimplemented — see this doc's own
+    "5 more ChallengeTrackers"/color-variant sections above) AND a wholly separate, unbuilt
+    "fed a carried creature to a predator" event. Two blockers, not one.
+  - Chef: albino Jetfish is already covered, but "kill it on a zapper" needs death-by-hazard-
+    object detection — a Zapper is an environmental object, not a `Creature`, so none of the
+    killTag-based mechanisms (`OnPlayerDeath`, `PrimalKillTracker`) apply to it at all.
+  - Pilgrimage: Cyan Lizard is trivial (already a confirmed Type, already used by `FoeTracker`),
+    but its route ("Memory Crypts, The Leg and Underhang") doesn't resolve to real region
+    acronyms. Checked the authoritative source this pass — `Menu/RegionSelectMenu.cs`'s own debug
+    region list (`regions = new string[12, 2]`): SU="SUBURBAN", HI="HEAVY INDUSTRIAL",
+    DS="DRAINAGE SYSTEM", CC="CHIMNEY CANOPY", LF="LINEAR FARMS", SI="SKY ISLANDS",
+    SH="SHADOW URBAN", GW="GARBAGE WASTES", SL="SHORELINE", UW="THE WALL", SB="SUBTERRANEAN",
+    SS="SUPER STRUCTURE". UW="THE WALL" nicely confirms Pilgrimage's own "No climbing The Wall!"
+    note names a real region on its route — but "Memory Crypts," "The Leg," and "Underhang" match
+    none of these 12 official names, so they're almost certainly community nicknames for specific
+    SUB-areas within one or more of these regions, not resolvable from what's in this repo. Same
+    category of gap as Nomad/Journey/Circuit/Desperado/U-Turn/Visitor from the earlier
+    "6 more trackers" batch — room/sub-area name data-entry, not a missing mechanism.
+
+All three skipped, each for a reason that ISN'T the color-variant mechanic (flagging this so a
+future pass doesn't re-attempt them expecting the variant check alone to be the unlock).
+
+**`FeastTracker`** ("Lineage, kill and eat one Red Centipede") needed one small addition to
+`PrimalKillTracker` itself: "Lineage" means the SAME creature instance must be both killed and
+eaten, not "killed one and separately ate a different one" — every existing record in that class
+(`_pending`, the permanent marker set) is per-TYPE, which can't answer an instance-level question.
+Added `_instanceKills` (`Dictionary<string, HashSet<int>>`, keyed on `EntityID.number` per the
+usual Equals/GetHashCode gotcha) plus `RecordInstanceKill`/`WasInstanceKilledBy`, populated from
+the SAME existing `PrimalKillDieHook` Postfix — no new Harmony patch needed at all, just one more
+line in an already-firing hook. `Centipede` implements `IPlayerEdible` directly (confirmed via
+decompilation — a dead Centipede's own corpse is what eventually reports being eaten through
+`Player.ObjectEaten`), so `FeastTracker` itself is just: on `OnObjectEaten`, is this a Centipede of
+type `RedCentipede`, and does `WasInstanceKilledBy` recognize its specific `abstractCreature.ID
+.number`. A direct correlation of two already-correct signals, not an approximation.
+
+**`SafariTracker`** ("Red Lizard, Red Centipede and Spitter Spider alive on the same screen, then
+sleep") reads the player's CURRENT room's entities directly (`player.abstractCreature.Room
+.entities`) rather than `SurvivorShelterContents` (which is deliberately shelter-only and would
+never see this outside a shelter room) — checked once per room arrival
+(`SurvivorEvents.OnPlayerEnteredRoom`), setting a per-character, per-cycle "seen all three alive
+together" flag that's read (and cleared) at the next `OnSuccessfulHibernation`, or cleared outright
+on `OnCycleFailed`. "Red Lizard spit doesn't count as on-screen" needed no special handling — this
+checks real `AbstractCreature` entities of each type directly, never anything a spit projectile
+could be confused with. **Known simplification:** only re-checked on the player's OWN room
+transitions, not continuously — a third creature wandering into an already-occupied room while the
+player stays put won't be caught until the player's next room change.
+
+16 of 50 challenges now have a tracker registered (up from 14). **Still not built or tested in a
+real game** — no .NET toolchain in this container. Brace/paren balance re-checked across the whole
+`src/Primal` tree after this change.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
