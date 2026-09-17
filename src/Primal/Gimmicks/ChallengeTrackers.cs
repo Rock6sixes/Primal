@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 
 namespace Primal.Gimmicks
@@ -2767,15 +2768,13 @@ namespace Primal.Gimmicks
         }
     }
 
-    /// <summary>Added 2026-09-17. "Steal a pearl from the lowest Garbage Wastes Scavenger Toll
-    /// without paying and hibernate with it before the rain starts." **Known simplification,
-    /// flagged explicitly, same treatment as CriminalTracker's own unresolved "Stronghold" room
-    /// above:** "the LOWEST" toll needs a specific room ID this pass didn't have available (no
-    /// in-repo map data says which of Garbage Wastes' several tolls is "lowest") -- this accepts
-    /// ANY Garbage Wastes toll instead. Consumes SurvivorTollState.OnItemStolen (a real
+    /// <summary>Added 2026-09-17, room ID confirmed directly by the user: "Steal a pearl from the
+    /// lowest Garbage Wastes Scavenger Toll without paying and hibernate with it before the rain
+    /// starts." The lowest GW toll is room GW_C11 -- no simplification needed, unlike Criminal's
+    /// still-unresolved "Stronghold" room. Consumes SurvivorTollState.OnItemStolen (a real
     /// EventID.Theft, independent of whether it happened to also cross the separate hostility-
-    /// report threshold -- see that event's own doc comment) filtered to a DataPearl stolen from a
-    /// roomKey starting "GW_", then waits for OnSuccessfulHibernation with that EXACT pearl
+    /// report threshold -- see that event's own doc comment) filtered to a DataPearl stolen
+    /// specifically from GW_C11, then waits for OnSuccessfulHibernation with that EXACT pearl
     /// instance (AbstractDataPearl.ID.number, not just any pearl of any kind) present in the
     /// shelter -- the same "specific item instance, not just any item of that type" correlation
     /// FeastTracker/UsurperTracker already use. "Toll scavengers must become visibly aggressive"
@@ -2789,7 +2788,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Heist");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string GarbageWastesRoomPrefix = "GW_";
+        private const string LowestGarbageWastesToll = "GW_C11";
 
         // Per characterID -- the stolen pearl's own EntityID.number, awaiting a hibernation with it
         // still in the shelter.
@@ -2805,7 +2804,7 @@ namespace Primal.Gimmicks
                 }
 
                 string roomKey = SurvivorTollRoster.RoomKeyFor(outpost);
-                if (roomKey == null || !roomKey.StartsWith(GarbageWastesRoomPrefix))
+                if (roomKey != LowestGarbageWastesToll)
                 {
                     return;
                 }
@@ -2845,59 +2844,118 @@ namespace Primal.Gimmicks
     /// <summary>Added 2026-09-17. "Triple-spawn Chimney Canopy, then survive the starve cycle" --
     /// the doc's own "Outstanding items" research pass had concluded this was "likely a signature-
     /// less emergent bug" needing either a concrete observable side effect or a decision to leave
-    /// it untracked. The CSV's own secondary evidence requirement supplies exactly that side
-    /// effect: "short clip of killing 3 Pole Plants spawned in the same den on the next cycle" --
-    /// a triple-spawned region manifests as its own normally-unique objects existing 3 times
-    /// simultaneously, and a Pole Plant (CreatureTemplate.Type.PoleMimic -- the same class
-    /// FlytrapTracker/SurvivorPoleMimicPredation already use for the community's "Pole Plant" name)
-    /// anchored to one den is exactly that kind of normally-unique object. Checked on every room
-    /// arrival (the same FindNearbyLiveScavengers-style room scan ChieftainTracker already uses,
-    /// generalized to PoleMimic): 3+ live PoleMimics simultaneously present in one Chimney Canopy
-    /// (CC) room is treated as the triple-spawn having happened. **Known simplification, flagged
-    /// explicitly:** this does not verify "survive the starve cycle" (no malnourishment/forced-
-    /// cycle check), does not require the sighting and the kill to happen on DIFFERENT cycles as
-    /// the CSV's own two-part verification implies, and does not require actually killing them --
-    /// same trade-off this mod already makes elsewhere (e.g. Nomad's "entering the gate room" vs.
-    /// literally crossing the middle line) when the full letter of a challenge needs in-room
-    /// position/state data this mod doesn't track.</summary>
+    /// it untracked. Per the user's own direction (2026-09-17): the tracker IS the kill -- "you
+    /// killing those 3 pole plants that all come from the same den," matching the CSV's own
+    /// secondary evidence line ("short clip of killing 3 Pole Plants spawned in the same den").
+    /// A triple-spawned region manifests as its own normally-unique objects (a den's one Pole
+    /// Plant -- CreatureTemplate.Type.PoleMimic, the same class FlytrapTracker/
+    /// SurvivorPoleMimicPredation already use for the community's "Pole Plant" name) existing 3
+    /// times at once, all anchored to the SAME den. "Same den" is identified by
+    /// (room name, AbstractCreature.pos.abstractNode) -- abstractNode is the specific den/burrow
+    /// node a creature's WorldCoordinate resolves to, and a triple-spawn's 3 layered copies of one
+    /// den's content all resolve to that identical node, unlike 3 incidental, unrelated PoleMimics
+    /// which would each belong to their own separate den node.
+    ///
+    /// Detected via its own Postfix on Creature.Die (TriplopiaPoleMimicDeathHook, below) rather
+    /// than reusing PrimalKillTracker's own per-type/per-instance records (those answer "was type X
+    /// / instance N killed", not "which den did it belong to", which this challenge specifically
+    /// needs) -- the killer-attribution logic (Creature.killTag, falling back to
+    /// PrimalKillTracker.TryGetRecentHandler) is duplicated from SurvivorTollRosterDeathHook's own
+    /// copy of the same pattern rather than depending on execution order against
+    /// PrimalKillDieHook's own independent Postfix on the same method. Own ConditionalWeakTable
+    /// guards against Creature.Die's own documented "can run more than once per instance"
+    /// behavior double-counting a single death.
+    ///
+    /// **Known simplification, flagged explicitly:** does not verify "survive the starve cycle" (no
+    /// malnourishment/forced-cycle check) and does not require the original triple-spawn/starve
+    /// cycle and the 3 kills to happen on separate cycles the way the CSV's own two-part
+    /// verification implies -- per the user's own framing, the kill IS the signal this mod
+    /// tracks.</summary>
     internal sealed class TriplopiaTracker : ChallengeTracker
     {
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Triplopia");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string ChimneyCanopy = "CC";
-        private const int RequiredPoleMimics = 3;
+        internal const string ChimneyCanopy = "CC";
+        private const int RequiredPoleMimicKills = 3;
+
+        // Per "characterID|denKey" -- distinct PoleMimic instances (EntityID.number) killed from
+        // that one den so far. Session-only, in-memory, matching SurvivorTollRoster's own scoping
+        // for the same kind of persistent-until-completed roster.
+        private static readonly Dictionary<string, HashSet<int>> _killedByDen = new Dictionary<string, HashSet<int>>();
 
         public override void Register()
         {
-            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            // No SurvivorEvents subscription -- detection happens in
+            // TriplopiaPoleMimicDeathHook's Postfix, below, which calls straight into
+            // OnPoleMimicKilled.
+        }
+
+        internal static void OnPoleMimicKilled(Player player, string denKey, int instanceNumber)
+        {
+            if (!GimmickGate.IsActiveFor(player, CommunityChallengesGimmick.ID, out string characterID)
+                || !CommunityChallengesSettings.IsChallengeEnabled(characterID, _entry.ID))
             {
-                if (!TryGetEnabledCharacter(player, out string characterID) || region != ChimneyCanopy)
-                {
-                    return;
-                }
+                return;
+            }
 
-                AbstractRoom room = player.abstractCreature?.Room;
-                if (room?.entities == null)
-                {
-                    return;
-                }
+            string key = characterID + "|" + denKey;
+            if (!_killedByDen.TryGetValue(key, out HashSet<int> killed))
+            {
+                killed = new HashSet<int>();
+                _killedByDen[key] = killed;
+            }
+            killed.Add(instanceNumber);
 
-                int liveMimics = 0;
-                foreach (AbstractWorldEntity entity in room.entities)
-                {
-                    if (entity is AbstractCreature creature && !creature.state.dead
-                        && creature.creatureTemplate?.type == CreatureTemplate.Type.PoleMimic)
-                    {
-                        liveMimics++;
-                    }
-                }
+            if (killed.Count >= RequiredPoleMimicKills)
+            {
+                ChallengeCompletion.ReportCompletion(player, characterID, _entry.ID, isLive: true);
+            }
+        }
+    }
 
-                if (liveMimics >= RequiredPoleMimics)
+    /// <summary>See TriplopiaTracker's own doc comment for the full trace of why this duplicates
+    /// SurvivorTollRosterDeathHook's own killer-attribution logic rather than depending on
+    /// execution order against PrimalKillDieHook, another independent Postfix on this same
+    /// method.</summary>
+    [HarmonyPatch(typeof(Creature), nameof(Creature.Die))]
+    internal static class TriplopiaPoleMimicDeathHook
+    {
+        private static readonly ConditionalWeakTable<Creature, object> _processed =
+            new ConditionalWeakTable<Creature, object>();
+
+        private static void Postfix(Creature __instance)
+        {
+            if (!(__instance is PoleMimic mimic) || !mimic.dead || _processed.TryGetValue(mimic, out _))
+            {
+                return;
+            }
+
+            AbstractCreature abstractMimic = mimic.abstractCreature;
+            if (abstractMimic?.world?.name != TriplopiaTracker.ChimneyCanopy)
+            {
+                return;
+            }
+
+            AbstractCreature killer = PrimalKillTracker.KillTagField?.GetValue(mimic) as AbstractCreature;
+            if (killer == null)
+            {
+                int? tick = abstractMimic.world?.game?.clock;
+                if (tick.HasValue)
                 {
-                    ReportCompletion(player, characterID, isLive: true);
+                    PrimalKillTracker.TryGetRecentHandler(mimic, tick.Value, out killer);
                 }
-            };
+            }
+
+            if (!(killer?.realizedCreature is Player player))
+            {
+                return;
+            }
+
+            _processed.Add(mimic, null);
+
+            string denKey = abstractMimic.Room?.name + "#" + abstractMimic.pos.abstractNode;
+            TriplopiaTracker.OnPoleMimicKilled(player, denKey, abstractMimic.ID.number);
         }
     }
 

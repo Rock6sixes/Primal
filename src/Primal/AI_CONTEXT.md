@@ -5204,6 +5204,32 @@ were wrong, not just incomplete:
   subscription, since there's no gameplay-side event this challenge's own detection point could
   hang off.
 
+**2026-09-17, same day, user feedback on the 4 above — two corrections applied, two confirmed
+as-is:**
+- **Elder — confirmed correct as implemented** (Scavengers just hold masks, no equip mechanic).
+- **Heist — the user supplied the exact room ID: the lowest Garbage Wastes Scavenger Toll is
+  `GW_C11`.** `HeistTracker` now checks that exact room instead of "any `GW_`-prefixed toll" — no
+  simplification needed anymore. **Going forward: when a challenge's own CSV text names a specific
+  room ("the lowest," "the highest," "the northeast," etc.) and this repo has no way to determine
+  which real room that is, ask the user for the room ID directly rather than defaulting to a
+  same-region simplification** — this is exactly the kind of fact only the user's own in-game
+  knowledge can supply, the same way every other room ID this mod relies on (Devotee's `SB_E05`,
+  Martyr's `SS_LAB7`/`SS_A01`, Nomad's 4 gate rooms, Chieftain's `SL_AI`) was originally obtained.
+- **Triplopia — the completion condition was wrong, not just simplified.** The user confirmed the
+  triple-spawn/den-identification approach but corrected what actually completes it: not "3 live
+  PoleMimics observed together" (my original implementation), but **killing** 3 PoleMimics that all
+  come from the same den. Rewritten: `TriplopiaPoleMimicDeathHook`, a new Postfix on `Creature.Die`
+  scoped to `PoleMimic` in Chimney Canopy, resolves killer attribution the same way
+  `SurvivorTollRosterDeathHook` already does (`Creature.killTag` falling back to
+  `PrimalKillTracker.TryGetRecentHandler` — duplicated rather than depended-on-in-order against
+  `PrimalKillDieHook`'s own independent Postfix on the same method), keys each kill by
+  `(characterID, roomName + abstractNode)` — `abstractNode` is the specific den node a creature's
+  `WorldCoordinate` resolves to, so 3 triple-spawned copies of one den's occupant all share the same
+  key while 3 incidental unrelated PoleMimics would not — and completes once a den's own kill count
+  reaches 3.
+- **Outlaw — confirmed correct as implemented** ("on game end, track to see if it succeeded" is
+  exactly what `OutlawScoreScreenHook` does).
+
 **Broadcast and the other 6 — re-checked, genuinely still blocked, not just untried again:**
 - **Broadcast** — repeated the same broad keyword search ("laser," "beam," "signal," "array,"
   "relay," "transmission," "antenna," "Communication," "Sky Island") across the whole decompiled

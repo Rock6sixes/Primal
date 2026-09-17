@@ -1077,3 +1077,22 @@ toolchain in this container this session either. `OutlawTracker` is the one to t
 suspicion of the 4 -- it's the first tracker touching `Menu.StoryGameStatisticsScreen`/
 `KarmaLadderScreen.ScoreKeeper`, a class family this mod has never compiled against before, versus
 Elder/Heist/Triplopia which all reuse already-proven mechanisms.
+
+## Status update, 2026-09-17 (same day, later): user feedback on the 4 above -- Heist and Triplopia corrected
+
+Elder and Outlaw confirmed correct as implemented. Two real corrections:
+
+- **Heist:** the user supplied the exact room ID directly -- the lowest GW toll is `GW_C11`. Swapped
+  the "any `GW_`-prefixed toll" simplification for that exact room; no more simplification note
+  needed for this one. **New standing instruction from the user: when a challenge's own CSV text
+  names a specific room this repo can't identify on its own, ask for the room ID rather than
+  defaulting to a same-region simplification.**
+- **Triplopia:** the completion condition itself was wrong, not just simplified -- the user wants
+  the actual KILL of 3 same-den Pole Plants to be the trigger, not merely observing 3 alive at once.
+  Rewritten around a new Postfix on `Creature.Die` (`TriplopiaPoleMimicDeathHook`) scoped to
+  `PoleMimic` in Chimney Canopy, using the same killer-attribution trace
+  `SurvivorTollRosterDeathHook` already established, keyed per-den via
+  `(room name, AbstractCreature.pos.abstractNode)` so 3 triple-spawned copies of one den's occupant
+  share a key while unrelated PoleMimics elsewhere don't.
+
+Still 44 of 50, still unbuilt/untested in this container.
