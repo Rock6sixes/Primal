@@ -3226,4 +3226,245 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-17, per the user's own room IDs: "Eat all 7 blue fruit in the
+    /// tutorial area before crossing the charge-hop gap for the first time." Blue fruit
+    /// (DangleFruit -- vanilla has no separate "blue" variant, it's just DangleFruit's own default
+    /// color) can only be grabbed in SU_A44/SU_C04, but per the user's own clarification can be
+    /// EATEN anywhere -- so this doesn't gate eating by room, only by a running count. The
+    /// charge-hop gap is SU_A43, and per the user's own suggested checkpoint, this is checked at
+    /// arrival in SU_A22 (the room immediately after the gap jump, confirmed as one of the 6
+    /// vanilla tutorial rooms by VisitorTracker's own DefineTutorialRooms trace above) rather than
+    /// trying to detect the charge-hop jump itself mid-room: has the running eaten-count already
+    /// reached 7 by the time SU_A22 is entered? If not, this attempt is permanently disqualified
+    /// (matching "before crossing... for the first time" -- a later re-crossing can't retroactively
+    /// count). Resets on a failed cycle, the same as the other early-tutorial-scoped trackers.</summary>
+    internal sealed class VeganTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Vegan");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string PostGapRoom = "SU_A22";
+        private const int RequiredFruit = 7;
+
+        private static readonly Dictionary<string, int> _eatenCount = new Dictionary<string, int>();
+        private static readonly HashSet<string> _disqualified = new HashSet<string>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnObjectEaten += (player, eventCharacterID, edible) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || _disqualified.Contains(characterID)
+                    || !(edible is DangleFruit))
+                {
+                    return;
+                }
+
+                _eatenCount[characterID] = _eatenCount.TryGetValue(characterID, out int count) ? count + 1 : 1;
+            };
+
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || roomName != PostGapRoom
+                    || _disqualified.Contains(characterID))
+                {
+                    return;
+                }
+
+                int eaten = _eatenCount.TryGetValue(characterID, out int count) ? count : 0;
+                if (eaten >= RequiredFruit)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+                else
+                {
+                    _disqualified.Add(characterID);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _eatenCount.Remove(eventCharacterID);
+                    _disqualified.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-17, per the user's own design: this challenge is originally built
+    /// around Hunter, whose 3 objectives (visit Five Pebbles and sleep, deliver the starting green
+    /// neuron to the Looks to the Moon iterator, ascend) already have vanilla's own save-slot-
+    /// tracked state behind them -- so the Hunter path below reads that directly rather than
+    /// re-detecting it live. Every other character (Survivor included) has no such built-in
+    /// bookkeeping for these specific objectives, so the non-Hunter path tracks the same 3
+    /// objectives manually off live events instead, per the user's own explicit direction. Both
+    /// paths share one restriction and one completion check.
+    ///
+    /// **Hunter path (characterID == "Red"):** read at every hibernation, off
+    /// SaveState.miscWorldSaveData -- `pebblesSeenGreenNeuron` (confirmed via decompiling
+    /// OracleBehavior.cs: set specifically when Hunter, carrying the green neuron, reaches the
+    /// Five Pebbles oracle) for "visited Pebbles," and `moonRevived` (confirmed via decompiling
+    /// SLOracleWakeUpProcedure.cs: set when a neuron delivery causes Moon to wake) for "delivered
+    /// the neuron to Moon."
+    ///
+    /// **Non-Hunter/manual path:** "visited Five Pebbles and slept" is a successful hibernation in
+    /// a Five Pebbles (SS) shelter (SurvivorEvents.OnSuccessfulHibernation). "Delivered a neuron to
+    /// Moon" is the new SurvivorMoonDelivery.OnNeuronDelivered live event (see that file's own doc
+    /// comment for why this needs to be live rather than a passive counter read, unlike the Hunter
+    /// path above).
+    ///
+    /// **Shared restriction ("without killing anything, or eating live prey"):** the new
+    /// PrimalKillTracker.OnKillCredited (any kill, ever, permanently disqualifies) and
+    /// SurvivorEvents.OnObjectEaten filtered to `edible is Creature && !creature.dead` (eaten while
+    /// still alive, as opposed to killed-then-eaten). Once violated, that character's Saint attempt
+    /// can never complete on this save -- matches the CSV's own "without killing anything" as an
+    /// absolute, not a per-cycle, condition.
+    ///
+    /// **Shared completion:** all 3 objectives true (visited+slept, delivered neuron, ascended --
+    /// the last read off the same SurvivorEvents.OnGameEnding(standardVoidSea) PerseveranceTracker
+    /// already uses) AND the restriction was never violated.
+    ///
+    /// **Known gaps, left unimplemented per the user's own explicit instruction:** "no karma
+    /// caching," "no echo-negated kills," and "no Guardian Skip" are all technique-legality clauses
+    /// with no corresponding observable state this mod tracks -- same treatment as every other
+    /// unenforceable exclusion clause elsewhere in this file (e.g. Ranger/Massacre's own "no karma
+    /// caching" notes).</summary>
+    internal sealed class SaintTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Saint");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string FivePebblesShelterPrefix = "SS_";
+        private static readonly string Hunter = SlugcatStats.Name.Red.value;
+
+        private sealed class ProgressState
+        {
+            public bool VisitedPebblesAndSlept;
+            public bool DeliveredNeuronToMoon;
+            public bool Ascended;
+            public bool Violated;
+        }
+
+        private static readonly Dictionary<string, ProgressState> _progress = new Dictionary<string, ProgressState>();
+
+        private static ProgressState StateFor(string characterID)
+        {
+            if (!_progress.TryGetValue(characterID, out ProgressState state))
+            {
+                state = new ProgressState();
+                _progress[characterID] = state;
+            }
+            return state;
+        }
+
+        private void TryComplete(Player player, string characterID)
+        {
+            ProgressState state = StateFor(characterID);
+            if (state.Violated || !state.VisitedPebblesAndSlept || !state.DeliveredNeuronToMoon || !state.Ascended)
+            {
+                return;
+            }
+            ReportCompletion(player, characterID, isLive: false);
+        }
+
+        public override void Register()
+        {
+            // Shared restriction -- any credited kill, ever, permanently disqualifies. Ungated
+            // beyond PrimalKillTracker's own PrimalSlot+real-character resolution: StateFor is
+            // harmless to touch for a character that never has Saint enabled at all, since nothing
+            // ever reads it without going through TryGetEnabledCharacter first.
+            PrimalKillTracker.OnKillCredited += (characterID) =>
+            {
+                StateFor(characterID).Violated = true;
+            };
+
+            // Shared restriction -- eaten while still alive (as opposed to killed, then eaten).
+            SurvivorEvents.OnObjectEaten += (player, eventCharacterID, edible) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !(edible is Creature creature) || creature.dead)
+                {
+                    return;
+                }
+                StateFor(characterID).Violated = true;
+            };
+
+            // Shared objective 3 -- reached the true/ascension ending.
+            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            {
+                if (!standardVoidSea || game?.Players == null)
+                {
+                    return;
+                }
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player) || !TryGetEnabledCharacter(player, out string characterID))
+                    {
+                        continue;
+                    }
+                    StateFor(characterID).Ascended = true;
+                    TryComplete(player, characterID);
+                }
+            };
+
+            // Hunter path -- read vanilla's own already-tracked save flags.
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || characterID != Hunter)
+                {
+                    return;
+                }
+
+                MiscWorldSaveData misc = game?.GetStorySession?.saveState?.miscWorldSaveData;
+                if (misc == null)
+                {
+                    return;
+                }
+
+                ProgressState state = StateFor(characterID);
+                if (misc.pebblesSeenGreenNeuron)
+                {
+                    state.VisitedPebblesAndSlept = true;
+                }
+                if (misc.moonRevived)
+                {
+                    state.DeliveredNeuronToMoon = true;
+                }
+                TryComplete(player, characterID);
+            };
+
+            // Non-Hunter/manual path -- objective 1, live-detected off a hibernation in Five
+            // Pebbles.
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || characterID == Hunter)
+                {
+                    return;
+                }
+
+                string shelter = SurvivorShelterContents.ShelterRoomFor(player)?.name;
+                if (shelter == null || !shelter.StartsWith(FivePebblesShelterPrefix))
+                {
+                    return;
+                }
+
+                StateFor(characterID).VisitedPebblesAndSlept = true;
+                TryComplete(player, characterID);
+            };
+
+            // Non-Hunter/manual path -- objective 2, live-detected off the new
+            // SurvivorMoonDelivery event.
+            SurvivorMoonDelivery.OnNeuronDelivered += (player) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || characterID == Hunter)
+                {
+                    return;
+                }
+
+                StateFor(characterID).DeliveredNeuronToMoon = true;
+                TryComplete(player, characterID);
+            };
+        }
+    }
 }

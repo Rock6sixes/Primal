@@ -5307,6 +5307,74 @@ independent of room IDs), Saint (still genuinely underspecified by its own rules
 7 new trackers (Elder/Heist/Triplopia/Outlaw/Journey/Visitor/Fishtank) have been built or tested
 in-game — no `.NET` toolchain in this container this session either.
 
+## 2026-09-17 (later still): Vegan and Saint implemented, Broadcast's real mechanism found — 49 of 50
+
+- **Vegan — implemented.** The user supplied both remaining facts: blue fruit (`DangleFruit` —
+  vanilla has no separate "blue" variant, it's just that object's own default color) spawns in
+  `SU_A44`/`SU_C04`, the charge-hop gap is `SU_A43`, and per the user's own clarification, fruit can
+  only be GRABBED in those rooms but EATEN anywhere. `VeganTracker` doesn't gate eating by room at
+  all — it just runs a count, then checks that count against 7 at arrival in `SU_A22` (the room
+  right after the gap jump, already known from `VisitorTracker`'s tutorial-room list above), per the
+  user's own suggested checkpoint. Reaching `SU_A22` with fewer than 7 permanently disqualifies that
+  attempt (matching "before crossing... for the first time" — a later re-crossing can't retroactively
+  count).
+- **Saint — implemented, two paths sharing one restriction/completion core.** The user clarified
+  this challenge's own real design: it's built around **Hunter**, whose 3 objectives (visit Five
+  Pebbles and sleep, deliver the starting green neuron to the Looks-to-the-Moon iterator, ascend)
+  already have vanilla's own save-slot-tracked state behind them — so Hunter's own path reads that
+  directly rather than re-detecting it live: `SaveState.miscWorldSaveData.pebblesSeenGreenNeuron`
+  (confirmed via decompiling `OracleBehavior.cs` — set specifically when Hunter, carrying the green
+  neuron, reaches the Five Pebbles oracle) and `.moonRevived` (confirmed via
+  `SLOracleWakeUpProcedure.cs` — set when a neuron delivery wakes Moon), both read at every
+  hibernation. Every other character (Survivor included) has no such built-in bookkeeping for these
+  specific objectives, so the user asked for manual live tracking instead: "visited Pebbles and
+  slept" is a hibernation in an `SS_`-prefixed shelter; "delivered a neuron to Moon" needed a brand
+  new shared mechanism, **`SurvivorMoonDelivery`** (new file) — a Postfix on
+  `SLOracleBehavior.ConvertingSSSwarmer()` (the same method `EnlightenmentTracker`'s own doc comment
+  already traced as "Moon accepting a neuron," but that tracker reads the resulting counter
+  passively — Saint needed the LIVE moment instead, since the counter is a lifetime save-file total
+  that could already be primed by deliveries from long before this specific attempt began). Both
+  paths share the "without killing anything, or eating live prey" restriction, permanently
+  disqualifying on either: a new `PrimalKillTracker.OnKillCredited` event (any credited kill, fired
+  right alongside that class's existing per-type/per-instance recording) and
+  `SurvivorEvents.OnObjectEaten` filtered to `edible is Creature && !creature.dead` — confirmed via
+  decompiling `Hazer.BitByPlayer`/`SmallNeedleWorm.BitByPlayer`/`Centipede.BitByPlayer` that vanilla
+  itself draws exactly this line: creatures eaten via a `Die()` call before `ObjectEaten` (Centipede,
+  SmallNeedleWorm) are "killed then eaten," while ones with no `Die()` in that path (Hazer) are
+  eaten genuinely alive — `!creature.dead` at the `ObjectEaten` moment is a real, not approximated,
+  signal for this distinction. **Left unimplemented per the user's own explicit instruction:** "no
+  karma caching," "no echo-negated kills," and "no Guardian Skip" are all technique-legality clauses
+  with no corresponding observable state.
+- **Broadcast — the real mechanism found, tracker itself still blocked on 2 room IDs.** The user
+  described exactly how a Vulture Grub's signal works (yellow laser + timer, green + vulture if open
+  sky is found, red otherwise), and decompiling `VultureGrub.cs` against that description confirmed
+  it precisely: `AttemptCallVulture()` sets `vultureCalled = true` only on the branch that actually
+  finds a creature and a valid sky path (the "green" case); the "red" failure case is set inline in
+  `Act()`'s per-tick update (`callingMode = -1` once the countdown expires with no vulture ever
+  called), not its own method. New shared mechanism built: **`SurvivorVultureSignal`** (new file) —
+  `OnSignalSucceeded` (a Postfix on `AttemptCallVulture` checking `vultureCalled`) and
+  `OnSignalFailed` (a Postfix on `Update(bool)`, guarded by a per-instance `ConditionalWeakTable` so
+  the continuously-true `callingMode == -1` state only fires once per attempt, cleared by a third
+  Postfix on `InitiateSignal()` — the method that starts a fresh attempt). This mechanism is generic
+  (any grub, anywhere), matching this mod's usual "build the shared primitive broad, let each
+  tracker narrow it" pattern. **`BroadcastTracker` itself is not written yet** — still needs: the
+  exact room ID of "the southmost Sky Islands shelter" (the starting point) and the exact room ID of
+  the top of Communications Array (where the death-to-Vulture must happen). Once supplied, wiring
+  the tracker itself should be small: arm on hibernation at the start shelter (same shape as
+  `JourneyTracker`), disqualify on `SurvivorVultureSignal.OnSignalFailed`, and complete on
+  `SurvivorEvents.OnPlayerDeath` in the target room with a Vulture/KingVulture/MirosVulture as the
+  killer, while `OnSignalSucceeded` has fired and not since failed.
+
+**49 of 50 challenges now have a tracker registered** (only Broadcast remains, pending the 2 room
+IDs above). None of today's 9 new/changed trackers (Journey/Visitor/Fishtank from the previous
+section, plus Vegan/Saint here, plus the `PrimalKillTracker`/`SurvivorMoonDelivery`/
+`SurvivorVultureSignal` shared-mechanism additions) have been built or tested in-game — no `.NET`
+toolchain in this container this session either. `SaintTracker` in particular is the most
+structurally complex tracker in the whole file (two independent detection paths plus a shared
+restriction plus a shared completion gate) and touches the newest shared mechanism
+(`SurvivorMoonDelivery`), so it deserves the most scrutiny of this batch once a real build is
+possible.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the

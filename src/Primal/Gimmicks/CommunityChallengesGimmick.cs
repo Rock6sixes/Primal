@@ -558,6 +558,8 @@ namespace Primal.Gimmicks
             new JourneyTracker(),
             new VisitorTracker(),
             new FishtankTracker(),
+            new VeganTracker(),
+            new SaintTracker(),
         };
 
         private static bool _registered;

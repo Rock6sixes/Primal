@@ -173,6 +173,16 @@ namespace Primal.Gimmicks
                 && set.Contains(instanceNumber);
         }
 
+        /// <summary>Added 2026-09-17 for Saint ("without killing anything") -- unlike everything
+        /// else in this class, which is a passive record read back later, Saint needs to know the
+        /// INSTANT a kill happens (any kill permanently disqualifies that character's current
+        /// attempt). Fired from PrimalKillDieHook's own Postfix, right alongside the existing
+        /// per-type/per-instance recording it already does -- same raw signal, just also exposed
+        /// as a live event for a consumer that cares about the moment rather than the record.</summary>
+        public static event System.Action<string> OnKillCredited;
+
+        internal static void RaiseKillCredited(string characterID) => OnKillCredited?.Invoke(characterID);
+
         /// <summary>Merges this character's pending-this-cycle kills into the real, permanent save
         /// data, then clears the pending set. Always resets _lastCommitted for this character
         /// first, even if there's nothing to commit -- so a cycle with zero kills correctly reads
@@ -335,6 +345,7 @@ namespace Primal.Gimmicks
             PrimalKillTracker.Recorded.Add(__instance, null);
             PrimalKillTracker.RecordPendingKill(characterID, type.value);
             PrimalKillTracker.RecordInstanceKill(characterID, __instance.abstractCreature.ID.number);
+            PrimalKillTracker.RaiseKillCredited(characterID);
         }
     }
 

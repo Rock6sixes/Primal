@@ -1119,3 +1119,32 @@ User supplied the exact room IDs the "Final status" table said were unreachable 
 **47 of 50 now implemented.** Only Vegan, Broadcast, and Saint remain -- Vegan needs 2 more concrete
 facts (fruit positions + gap room), Broadcast still has zero technical foothold, Saint is still
 genuinely underspecified. Still unbuilt/untested in this container.
+
+## Status update, 2026-09-17 (later still): Vegan and Saint implemented, Broadcast's mechanism found -- 49 of 50
+
+- **Vegan:** blue fruit (`DangleFruit`) spawns in `SU_A44`/`SU_C04`, gap room `SU_A43`, fruit can be
+  eaten anywhere (not gated to those rooms). Checked as a running eaten-count against 7 at arrival
+  in `SU_A22` (right after the gap), per the user's own suggested checkpoint. Reaching that room
+  short of 7 permanently disqualifies the attempt.
+- **Saint:** two paths, one shared core. Hunter reads vanilla's own already-tracked save flags
+  (`miscWorldSaveData.pebblesSeenGreenNeuron` / `.moonRevived`) at hibernation. Every other
+  character (Survivor included) has no such bookkeeping, so those two objectives are tracked
+  manually instead -- a hibernation in an `SS_` shelter, and a new live event
+  (`SurvivorMoonDelivery`, off `SLOracleBehavior.ConvertingSSSwarmer()`) for the neuron delivery.
+  Both paths share one restriction (0 kills via a new `PrimalKillTracker.OnKillCredited` event, 0
+  live-prey-eaten via `edible is Creature && !creature.dead` -- confirmed against vanilla's own
+  Hazer/Centipede/SmallNeedleWorm eating code that this line is real, not approximated) and one
+  completion gate (both objectives + ascension, all while never violating the restriction). "No
+  karma caching," "no echo-negated kills," "no Guardian Skip" left unimplemented per the user's own
+  instruction -- no observable state backs any of them.
+- **Broadcast:** the user's own trace of the Vulture Grub signal mechanic (yellow laser + timer,
+  green if open sky is found, red otherwise) led straight to the real code in `VultureGrub.cs`:
+  `AttemptCallVulture()` sets `vultureCalled` on success, and a per-tick check in `Act()` sets
+  `callingMode = -1` on failure. New shared mechanism built (`SurvivorVultureSignal`,
+  `OnSignalSucceeded`/`OnSignalFailed`), generic to any grub anywhere. `BroadcastTracker` itself
+  still isn't written -- needs 2 room IDs (the southmost Sky Islands starting shelter, and the top
+  of Communications Array where the death-to-Vulture must happen) before it can be wired up the
+  same way `JourneyTracker` is.
+
+**49 of 50 now implemented -- only Broadcast left**, pending those 2 room IDs. Still
+unbuilt/untested in this container.
