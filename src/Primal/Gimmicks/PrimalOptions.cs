@@ -9,21 +9,25 @@ using UnityEngine;
 namespace Primal.Gimmicks
 {
     /// <summary>
-    /// The mod's Remix config screen. Rewritten 2026-09-17: replaces the old 5x2 character-button
-    /// grid with a single OpComboBox character select (saves the ~200px the grid used to occupy),
-    /// and replaces the old two-tab (Gimmicks / Requirements) layout with one tab whose detail
-    /// area is split vertically -- gameplay-altering gimmicks on the left, run-completion
-    /// requirements on the right -- since both apply to the same selected character and the split
-    /// tabs made switching between them more friction than it needed to be.
+    /// The mod's Remix config screen. Rewritten 2026-09-17, twice: first replaced the old 5x2
+    /// character-button grid with a single OpComboBox character select, then (round 3, per direct
+    /// request -- the combo box's own live-update bug is fixed, but a grid was still preferred)
+    /// replaced it again with dedicated, colored, name-only character buttons -- see the CharGrid*
+    /// constants and BuildPermanentItems. Also replaces the old two-tab (Gimmicks / Requirements)
+    /// layout with one tab whose detail area is split vertically -- gameplay-altering gimmicks on
+    /// the left, run-completion requirements on the right -- since both apply to the same selected
+    /// character and the split tabs made switching between them more friction than it needed to be.
     ///
-    /// Permanent (added once in Initialize, never rebuilt): title, the slot-switch key, and the
-    /// character select. Everything else is the swappable "detail area" (_detailItems), driven by
-    /// DetailView:
+    /// Permanent (added once in Initialize, rebuilt fresh on every ShowNormal()): title, the
+    /// "Change Mode" button, and the character button grid. Everything else is the swappable
+    /// "detail area" (_detailItems), driven by DetailView:
     ///
     ///  Split -- the normal view: the selected character's assigned gimmicks (left) and enabled
-    ///     requirements (right), each its own scrollable list with a "+ Add" button at the bottom.
-    ///     A gimmick's name button opens its settings; a requirement has no settings yet, so its
-    ///     row is a plain label. Both sides have their own "x" remove button per row.
+    ///     requirements (right), each its own scrollable list with a "+ Add" button at the TOP (no
+    ///     header label above it -- round 3 also moved these up from the bottom and dropped the
+    ///     "GIMMICKS"/"REQUIREMENTS" captions, per direct request). A gimmick's name button opens
+    ///     its settings; a requirement has no settings yet, so its row is a plain label. Both sides
+    ///     have their own "x" remove button per row.
     ///  GimmickSettings -- one gimmick's own settings sub-view (GimmickDef.BuildSettingsUI),
     ///     rendered as a full-width overlay ("modal") over the whole detail area.
     ///  AddGimmick / AddRequirement -- a 4-column, scrollable grid of everything NOT currently
@@ -85,11 +89,13 @@ namespace Primal.Gimmicks
     {
         private struct CharacterEntry
         {
+            public readonly SlugcatStats.Name Name;
             public readonly string ID;
             public readonly string DisplayName;
 
             public CharacterEntry(SlugcatStats.Name name, string displayName)
             {
+                Name = name;
                 ID = name.value;
                 DisplayName = displayName;
             }
@@ -168,18 +174,42 @@ namespace Primal.Gimmicks
         private const float ContentLeft = 10f;
         private const float ContentWidth = 580f;
 
-        // The slot-switch key now sits on its own row below the title, since the title row's own
-        // top-right corner is taken by the "Change Mode" button (see BuildPermanentItems).
-        private const float SlotSwitchY = TitleY - 40f;
+        // ---- title row: "Primal" / mode indicator (left) + the single "Change Mode" button (right) ----
+        // 2026-09-17 (UI redesign round 2, per direct request): the old two stacked buttons
+        // (Change Mode, then a separate slot-switch-key rebinder below it) are now ONE button
+        // occupying their combined footprint -- the slot-switch key is no longer rebindable from
+        // this screen at all (PrimalSettings.SlotSwitchKey still works, just at whatever key was
+        // last bound or its hardcoded default -- see PrimalSettings.cs). Its label is split across
+        // two lines ("Change\nMode") to visually fill the taller button -- FLabel (the underlying
+        // Futile label every Op* text element renders through) honors literal newlines, but this is
+        // the first place in this codebase that relies on that, so give it a look on the next build.
+        private const float ChangeModeButtonWidth = 140f;
+        private const float ChangeModeButtonHeight = 72f;
+        private const float ChangeModeButtonX = ContentLeft + ContentWidth - ChangeModeButtonWidth;
 
-        // The character select row -- one OpComboBox replacing the old 5x2 character-button grid
-        // (which alone used to occupy GridStartY 460 down to 365, ~95px, plus the row it sat under).
-        private const float CharSelectY = SlotSwitchY - 40f;
-        private const float CharSelectLabelWidth = 90f;
-        private const float CharSelectWidth = 220f;
+        // ---- the character button grid: dedicated, colored, per-character buttons replacing the
+        // 2026-09-17 OpComboBox (round 3, per direct request -- the combo box's own live-update bug
+        // is fixed, see AI_CONTEXT.md, but a grid was still preferred). Sized to fit entirely
+        // alongside the Change Mode button, in the same vertical span the title row itself used to
+        // share with the (now-removed) slot-switch-key row -- five columns, two rows, comfortably
+        // covering the current 10-entry roster (3 base + 6 MSC + 1 Watcher) with room to spare if a
+        // future character is ever added as an 11th entry (it just starts a 3rd row).
+        private const int CharGridColumns = 5;
+        private const float CharGridButtonHeight = 32f;
+        private const float CharGridRowGap = 8f;
+        private const float CharGridColGap = 8f;
+        private const float CharGridTopY = TitleY - 44f;
+        private const float CharGridBottomY = CharGridTopY - (CharGridButtonHeight + CharGridRowGap);
+        // Leaves a gap before the Change Mode button starts.
+        private const float CharGridAreaWidth = ChangeModeButtonX - ContentLeft - 20f;
+        private const float CharGridButtonWidth = (CharGridAreaWidth - (CharGridColumns - 1) * CharGridColGap) / CharGridColumns;
 
-        // The detail area starts a comfortable gap below the character select.
-        private const float DetailTopY = CharSelectY - 45f;
+        // The Change Mode button's own vertical span exactly matches the character grid's (same
+        // top, same bottom) so the two visually read as one consolidated top area.
+        private const float ChangeModeButtonY = CharGridBottomY;
+
+        // The detail area starts a comfortable gap below the character grid.
+        private const float DetailTopY = CharGridBottomY - 20f;
         private const float DetailBottomY = 10f;
 
         // ---- the Split view's two columns -----------------------------------------------------
@@ -188,11 +218,15 @@ namespace Primal.Gimmicks
         private const float LeftColumnX = ContentLeft;
         private const float RightColumnX = LeftColumnX + ColumnWidth + ColumnGap;
 
-        private const float ColumnHeaderY = DetailTopY;
+        // 2026-09-17 (UI redesign round 3): "+ Add Gimmick"/"+ Add Requirement" moved to the TOP of
+        // each column (per direct request, so they're reachable without scrolling down first), and
+        // the "GIMMICKS"/"REQUIREMENTS" header labels above them were dropped entirely -- the two
+        // Add buttons themselves, plus the character grid right above the whole Split view, already
+        // make each column's purpose obvious without a redundant caption.
         private const float ColumnAddButtonHeight = 30f;
-        private const float ColumnAddButtonY = DetailBottomY;
-        private const float ColumnListViewportTop = DetailTopY - 40f;
-        private const float ColumnListViewportBottom = ColumnAddButtonY + ColumnAddButtonHeight + 10f;
+        private const float ColumnAddButtonY = DetailTopY - ColumnAddButtonHeight;
+        private const float ColumnListViewportTop = ColumnAddButtonY - 10f;
+        private const float ColumnListViewportBottom = DetailBottomY;
         private const float ColumnListViewportHeight = ColumnListViewportTop - ColumnListViewportBottom;
 
         private const float ColumnRowHeight = 36f;
@@ -203,7 +237,17 @@ namespace Primal.Gimmicks
         // row without needing to grow ColumnRowHeight itself.
         private const float RowIconSize = 24f;
         private const float RowIconGap = 6f;
-        private const float ColumnNameButtonW = ColumnWidth - RowIconSize - RowIconGap - ColumnRemoveButtonW - ColumnRowGap;
+        // 2026-09-17 (UI redesign round 3, per direct request -- rows were visually running into the
+        // OpScrollBox's own slide bar): a vertical OpScrollBox draws its slide bar inset from its
+        // OWN right edge (confirmed via decompiling OpScrollBox -- the bar sits at `size.x - 20f`),
+        // but AddItems has no idea that reservation exists -- a row built to the column's full
+        // ColumnWidth (as every row here used to be, by construction: ColumnNameButtonW was defined
+        // to make icon + name + gap + remove-button add up to exactly ColumnWidth) ends with its "x"
+        // remove button sitting flush against, and effectively under, that slide bar. Reserving this
+        // clearance up front keeps every row's rightmost element short of the column's true right
+        // edge, same as ModalListViewportWidth already does for the wider modal scroll boxes.
+        private const float ColumnScrollbarClearance = 24f;
+        private const float ColumnNameButtonW = ColumnWidth - ColumnScrollbarClearance - RowIconSize - RowIconGap - ColumnRemoveButtonW - ColumnRowGap;
 
         // ---- the GimmickSettings/AddGimmick/AddRequirement "modal" overlays --------------------
         // Each spans the full detail area (both Split columns combined) rather than half of it.
@@ -247,10 +291,10 @@ namespace Primal.Gimmicks
         private OpTab _tab;
         private ScreenState _screenState = ScreenState.ModeSelect;
 
-        // The Normal state's own permanent row (title, "Change Mode" button, slot-switch key,
-        // character select) -- tracked separately from _detailItems since it has to be torn down
-        // too when switching back to ModeSelect (unlike a plain Split<->modal switch within Normal,
-        // which only ever touches _detailItems).
+        // The Normal state's own permanent row (title, "Change Mode" button, character button grid)
+        // -- tracked separately from _detailItems since it has to be torn down too when switching
+        // back to ModeSelect (unlike a plain Split<->modal switch within Normal, which only ever
+        // touches _detailItems).
         private readonly List<UIelement> _permanentItems = new List<UIelement>();
 
         // The ModeSelect state's own content -- title/credits/description plus the two mode-choice
@@ -266,20 +310,16 @@ namespace Primal.Gimmicks
         private string _charID;
         private string _gimmickID;
 
-        // Backs the character-select OpComboBox -- also what persists "which character this screen
-        // last had selected" across restarts, the same Remix-config mechanism every other setting
-        // on this screen already uses.
+        // Backs the character button grid -- also what persists "which character this screen last
+        // had selected" across restarts, the same Remix-config mechanism every other setting on
+        // this screen already uses. 2026-09-17 (UI redesign round 3): the grid's own buttons are
+        // plain OpSimpleButtons (not UIconfig/Configurable-bound controls), so unlike the OpComboBox
+        // this replaced, they can safely be rebuilt fresh on every BuildPermanentItems() call --
+        // Gotcha #4's "construct a Configurable-backed control at most once" rule specifically does
+        // not apply to them (see that section in AI_CONTEXT.md). Each button's OnClick writes this
+        // Configurable directly and force-saves (SelectCharacter), exactly like every other write on
+        // this screen (SetEnabledFor, SelectMode) already does.
         private Configurable<string> _selectedCharacterConfig;
-
-        // The character-select OpComboBox itself, built lazily once and reused on every later
-        // BuildPermanentItems() call (ShowNormal() re-runs it any time the screen returns from
-        // ModeSelect, e.g. Custom -> Change Mode -> Custom). Per Gotcha #4 (see this file's own
-        // header comment / AI_CONTEXT.md), a Configurable can only ever be bound to one UIconfig at
-        // once -- constructing a second OpComboBox against the same _selectedCharacterConfig throws
-        // Menu.Remix.MultiuseConfigurableException the instant it happens, even though the first
-        // OpComboBox was already detached from the tab via RemoveItems (which un-displays an
-        // element but never unbinds it from its Configurable).
-        private OpComboBox _characterSelectBox;
 
         // Persists which mode this screen is in, across restarts -- "" (never chosen, show
         // ModeSelect), "Primal" (read-only), or "Custom" (fully editable). See IsReadOnly.
@@ -383,82 +423,74 @@ namespace Primal.Gimmicks
             ShowNormal();
         }
 
-        // The Normal state's own permanent row: title, a "Change Mode" button in the top-right
-        // corner (per explicit request), the current mode (so read-only isn't a silent surprise),
-        // the slot-switch key, and the character select.
+        // The Normal state's own permanent row: title + mode indicator, the single "Change Mode"
+        // button in the top-right corner, and the character button grid below them. 2026-09-17 (UI
+        // redesign round 3, per direct request): dropped the slot-switch-key rebinder entirely and
+        // replaced the character OpComboBox with dedicated, colored, name-only buttons -- see this
+        // method's own inline comments and the constants block above for the reasoning on each.
         private void BuildPermanentItems()
         {
             var items = new List<UIelement>
             {
-                new OpLabel(ContentLeft, TitleY, "Primal", true)
+                new OpLabel(ContentLeft, TitleY, "Primal", true),
+                new OpLabel(ChangeModeButtonX - 150f, TitleY, IsReadOnly ? "Mode: Primal (read-only)" : "Mode: Custom", false)
             };
 
-            items.Add(new OpLabel(ContentLeft + ContentWidth - 260f, TitleY, IsReadOnly ? "Mode: Primal (read-only)" : "Mode: Custom", false));
-
-            OpSimpleButton changeModeButton = new OpSimpleButton(new Vector2(ContentLeft + ContentWidth - 120f, TitleY - 4f), new Vector2(120f, 30f), "Change Mode")
+            OpSimpleButton changeModeButton = new OpSimpleButton(
+                new Vector2(ChangeModeButtonX, ChangeModeButtonY),
+                new Vector2(ChangeModeButtonWidth, ChangeModeButtonHeight),
+                "Change\nMode")
             {
                 description = "Return to the Primal/Custom mode selection screen."
             };
             changeModeButton.OnClick += _ => ShowModeSelect();
             items.Add(changeModeButton);
 
-            // Mod-wide slot-switch key -- the only setting on this screen that isn't per
-            // (character, gimmick/requirement), so it deliberately sits outside the
-            // character-select/detail structure everything else uses. Its own row, below the
-            // title, since the title row's top-right corner is now the Change Mode button.
-            OpKeyBinder slotSwitchBinder = PrimalSettings.BuildSlotSwitchBinder(
-                new Vector2(ContentLeft + ContentWidth - 120f, SlotSwitchY - 4f),
-                new Vector2(120f, 30f));
-            if (slotSwitchBinder != null)
+            // The character button grid -- one colored button per real character (row-major, 5
+            // columns). Plain OpSimpleButtons, safe to rebuild fresh every call (see
+            // _selectedCharacterConfig's own doc comment on why Gotcha #4 doesn't apply here).
+            for (int i = 0; i < AllCharacters.Length; i++)
             {
-                items.Add(new OpLabel(ContentLeft + ContentWidth - 260f, SlotSwitchY, "Slot switch key:", false));
-                items.Add(slotSwitchBinder);
-            }
+                CharacterEntry entry = AllCharacters[i];
+                int row = i / CharGridColumns;
+                int col = i % CharGridColumns;
+                float x = ContentLeft + col * (CharGridButtonWidth + CharGridColGap);
+                float y = CharGridTopY - row * (CharGridButtonHeight + CharGridRowGap);
 
-            items.Add(new OpLabel(ContentLeft, CharSelectY + 4f, "Character:", false));
-            if (_characterSelectBox == null)
-            {
-                var characterListItems = new List<ListItem>();
-                for (int i = 0; i < AllCharacters.Length; i++)
+                OpSimpleButton charButton = new OpSimpleButton(
+                    new Vector2(x, y),
+                    new Vector2(CharGridButtonWidth, CharGridButtonHeight),
+                    entry.DisplayName)
                 {
-                    characterListItems.Add(new ListItem(AllCharacters[i].ID, AllCharacters[i].DisplayName, i));
+                    description = "Edit " + entry.DisplayName + "'s gimmicks and requirements."
+                };
+                Color? color = GetHomeCharacterColor(entry.Name);
+                if (color.HasValue)
+                {
+                    charButton.colorEdge = color.Value;
                 }
-                _characterSelectBox = new OpComboBox(
-                    _selectedCharacterConfig,
-                    new Vector2(ContentLeft + CharSelectLabelWidth, CharSelectY),
-                    CharSelectWidth,
-                    characterListItems)
-                {
-                    description = "Select a character to edit its gimmicks and requirements."
-                };
-
-                // An OpComboBox's own `value` is a plain UI-side string -- clicking an item does
-                // NOT write through to the bound Configurable (and so never fires its OnChange,
-                // which OnCharacterSelectionChanged listens for below) until Remix's own batched
-                // OptionInterface._SaveConfigFile() pass runs, which only happens on this screen's
-                // native Apply/Exit lifecycle, not on every click (confirmed via decompiling
-                // UIconfig.value's setter and OptionInterface._SaveConfigFile -- BoxedValue is only
-                // copied from BoundUIconfig.value there). That's why picking a character visibly did
-                // nothing until the whole Remix screen was closed and reopened (which forces that
-                // save/reload cycle) -- every OTHER write on this screen (SetEnabledFor, SelectMode)
-                // already avoids this by writing straight to the Configurable and calling
-                // SaveConfigNow immediately; the combo box needs the same treatment. OpValueChanged
-                // (a genuine UIconfig-level event, distinct from Configurable.OnChange) does fire
-                // immediately once the list closes after a click, so push the value through here.
-                _characterSelectBox.OnValueChanged += (_, value, oldValue) =>
-                {
-                    if (value == oldValue)
-                    {
-                        return;
-                    }
-                    _selectedCharacterConfig.Value = value;
-                    SaveConfigNow("the selected character (" + value + ")");
-                };
+                string capturedID = entry.ID;
+                charButton.OnClick += _ => SelectCharacter(capturedID);
+                items.Add(charButton);
             }
-            items.Add(_characterSelectBox);
 
             _permanentItems.AddRange(items);
             _tab.AddItems(_permanentItems.ToArray());
+        }
+
+        // Writes the selected-character Configurable directly and force-saves, exactly like every
+        // other write on this screen (SetEnabledFor, SelectMode) -- setting .Value fires
+        // Configurable.OnChange synchronously (OnCharacterSelectionChanged), which re-renders the
+        // detail area immediately. Deliberately never greyed/blocked in Primal mode -- switching
+        // which character is shown isn't "changing the configuration," same as Change Mode itself.
+        private void SelectCharacter(string id)
+        {
+            if (_selectedCharacterConfig.Value == id)
+            {
+                return;
+            }
+            _selectedCharacterConfig.Value = id;
+            SaveConfigNow("the selected character (" + id + ")");
         }
 
         // The screen shown before ScreenMode has ever been chosen (and reachable again afterward
@@ -580,10 +612,11 @@ namespace Primal.Gimmicks
             }
             _configBound = true;
 
-            // Mod-wide settings (the slot-switch key, and now the selected-character combo box)
-            // bind here too, for exactly the same reason everything else does -- see Gotcha #7: an
-            // unbound Configurable is skipped by Remix's own config-load pass, so its saved value
-            // never survives a restart.
+            // Mod-wide settings (the slot-switch key -- still read by PrimalSlotTabSwitchHook even
+            // though this screen no longer exposes a way to rebind it, see the CharGrid* constants'
+            // own comment -- and the selected-character value) bind here too, for exactly the same
+            // reason everything else does -- see Gotcha #7: an unbound Configurable is skipped by
+            // Remix's own config-load pass, so its saved value never survives a restart.
             PrimalSettings.Bind(this);
 
             string defaultCharacterID = AllCharacters.Length > 0 ? AllCharacters[0].ID : "";
@@ -592,10 +625,10 @@ namespace Primal.Gimmicks
                 defaultCharacterID,
                 new ConfigurableInfo("Character currently shown on the Primal config screen."));
             // Fires after _selectedCharacterConfig.Value already reflects the new selection (see
-            // Configurable<T>.Value's own setter) -- both when the player picks a new entry in the
-            // OpComboBox and, just as importantly, when Remix's own config.Reload() applies a
-            // persisted value from a previous session, so a reopened screen starts on whichever
-            // character was last selected without any extra wiring here.
+            // Configurable<T>.Value's own setter) -- both when a character button's own OnClick
+            // (SelectCharacter) writes it directly, and, just as importantly, when Remix's own
+            // config.Reload() applies a persisted value from a previous session, so a reopened
+            // screen starts on whichever character was last selected without any extra wiring here.
             _selectedCharacterConfig.OnChange += OnCharacterSelectionChanged;
 
             // "" means no mode has ever been chosen -- Initialize() reads this directly (not via
@@ -982,10 +1015,10 @@ namespace Primal.Gimmicks
             }
         }
 
-        // Fired by the character-select combo box's own backing Configurable -- see Initialize()
-        // and EnsureConfigBound(). Always drops back to Split: mid-modal state (a specific
-        // gimmick's settings, an add picker) belonged to whichever character was previously
-        // selected and has no meaning for a newly-selected one.
+        // Fired by the character-select Configurable itself -- see Initialize() and
+        // EnsureConfigBound(). Always drops back to Split: mid-modal state (a specific gimmick's
+        // settings, an add picker) belonged to whichever character was previously selected and has
+        // no meaning for a newly-selected one.
         private void OnCharacterSelectionChanged()
         {
             _charID = _selectedCharacterConfig.Value;
@@ -997,9 +1030,9 @@ namespace Primal.Gimmicks
             // ever opened this mod's Remix page. _tab (and _detailItems) only exist once
             // Initialize() has actually run at least once; _charID is still updated above so
             // Initialize() picks up the right value when it eventually does run. Also bail while
-            // ModeSelect is showing -- the character-select combo box itself doesn't exist then
-            // (it's part of _permanentItems, only built by BuildPermanentItems/ShowNormal), so this
-            // can only legitimately fire from real interaction while _screenState is Normal.
+            // ModeSelect is showing -- the character button grid itself doesn't exist then (it's
+            // part of _permanentItems, only built by BuildPermanentItems/ShowNormal), so this can
+            // only legitimately fire from real interaction while _screenState is Normal.
             if (_tab == null || _screenState != ScreenState.Normal)
             {
                 return;
@@ -1087,9 +1120,9 @@ namespace Primal.Gimmicks
         {
             if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
-                // Shouldn't happen once the combo box has ever been bound (it always carries a
-                // valid selection), but guard the same way the rest of this file already does, in
-                // case a persisted SelectedCharacter value went stale (e.g. MSC/Watcher got
+                // Shouldn't happen once _selectedCharacterConfig has ever been bound (it always
+                // carries a valid selection), but guard the same way the rest of this file already
+                // does, in case a persisted SelectedCharacter value went stale (e.g. MSC/Watcher got
                 // disabled since it was saved).
                 _charID = AllCharacters.Length > 0 ? AllCharacters[0].ID : null;
                 if (_charID == null || !TryFindCharacter(_charID, out character))
@@ -1102,7 +1135,16 @@ namespace Primal.Gimmicks
             var items = new List<UIelement>();
 
             // ---- left column: gameplay-altering gimmicks ----
-            items.Add(new OpLabel(LeftColumnX, ColumnHeaderY, "GIMMICKS", true));
+            // 2026-09-17 (UI redesign round 3): "+ Add Gimmick" now sits at the TOP of the column,
+            // above the list, with no "GIMMICKS" caption above it -- both per direct request.
+            string capturedCharIDForGimmickAdd = character.ID;
+            OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Gimmick")
+            {
+                description = "Add a gameplay-altering gimmick to " + character.DisplayName,
+                greyedOut = IsReadOnly
+            };
+            addGimmickButton.OnClick += _ => OpenAddGimmickPicker(capturedCharIDForGimmickAdd);
+            items.Add(addGimmickButton);
 
             var gimmickRows = new List<GimmickDef>();
             foreach (GimmickDef gimmick in GimmickRegistry.All)
@@ -1123,17 +1165,15 @@ namespace Primal.Gimmicks
             );
             items.Add(gimmickScroll);
 
-            string capturedCharIDForGimmickAdd = character.ID;
-            OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Gimmick")
+            // ---- right column: run-completion requirements ----
+            string capturedCharIDForReqAdd = character.ID;
+            OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Requirement")
             {
-                description = "Add a gameplay-altering gimmick to " + character.DisplayName,
+                description = "Add a run-completion requirement to track for " + character.DisplayName,
                 greyedOut = IsReadOnly
             };
-            addGimmickButton.OnClick += _ => OpenAddGimmickPicker(capturedCharIDForGimmickAdd);
-            items.Add(addGimmickButton);
-
-            // ---- right column: run-completion requirements ----
-            items.Add(new OpLabel(RightColumnX, ColumnHeaderY, "REQUIREMENTS", true));
+            addRequirementButton.OnClick += _ => OpenAddRequirementPicker(capturedCharIDForReqAdd);
+            items.Add(addRequirementButton);
 
             var requirementRows = new List<Requirement>();
             foreach (Requirement requirement in RequirementRegistry.All)
@@ -1153,15 +1193,6 @@ namespace Primal.Gimmicks
                 true    // hasSlideBar
             );
             items.Add(requirementScroll);
-
-            string capturedCharIDForReqAdd = character.ID;
-            OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Requirement")
-            {
-                description = "Add a run-completion requirement to track for " + character.DisplayName,
-                greyedOut = IsReadOnly
-            };
-            addRequirementButton.OnClick += _ => OpenAddRequirementPicker(capturedCharIDForReqAdd);
-            items.Add(addRequirementButton);
 
             // Both scroll boxes must already be attached to the tab before their own AddItems is
             // called (OpScrollBox.AddItems throws "must be added to an OpTab before items are

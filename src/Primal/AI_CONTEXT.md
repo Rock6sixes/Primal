@@ -6117,6 +6117,80 @@ it, still literally part of the same flat tab) or (2) rewrite the specific scree
 elsewhere in this mod) -- which means giving up every existing `Op*` control and reimplementing
 checkboxes/scrollboxes/comboboxes by hand in that vocabulary, a full rewrite, not a small change.
 
+## 2026-09-17 (same day, later still): Remix menu redesign round 3 -- character grid is back, Change Mode/slot-switch merged, Add buttons moved up, scrollbar clearance fixed
+
+Requested directly, from an annotated screenshot after the first in-game look at round 2's layout:
+(1) replace the character OpComboBox with dedicated per-character buttons again, colored per
+character, showing only the character's name; (2) fit that whole grid into the same top-left region
+the title/mode/slot-switch text used to occupy; (3) the top-right region should be just ONE
+"Change Mode" button with its label split across two lines, and the slot-switch-key rebinder should
+be removed entirely; (4) move "+ Add Gimmick"/"+ Add Requirement" to the top of their columns and
+drop the "GIMMICKS"/"REQUIREMENTS" captions; (5) fix list rows visibly running into the OpScrollBox's
+own slide bar.
+
+**Character grid, again -- but this time colored, and this time safe to rebuild.** The round-2
+OpComboBox is gone; `BuildPermanentItems()` now builds one `OpSimpleButton` per `CharacterEntry`
+(5 columns, row-major), each tinted via the existing `GetHomeCharacterColor` (previously only used
+for gimmick/requirement row icons, now also called with a CHARACTER's own `SlugcatStats.Name` --
+`CharacterEntry` gained a `Name` field alongside `ID`/`DisplayName` specifically so this call has
+something to pass). Button text is just `entry.DisplayName`, per the request -- no "PRIMAL " prefix
+or description, unlike the old pre-OpComboBox grid design or the character-select-screen labels
+elsewhere in this mod. Each button's `OnClick` calls a new `SelectCharacter(id)` that writes
+`_selectedCharacterConfig.Value` directly and force-saves (`SaveConfigNow`) -- exactly the
+"OnClick writes the Configurable and saves immediately" pattern `SetEnabledFor`/`SelectMode` already
+established, so this sidesteps the OpComboBox's whole deferred-write problem class by construction
+rather than needing another live-update workaround. **Unlike the OpComboBox, these buttons do NOT
+need the Gotcha #4 caching treatment** -- plain `OpSimpleButton`s are not `UIconfig`/`Configurable`-
+bound controls, so rebuilding them fresh on every `BuildPermanentItems()` call (which happens on
+every ShowNormal(), i.e. every ModeSelect->Normal transition) is safe; only controls that actually
+wrap a `Configurable<T>` (OpCheckBox, OpComboBox, OpKeyBinder, ...) have that restriction.
+
+**Change Mode + slot-switch-key merged into one button; the key is no longer rebindable from this
+screen.** `ChangeModeButtonWidth`/`Height` size one button to occupy the exact combined footprint
+the two old stacked buttons used, with its label set to the literal string `"Change\nMode"` --
+relies on FLabel (the underlying Futile label every Op* text element renders through) honoring a
+literal newline as a line break, which is a real assumption worth checking on the next actual build,
+flagged inline in the constants' own comment since this is the first place in this codebase that's
+needed multi-line button text. `PrimalSettings.BuildSlotSwitchBinder`/`OpKeyBinder` are simply no
+longer called from anywhere in `PrimalOptions.cs` -- left in place in `PrimalSettings.cs` (not
+deleted) since `PrimalSettings.SlotSwitchKey` is still read every frame by
+`PrimalSlotTabSwitchHook.cs` for the actual slot-switch keypress detection, completely independent
+of whether a UI control exists to rebind it. **Known, accepted regression: the slot-switch key is
+now stuck at whatever was last persisted (default: Tab) with no in-game way to change it** -- this
+was requested explicitly ("the switch button select should be removed"), not an oversight; if a way
+to rebind it is wanted later, `BuildSlotSwitchBinder` is still there to call from wherever it should
+live next.
+
+**Add buttons moved to the top; header captions dropped.** In `RenderSplit()`, `addGimmickButton`/
+`addRequirementButton` are now built and added to `items` BEFORE their corresponding
+`OpScrollBox`, and now sit at `ColumnAddButtonY = DetailTopY - ColumnAddButtonHeight` (top of the
+column) rather than `DetailBottomY` (the old bottom position) -- the `"GIMMICKS"`/`"REQUIREMENTS"`
+`OpLabel`s that used to sit above them are gone outright, not just repositioned. `ColumnListViewportTop`/
+`Bottom`/`Height` were recomputed accordingly: the scrollable list now fills essentially the whole
+rest of the column, from just below the Add button down to the very bottom of the detail area (no
+more space reserved at the bottom for a button that isn't there anymore).
+
+**Scrollbar-clearance fix.** Root cause, confirmed by decompiling `OpScrollBox`: a vertical scroll
+box draws its own slide bar inset from ITS OWN right edge (`size.x - 20f`), but nothing about
+`AddItems` accounts for that reservation -- and `ColumnNameButtonW` was originally defined so a
+row's icon + name button + gap + "x" remove button added up to EXACTLY `ColumnWidth`, meaning the
+remove button's right edge sat flush against, and visually under, the slide bar. New constant
+`ColumnScrollbarClearance = 24f` is subtracted up front in `ColumnNameButtonW`'s own formula, so
+every row now stops short of the column's true right edge by that much, mirroring the exact
+reasoning `ModalListViewportWidth = ContentWidth - 40f` already used for the wider modal scroll
+boxes elsewhere in this same file. This only affects `RenderSplit()`'s own two-column list rows --
+the Add*Modal pickers already had equivalent clearance built in from when they were first written.
+
+**Layout math, for anyone adjusting these constants further:** with `ContentWidth = 580`,
+`ChangeModeButtonWidth = 140` and a 5-column grid, each character button works out to roughly 78px
+wide -- noticeably narrower than the pre-OpComboBox grid design had (which used nearly the full
+content width). Longer display names ("Spearmaster", "Artificer") will very likely get
+ellipsis-trimmed by `OpSimpleButton`'s own `LabelTest.TrimText` at that width -- ugly but not broken
+(no overflow, no crash) -- worth a look on the next real build and possibly worth widening the grid
+area (at the cost of the Change Mode button's own width) if it reads badly in practice. All of this
+was reasoned from the decompiled UI toolkit and existing layout constants, not from an in-game
+screenshot of the new layout -- **not yet built-and-seen in-game**, only compiled clean.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)
