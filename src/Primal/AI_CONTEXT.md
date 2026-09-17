@@ -6333,6 +6333,46 @@ whether `ColumnNameButtonW`/`PickerColumnWidth`, both now a bit narrower than be
 were added, still fit the longest gimmick/requirement display names without clipping) hasn't been
 looked at yet.
 
+## 2026-09-17 (same day, later still): the greyedOut fix was wrong -- it forces grayscale, not just "no hover ring"; padding still wasn't enough
+
+User reported back, with screenshots, on the previous round's two fixes: (1) requirement rows now
+render visibly grey/washed-out ("requirements now look greyed out" -- request: "just make them look
+like gimmicks"), and (2) hovering a gimmick's own name button still visibly pokes past its column's
+edge ("you didnt fix the out of bounds button anywhere").
+
+**Root cause of (1), confirmed by decompiling `BumpBehaviour.GetColor`, not re-guessed:**
+`greyedOut` doesn't just skip the hover ring the way the previous pass assumed -- when true,
+`GetColor` unconditionally returns `MenuColorEffect.Greyscale(MenuColorEffect.MidToVeryDark(orig))`
+instead of the normal color-lerp path, for BOTH the border (`_rect.colorEdge`) and the label
+(`_label.color`, which is also routed through `GetColor`). So every requirement row -- colored or
+not -- rendered desaturated and darkened, exactly matching the screenshots (a Community-Challenge
+row that should have been plain white came out dim grey; a character-colored one came out a muddy,
+washed-out version of its real color). **Fixed by dropping `greyedOut` entirely.** Requirement rows
+are now a plain `OpSimpleButton` with no `OnClick` subscriber at all -- per direct instruction ("just
+make them look like gimmicks") they now render with full, normal color and normal hover/focus,
+identical to a gimmick's own name button. Confirmed via decompiling `OpSimpleButton.Update()` that
+clicking still does nothing when `OnClick` is null: the click branch is `if (this.OnClick != null) {
+this.OnClick(this); PlaySound(soundClick); }`, so no sound plays and nothing happens -- there is no
+`greyedOut`-shaped "looks disabled" cue, but there's also no dead-click confusion (the original round
+2 concern) since it's silent.
+
+**(2) was a real miss, not a misreading -- 8f of padding wasn't enough.** `ColumnSidePadding`/
+`PickerSidePadding` (added the previous round specifically for this) went from 8f to 16f. Re-reading
+`BumpBehaviour.AddSize`'s own formula more carefully: it's not a flat "+1 while focused" -- `sizeBump`
+approaches 1 via `LerpAndTick`, PLUS a transient `0.5 * Mathf.Sin(extraSizeBump * pi)` term that
+peaks mid-ramp (around `extraSizeBump == 0.5`) while `sizeBump` is already substantial, so the
+combined value can exceed 1 for a moment during the focus animation, not just settle at a flat
+ceiling -- `_rect.addSize = new Vector2(6f, 6f) * AddSize` (confirmed via `DyeableRect`: `addSize`
+expands the rect symmetrically, offset by `-addSize * 0.5`) can therefore momentarily grow more than
+the "obviously safe" reading of the formula suggested. 16f is a deliberately generous margin rather
+than a tightly computed exact minimum, given this is the second miss in a row on this exact
+calculation.
+
+**Not yet seen in-game** -- compiled clean and redeployed. If 16f still isn't enough on the next
+look, the next step should be measuring the actual on-screen pixel overflow directly (a screenshot
+with a ruler/grid, or reading `AddSize`'s live value via a temporary debug log) rather than a third
+attempt at computing it from the formula alone.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

@@ -240,14 +240,20 @@ namespace Primal.Gimmicks
 
         // Added the same day icons were removed, per direct request ("hovering over a gimmick makes
         // it go a bit out of bounds"): a name button/Add button built flush to a column's own edge
-        // (LOCAL x=0) has nowhere to grow into when OpSimpleButton's own hover bump-highlight
-        // (_rectH, confirmed via decompiling OpSimpleButton.GrafUpdate -- it grows a few px beyond
-        // the button's own rect on focus/hover) pushes outward, so it visibly pokes past the
-        // column's true boundary. Insetting the Add button AND the OpScrollBox itself by this much
-        // on both sides (rather than just padding individual rows, which are already positioned
-        // relative to the scroll box's own now-inset origin) gives that bump room to grow into
-        // without leaving the visible column area at all.
-        private const float ColumnSidePadding = 8f;
+        // (LOCAL x=0) has nowhere to grow into when OpSimpleButton's own focused/hovered rect grows
+        // (`_rect.addSize = new Vector2(6f, 6f) * bumpBehav.AddSize`, confirmed via decompiling
+        // OpSimpleButton.GrafUpdate and DyeableRect -- addSize expands the rect symmetrically, so
+        // ~half of it, up to a few px, pushes past whichever edge has no headroom), so it visibly
+        // pokes past the column's true boundary. Insetting the Add button AND the OpScrollBox itself
+        // by this much on both sides (rather than just padding individual rows, which are already
+        // positioned relative to the scroll box's own now-inset origin) gives that bump room to grow
+        // into without leaving the visible column area at all. First tried at 8f -- reported as
+        // still visibly poking out, so bumped to 16f; BumpBehaviour.AddSize's own ramp-up curve
+        // (sizeBump approaching 1 PLUS a transient extraSizeBump-driven sine bump that can push the
+        // combined value above 1 mid-animation, not just a flat +1) makes the worst case larger than
+        // a first read of the formula suggests, so this is deliberately generous rather than
+        // computed to an exact minimum.
+        private const float ColumnSidePadding = 16f;
         private const float ColumnContentWidth = ColumnWidth - 2f * ColumnSidePadding;
 
         // 2026-09-17 (UI redesign round 3): "+ Add Gimmick"/"+ Add Requirement" moved to the TOP of
@@ -296,11 +302,12 @@ namespace Primal.Gimmicks
 
         // Added the same day icons were removed, per direct request for more left/right padding and
         // to fix hover bump-highlight poking past a picker button's own edge -- same reasoning as
-        // ColumnSidePadding above, applied to the picker's own content area (both its category tabs
-        // and its grid) instead of the Split view's columns. ModalListViewportWidth itself (and so
-        // the modal's own backdrop/frame) is unchanged -- only what's laid out inside it shrinks and
+        // ColumnSidePadding above (including that constant's own note on why 8f wasn't enough and
+        // this is 16f too), applied to the picker's own content area (both its category tabs and its
+        // grid) instead of the Split view's columns. ModalListViewportWidth itself (and so the
+        // modal's own backdrop/frame) is unchanged -- only what's laid out inside it shrinks and
         // shifts inward.
-        private const float PickerSidePadding = 8f;
+        private const float PickerSidePadding = 16f;
         private const float PickerAreaX = ContentLeft + PickerSidePadding;
         private const float PickerAreaWidth = ModalListViewportWidth - 2f * PickerSidePadding;
 
@@ -1240,18 +1247,17 @@ namespace Primal.Gimmicks
                 Color? color = GetRequirementColor(requirement);
 
                 // No settings to drill into yet (see this class's own header comment), so this
-                // still isn't clickable -- but it's an OpSimpleButton with greyedOut permanently
-                // true (not a plain OpLabel) so it keeps the same bordered look every gimmick's own
-                // name button has, restoring visual consistency between the two columns that got
-                // lost once the per-row icons (which used to carry some of that visual weight) were
-                // removed the same day. greyedOut's own rendering (confirmed via decompiling
-                // OpSimpleButton.GrafUpdate) still draws the bordered _rect, just without the
-                // hover/focus highlight ring -- exactly "looks like a button, reads as non-
-                // interactive," unlike a plain click-does-nothing button would.
-                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(0f, requirementRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), requirement.DisplayName)
-                {
-                    greyedOut = true
-                };
+                // still isn't wired to anything -- no OnClick is ever attached, so a click plays no
+                // sound and does nothing (confirmed via decompiling OpSimpleButton.Update -- the
+                // click branch only calls PlaySound when OnClick is non-null). Deliberately NOT
+                // greyedOut (that was tried first and reverted per direct feedback: greyedOut routes
+                // color through BumpBehaviour.GetColor, which forces
+                // MenuColorEffect.Greyscale(MidToVeryDark(...)) unconditionally -- confirmed via
+                // decompilation -- so every row read as washed-out grey regardless of colorEdge,
+                // "requirements look greyed out"). A plain, ungreyed OpSimpleButton with no OnClick
+                // renders and colors exactly like a gimmick's own name button -- full color, normal
+                // hover/focus -- while still doing nothing when pressed.
+                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(0f, requirementRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), requirement.DisplayName);
                 if (color.HasValue)
                 {
                     nameButton.colorEdge = color.Value;
