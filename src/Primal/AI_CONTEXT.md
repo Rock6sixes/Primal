@@ -6261,6 +6261,33 @@ a more comfortable margin.
 layout (especially "Community Challenges" fitting in a ~265px-wide tab button, and whether 30f is
 enough clearance in practice, not just on paper) hasn't been looked at yet.
 
+## 2026-09-17 (same day, later still): the per-row icons removed entirely -- color-only again
+
+Requested directly: "remove the slugpup icons from all gimmicks and requirements." Every icon this
+screen ever drew (gimmick rows, requirement rows, both Add*Modal pickers) was, per the same-day
+"character icons added" section above, always some tint of the single "Kill_Slugcat" sprite --
+including the Community Challenges' own "slugpup" tag (`MoreSlugcatsEnums.CreatureTemplateType
+.SlugNPC` also resolves to "Kill_Slugcat") -- so "the slugpup icons" meant all of them, not just the
+Community Challenges' own white one.
+
+**Removed outright, not just stopped calling:** `CharacterIconSprite()`, `CommunityIconSprite()`,
+the `RowIcon` struct, `GetGimmickIcon`/`GetRequirementIcon`, and `BuildIconElement` are all gone from
+`PrimalOptions.cs`. `RowIconSize`/`RowIconGap` (the layout constants that reserved room for an icon
+beside each row/picker-entry) are gone too, and `ColumnNameButtonW`'s own formula no longer
+subtracts them -- name buttons/labels get that width back.
+
+**Coloring is preserved -- it was never really about the icon.** `GetHomeCharacterColor` (unchanged)
+is now called directly at each of the four call sites (gimmick rows, requirement rows, both pickers)
+instead of being wrapped in a `RowIcon`. Community Challenges keep their plain white tint via a new,
+much smaller `GetRequirementColor(Requirement)` (white if `CommunityChallengesRoster.Contains(id)`,
+else `GetHomeCharacterColor(requirement.HomeCharacter)`) -- replacing `GetRequirementIcon` one to
+one, just returning `Color?` instead of `RowIcon?`. Every row/picker-entry's `colorEdge` (or, for a
+requirement's plain label, `.color`) is set exactly as before; only the little image beside it is
+gone. This is, functionally, exactly the color-only look this screen had before the 2026-09-17
+"character icons added" pass introduced icons in the first place.
+
+**Not yet seen in-game** -- compiled clean and redeployed.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

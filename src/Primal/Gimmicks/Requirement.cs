@@ -70,14 +70,12 @@ namespace Primal.Gimmicks
         /// SpearmasterFastEnding, InvHighestPoint -- see their own doc comments in Requirements.cs;
         /// a fourth, ArtificerKillAscend, was split apart later the same day into the fully general
         /// UniqueKillsRequirement, which leaves this null), mirroring GimmickDef.HomeCharacter
-        /// exactly. PrimalOptions
-        /// uses it to color/icon-tag the requirement in the Requirements column and Add Requirement
-        /// picker, the same "Kill_Slugcat" icon tinted via PlayerGraphics.DefaultSlugcatColor
-        /// GimmickDef's own rows already use (there is no distinct icon SHAPE per playable
-        /// character in vanilla's own kill-icon atlas -- only color differs). Null (the default)
-        /// for a requirement with no specific character tie -- the 50 curated Community Challenges
-        /// all leave this null and get their own distinct white/slugpup treatment instead (see
-        /// PrimalOptions.GetRequirementIcon).</summary>
+        /// exactly. PrimalOptions uses it to color-tag the requirement in the Requirements column
+        /// and Add Requirement picker (PrimalOptions.GetRequirementColor), via
+        /// PlayerGraphics.DefaultSlugcatColor -- the same lookup GimmickDef's own rows use. Null
+        /// (the default) for a requirement with no specific character tie -- the 50 curated
+        /// Community Challenges all leave this null and get their own plain white treatment
+        /// instead (see PrimalOptions.GetRequirementColor).</summary>
         public virtual SlugcatStats.Name HomeCharacter => null;
 
         /// <summary>Called once, at mod startup (RequirementRegistry.RegisterAll, called from

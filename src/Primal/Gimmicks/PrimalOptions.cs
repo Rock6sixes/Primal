@@ -250,17 +250,12 @@ namespace Primal.Gimmicks
         private const float ColumnRowHeight = 36f;
         private const float ColumnRemoveButtonW = 32f;
         private const float ColumnRowGap = 8f;
-        // The character/Community-Challenge icon added 2026-09-17 -- see GetGimmickIcon/
-        // GetRequirementIcon/BuildIconElement. Small enough to sit comfortably inside a 36px-tall
-        // row without needing to grow ColumnRowHeight itself.
-        private const float RowIconSize = 24f;
-        private const float RowIconGap = 6f;
         // 2026-09-17 (UI redesign round 3, per direct request -- rows were visually running into the
         // OpScrollBox's own slide bar): a vertical OpScrollBox draws its slide bar inset from its
         // OWN right edge (confirmed via decompiling OpScrollBox -- the bar sits at `size.x - 20f`),
         // but AddItems has no idea that reservation exists -- a row built to the column's full
         // ColumnWidth (as every row here used to be, by construction: ColumnNameButtonW was defined
-        // to make icon + name + gap + remove-button add up to exactly ColumnWidth) ends with its "x"
+        // to make name button + gap + remove-button add up to exactly ColumnWidth) ends with its "x"
         // remove button sitting flush against, and effectively under, that slide bar. Reserving this
         // clearance up front keeps every row's rightmost element short of the column's true right
         // edge, same as ModalListViewportWidth already does for the wider modal scroll boxes.
@@ -270,7 +265,7 @@ namespace Primal.Gimmicks
         // margin so this doesn't degrade to a paper-thin few-pixel gap from one more rounding
         // adjustment somewhere in this row's own math.
         private const float ColumnScrollbarClearance = 30f;
-        private const float ColumnNameButtonW = ColumnWidth - ColumnScrollbarClearance - RowIconSize - RowIconGap - ColumnRemoveButtonW - ColumnRowGap;
+        private const float ColumnNameButtonW = ColumnWidth - ColumnScrollbarClearance - ColumnRemoveButtonW - ColumnRowGap;
 
         // ---- the GimmickSettings/AddGimmick/AddRequirement "modal" overlays --------------------
         // Each spans the full detail area (both Split columns combined) rather than half of it.
@@ -763,7 +758,7 @@ namespace Primal.Gimmicks
             return null;
         }
 
-        // ---- home-character coloring and icons for gimmick/requirement rows -----------------
+        // ---- home-character coloring for gimmick/requirement rows -----------------------------
 
         // PlayerGraphics.DefaultSlugcatColor(SlugcatStats.Name) -- vanilla's own plain,
         // state-free per-character palette (Gourmand's tan/pink, Rivulet's blue, etc.; see
@@ -825,119 +820,26 @@ namespace Primal.Gimmicks
             }
         }
 
-        // 2026-09-17: added alongside the color above, for the same "which character is this row
-        // designed for" tag, now also shown as a small creature-symbol icon next to the row's own
-        // name/label -- requested directly, plus a specific white/slugpup(-or-batfly) treatment for
-        // the 50 curated Community Challenge requirements, which have no single HomeCharacter of
-        // their own.
+        // 2026-09-17: this used to also draw a small creature-symbol icon (always the same
+        // "Kill_Slugcat"/slugpup-ish silhouette, since there's no distinct icon SHAPE per playable
+        // character in vanilla's own kill-icon atlas -- confirmed via decompiling
+        // CreatureSymbol.SpriteNameOfCreature) next to a colored row's name. Removed the same day
+        // per direct request ("remove the slugpup icons from all gimmicks and requirements") --
+        // color alone (this method, plus the white-for-Community-Challenges rule below) is what
+        // tags a row now, matching how this screen worked before icons were ever added.
         //
-        // There is no per-playable-character ICON shape in vanilla's own kill-icon atlas -- every
-        // real slugcat (Survivor, Hunter, Gourmand, Artificer, ...) shares the exact same
-        // "Kill_Slugcat" silhouette (confirmed via decompiling CreatureSymbol.SpriteNameOfCreature:
-        // CreatureTemplate.Type.Slugcat is the only case that returns it, and nothing else does) --
-        // color alone is what actually distinguishes one character's tag from another's, exactly
-        // like the border-color treatment already established. Resolved once via the real
-        // IconSymbol/CreatureSymbol API (not a hardcoded "Kill_Slugcat" string literal) so this
-        // stays correct if a future game update ever changes that mapping, and cached since it
-        // never changes within a session.
-        private static string _characterIconSprite;
-
-        private static string CharacterIconSprite()
-        {
-            if (_characterIconSprite == null)
-            {
-                var iconData = new IconSymbol.IconSymbolData(CreatureTemplate.Type.Slugcat, AbstractPhysicalObject.AbstractObjectType.Creature, 0);
-                _characterIconSprite = CreatureSymbol.SpriteNameOfCreature(iconData);
-            }
-            return _characterIconSprite;
-        }
-
-        // The Community Challenges' own icon: "the slugpup icon [MoreSlugcatsEnums.CreatureTemplateType
-        // .SlugNPC's own resolved sprite -- which, per the same sharing CharacterIconSprite's own
-        // comment describes, actually also resolves to plain "Kill_Slugcat" -- there is no visually
-        // distinct slugpup-shaped icon in vanilla's own atlas either]. If you cant find that one, use
-        // the batfly icon [CreatureTemplate.Type.Fly, "Kill_Bat"]" -- implemented as a genuine
-        // attempt-then-fallback rather than assuming the slugpup lookup always succeeds: SlugNPC is
-        // an MSC-only ExtEnum value, so this only even attempts it while ModManager.MSC is true, and
-        // separately double-checks the resolved sprite name is actually loaded in the current atlas
-        // (Futile.atlasManager.DoesContainElementWithName, the same check OpImage's own constructor
-        // performs) before trusting it. Cached the same way as the character icon above.
-        private static string _communityIconSprite;
-
-        private static string CommunityIconSprite()
-        {
-            if (_communityIconSprite != null)
-            {
-                return _communityIconSprite;
-            }
-
-            if (ModManager.MSC)
-            {
-                var slugpupIconData = new IconSymbol.IconSymbolData(MoreSlugcatsEnums.CreatureTemplateType.SlugNPC, AbstractPhysicalObject.AbstractObjectType.Creature, 0);
-                string slugpupSprite = CreatureSymbol.SpriteNameOfCreature(slugpupIconData);
-                if (!string.IsNullOrEmpty(slugpupSprite) && Futile.atlasManager.DoesContainElementWithName(slugpupSprite))
-                {
-                    _communityIconSprite = slugpupSprite;
-                    return _communityIconSprite;
-                }
-            }
-
-            var batflyIconData = new IconSymbol.IconSymbolData(CreatureTemplate.Type.Fly, AbstractPhysicalObject.AbstractObjectType.Creature, 0);
-            _communityIconSprite = CreatureSymbol.SpriteNameOfCreature(batflyIconData);
-            return _communityIconSprite;
-        }
-
-        // One (sprite, color) pair, or null for "no icon at all" -- the single source of truth
-        // both RenderSplit and the two Add*Modal pickers use so a gimmick/requirement's row and its
-        // picker entry always show the exact same tag.
-        private readonly struct RowIcon
-        {
-            public readonly string Sprite;
-            public readonly Color Color;
-
-            public RowIcon(string sprite, Color color)
-            {
-                Sprite = sprite;
-                Color = color;
-            }
-        }
-
-        private static RowIcon? GetGimmickIcon(GimmickDef gimmick)
-        {
-            Color? color = GetHomeCharacterColor(gimmick.HomeCharacter);
-            return color.HasValue ? new RowIcon(CharacterIconSprite(), color.Value) : (RowIcon?)null;
-        }
-
-        // Community Challenges (CommunityChallengesRoster's own curated 50 IDs) get the special
-        // white/slugpup(-or-batfly) treatment regardless of HomeCharacter (none of them set one);
-        // any other requirement with a HomeCharacter (the four character-specific ones) gets the
-        // same character-tinted "Kill_Slugcat" tag gimmicks use; anything else gets no icon.
-        private static RowIcon? GetRequirementIcon(Requirement requirement)
+        // Community Challenges (CommunityChallengesRoster's own curated 50 IDs) get plain white
+        // regardless of HomeCharacter (none of them set one); any other requirement with a
+        // HomeCharacter (the character-specific ones) gets that character's own color; anything
+        // else is left uncolored.
+        private static Color? GetRequirementColor(Requirement requirement)
         {
             if (CommunityChallengesRoster.Contains(requirement.ID))
             {
-                return new RowIcon(CommunityIconSprite(), Color.white);
+                return Color.white;
             }
 
-            Color? color = GetHomeCharacterColor(requirement.HomeCharacter);
-            return color.HasValue ? new RowIcon(CharacterIconSprite(), color.Value) : (RowIcon?)null;
-        }
-
-        // Builds the small icon element itself, normalized to a consistent on-screen size
-        // regardless of the source sprite's own native pixel dimensions (Kill_Slugcat and Kill_Bat
-        // aren't necessarily the same size). Null `icon` (no home character, not a Community
-        // Challenge) means no element at all -- callers should just skip reserving room for one.
-        private static OpImage BuildIconElement(Vector2 pos, float targetSize, RowIcon icon)
-        {
-            var image = new OpImage(pos, icon.Sprite)
-            {
-                color = icon.Color
-            };
-            Vector2 native = image.size;
-            image.scale = new Vector2(
-                native.x > 0f ? targetSize / native.x : 1f,
-                native.y > 0f ? targetSize / native.y : 1f);
-            return image;
+            return GetHomeCharacterColor(requirement.HomeCharacter);
         }
 
         // Generic over any (characterID, ID) pair -- a gimmick ID and a requirement ID are both
@@ -1266,34 +1168,29 @@ namespace Primal.Gimmicks
             // this file's RenderGimmickSettings/RenderAddGimmick already had to fix once before).
             var gimmickRowItems = new List<UIelement>();
             float gimmickRowY = gimmickContentHeight - ColumnRowHeight;
-            float gimmickNameX = RowIconSize + RowIconGap;
             foreach (GimmickDef gimmick in gimmickRows)
             {
                 string capturedCharID = character.ID;
                 string capturedGimmickID = gimmick.ID;
 
-                RowIcon? icon = GetGimmickIcon(gimmick);
-                if (icon.HasValue)
-                {
-                    gimmickRowItems.Add(BuildIconElement(new Vector2(0f, gimmickRowY + (ColumnRowHeight - 4f - RowIconSize) * 0.5f), RowIconSize, icon.Value));
-                }
+                Color? color = GetHomeCharacterColor(gimmick.HomeCharacter);
 
-                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(gimmickNameX, gimmickRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), gimmick.DisplayName)
+                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(0f, gimmickRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), gimmick.DisplayName)
                 {
                     description = gimmick.Description
                 };
-                if (icon.HasValue)
+                if (color.HasValue)
                 {
                     // colorEdge drives both the button's border AND its label text color (see
                     // OpSimpleButton.GrafUpdate) -- coloring just this, not colorFill, tags the
                     // gimmick by its home character without turning the whole button into a
-                    // possibly-hard-to-read solid color block. Same color as the icon beside it.
-                    nameButton.colorEdge = icon.Value.Color;
+                    // possibly-hard-to-read solid color block.
+                    nameButton.colorEdge = color.Value;
                 }
                 nameButton.OnClick += _ => OpenGimmickSettings(capturedCharID, capturedGimmickID);
                 gimmickRowItems.Add(nameButton);
 
-                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(gimmickNameX + ColumnNameButtonW + ColumnRowGap, gimmickRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
+                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, gimmickRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
                 {
                     description = "Remove " + gimmick.DisplayName + " from " + character.DisplayName,
                     greyedOut = IsReadOnly
@@ -1312,29 +1209,24 @@ namespace Primal.Gimmicks
 
             var requirementRowItems = new List<UIelement>();
             float requirementRowY = requirementContentHeight - ColumnRowHeight;
-            float requirementNameX = RowIconSize + RowIconGap;
             foreach (Requirement requirement in requirementRows)
             {
                 string capturedCharID = character.ID;
                 string capturedRequirementID = requirement.ID;
 
-                RowIcon? icon = GetRequirementIcon(requirement);
-                if (icon.HasValue)
-                {
-                    requirementRowItems.Add(BuildIconElement(new Vector2(0f, requirementRowY + (ColumnRowHeight - 4f - RowIconSize) * 0.5f), RowIconSize, icon.Value));
-                }
+                Color? color = GetRequirementColor(requirement);
 
                 // No settings to drill into yet (see this class's own header comment) -- just a
                 // plain label, not a button, so there's nothing clickable that would silently do
                 // nothing.
-                var nameLabel = new OpLabel(requirementNameX, requirementRowY + 4f, requirement.DisplayName, false);
-                if (icon.HasValue)
+                var nameLabel = new OpLabel(0f, requirementRowY + 4f, requirement.DisplayName, false);
+                if (color.HasValue)
                 {
-                    nameLabel.color = icon.Value.Color;
+                    nameLabel.color = color.Value;
                 }
                 requirementRowItems.Add(nameLabel);
 
-                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(requirementNameX + ColumnNameButtonW + ColumnRowGap, requirementRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
+                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, requirementRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
                 {
                     description = "Stop tracking " + requirement.DisplayName + " for " + character.DisplayName,
                     greyedOut = IsReadOnly
@@ -1542,22 +1434,14 @@ namespace Primal.Gimmicks
                 float y = contentHeight - (row + 1) * PickerRowHeight + 4f;
 
                 string capturedGimmickID = gimmick.ID;
-                RowIcon? icon = GetGimmickIcon(gimmick);
-                float buttonX = x;
-                float buttonWidth = PickerColumnWidth;
-                if (icon.HasValue)
-                {
-                    scrollItems.Add(BuildIconElement(new Vector2(x, y + (PickerRowHeight - 8f - RowIconSize) * 0.5f), RowIconSize, icon.Value));
-                    buttonX += RowIconSize + RowIconGap;
-                    buttonWidth -= RowIconSize + RowIconGap;
-                }
-                OpSimpleButton addButton = new OpSimpleButton(new Vector2(buttonX, y), new Vector2(buttonWidth, PickerRowHeight - 8f), gimmick.DisplayName)
+                Color? color = GetHomeCharacterColor(gimmick.HomeCharacter);
+                OpSimpleButton addButton = new OpSimpleButton(new Vector2(x, y), new Vector2(PickerColumnWidth, PickerRowHeight - 8f), gimmick.DisplayName)
                 {
                     description = gimmick.Description
                 };
-                if (icon.HasValue)
+                if (color.HasValue)
                 {
-                    addButton.colorEdge = icon.Value.Color;
+                    addButton.colorEdge = color.Value;
                 }
                 addButton.OnClick += _ => AssignGimmick(capturedCharID, capturedGimmickID);
                 scrollItems.Add(addButton);
@@ -1672,19 +1556,11 @@ namespace Primal.Gimmicks
                 float y = contentHeight - (row + 1) * PickerRowHeight + 4f;
 
                 string capturedRequirementID = requirement.ID;
-                RowIcon? icon = GetRequirementIcon(requirement);
-                float buttonX = x;
-                float buttonWidth = PickerColumnWidth;
-                if (icon.HasValue)
+                Color? color = GetRequirementColor(requirement);
+                OpSimpleButton addButton = new OpSimpleButton(new Vector2(x, y), new Vector2(PickerColumnWidth, PickerRowHeight - 8f), requirement.DisplayName);
+                if (color.HasValue)
                 {
-                    scrollItems.Add(BuildIconElement(new Vector2(x, y + (PickerRowHeight - 8f - RowIconSize) * 0.5f), RowIconSize, icon.Value));
-                    buttonX += RowIconSize + RowIconGap;
-                    buttonWidth -= RowIconSize + RowIconGap;
-                }
-                OpSimpleButton addButton = new OpSimpleButton(new Vector2(buttonX, y), new Vector2(buttonWidth, PickerRowHeight - 8f), requirement.DisplayName);
-                if (icon.HasValue)
-                {
-                    addButton.colorEdge = icon.Value.Color;
+                    addButton.colorEdge = color.Value;
                 }
                 addButton.OnClick += _ => AssignRequirement(capturedCharID, capturedRequirementID);
                 scrollItems.Add(addButton);
