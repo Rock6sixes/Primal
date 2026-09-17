@@ -6057,6 +6057,66 @@ should be the exact repro sequence that found Bug 2 (Custom -> Change Mode -> Cu
 plus confirming `BepInEx/LogOutput.log` now shows `Primal 0.1.0` loading without the FAILED TO LOAD
 line from Bug 1.
 
+## 2026-09-17 (same day, later still): character-select combo box did nothing live -- Remix's own Configurable write-through is deferred, not immediate
+
+User report after the Bug 2 fix above: picking a character in the new combo box visibly changed
+nothing, but closing the whole Remix screen and reopening it *did* show that character's own
+gimmicks/requirements -- i.e. the value silently WAS taking effect, just not until a full
+close/reopen cycle.
+
+**Root cause, confirmed by decompiling the actual Remix pipeline (`Menu.Remix.MixedUI.UIconfig`,
+`Configurable<T>`, `OptionInterface`), not guessed:** an `OpComboBox` (or any `UIconfig`) has its
+own private UI-side `value` string, separate from the `Configurable<T>.Value` it's bound to.
+Clicking an item only ever updates that UI-side `value` -- it does **not** write through to the
+bound `Configurable<T>` (and so never fires `Configurable<T>.OnChange`, the event
+`OnCharacterSelectionChanged` was listening for) until `OptionInterface._SaveConfigFile()` runs,
+which copies every bound `UIconfig.value` into its `Configurable.BoxedValue` in one batched pass --
+and that method only runs on this screen's native Apply/Exit lifecycle, not per click. Every OTHER
+write on this screen (`SetEnabledFor`, `SelectMode`) already sidesteps this entirely because they're
+driven by plain buttons that set the `Configurable` directly in code and immediately force a save
+(`SaveConfigNow`, see its own doc comment on Gotcha-adjacent history) -- they never go through a
+`UIconfig`'s deferred value plumbing at all. The character-select combo box was the first control on
+this screen that actually IS a live `UIconfig` bound straight to a `Configurable`, and it never got
+the same immediate-write treatment.
+
+**Fix:** subscribe to `OpComboBox.OnValueChanged` (a genuine per-control event on `UIconfig`,
+distinct from `Configurable.OnChange` -- confirmed via decompilation to fire immediately once the
+dropdown list closes after a click, not deferred to the next save pass) and, inside it, write
+`_selectedCharacterConfig.Value = value` directly (which fires `Configurable.OnChange` ->
+`OnCharacterSelectionChanged` -> `RenderDetail()` immediately, since `Configurable<T>.Value`'s own
+setter invokes `OnChange` synchronously whenever the value actually changes) followed by
+`SaveConfigNow(...)`, matching every other write on this screen. Subscribed once, inside the same
+`if (_characterSelectBox == null)` lazy-build block the crash fix above already added, so it's not
+re-subscribed (and double-fired) on every `ShowNormal()` call.
+
+**Lesson for any future live Remix control that binds an `OpCheckBox`/`OpComboBox`/etc. straight to
+a `Configurable` on this screen:** don't assume the binding alone makes `Configurable.OnChange` fire
+on interaction -- it doesn't, unless something forces `_SaveConfigFile()` or writes the Configurable
+directly. Hook the control's own `OnValueChanged`/`OnClick` and push the value through by hand, the
+same way this fix and `SetEnabledFor`/`SelectMode` already do.
+
+Not yet re-tested in-game -- rebuilt clean and redeployed.
+
+## 2026-09-17 (same day, later still): does Remix support real modal/floating windows? -- no, confirmed again by decompilation
+
+User question, separate from the bugs above: can the Remix config screen host an actual popup
+window/modal of any kind, rather than the in-tab overlay approach `PrimalOptions`'s own header
+comment already describes choosing? Re-confirmed by decompiling `Menu/Dialog.cs`: `Menu.Dialog` is a
+**completely separate `ProcessManager.Process`** (its own `ProcessID.Dialog`, a full-screen darkening
+sprite plus its own `Page`/`MenuObject` tree) -- structurally unrelated to `OptionInterface`/
+`ConfigContainer`/`OpTab`, and built from an entirely different, lower-level vocabulary
+(`Menu.MenuLabel`, `Menu.SimpleButton`, `RoundedRect`, raw `FSprite`s) that knows nothing about
+`UIconfig`/`Configurable` at all. Every control this mod's settings screens are built from
+(`OpCheckBox`, `OpComboBox`, `OpScrollBox`, `OpKeyBinder`, ...) only exists as a child of a
+`ConfigContainer`'s `OpTab` -- none of it can be parented into a `Menu.Dialog`, and there is no
+bridge between the two systems. So: **no**, Remix's own config UI genuinely does not support a true
+floating window for anything built the way this mod's screens are built. The only two options are
+(1) the in-tab overlay this mod already uses (swap `_detailItems`, draw a backdrop `OpRect` behind
+it, still literally part of the same flat tab) or (2) rewrite the specific screen from scratch in
+`Menu.Dialog`'s own vocabulary (the way `CommunityChallengesDialog`/`KillListDialog` already do
+elsewhere in this mod) -- which means giving up every existing `Op*` control and reimplementing
+checkboxes/scrollboxes/comboboxes by hand in that vocabulary, a full rewrite, not a small change.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

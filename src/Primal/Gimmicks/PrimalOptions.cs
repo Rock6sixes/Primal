@@ -431,6 +431,29 @@ namespace Primal.Gimmicks
                 {
                     description = "Select a character to edit its gimmicks and requirements."
                 };
+
+                // An OpComboBox's own `value` is a plain UI-side string -- clicking an item does
+                // NOT write through to the bound Configurable (and so never fires its OnChange,
+                // which OnCharacterSelectionChanged listens for below) until Remix's own batched
+                // OptionInterface._SaveConfigFile() pass runs, which only happens on this screen's
+                // native Apply/Exit lifecycle, not on every click (confirmed via decompiling
+                // UIconfig.value's setter and OptionInterface._SaveConfigFile -- BoxedValue is only
+                // copied from BoundUIconfig.value there). That's why picking a character visibly did
+                // nothing until the whole Remix screen was closed and reopened (which forces that
+                // save/reload cycle) -- every OTHER write on this screen (SetEnabledFor, SelectMode)
+                // already avoids this by writing straight to the Configurable and calling
+                // SaveConfigNow immediately; the combo box needs the same treatment. OpValueChanged
+                // (a genuine UIconfig-level event, distinct from Configurable.OnChange) does fire
+                // immediately once the list closes after a click, so push the value through here.
+                _characterSelectBox.OnValueChanged += (_, value, oldValue) =>
+                {
+                    if (value == oldValue)
+                    {
+                        return;
+                    }
+                    _selectedCharacterConfig.Value = value;
+                    SaveConfigNow("the selected character (" + value + ")");
+                };
             }
             items.Add(_characterSelectBox);
 
