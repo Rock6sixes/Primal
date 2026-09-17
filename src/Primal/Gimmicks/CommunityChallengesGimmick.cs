@@ -485,9 +485,26 @@ namespace Primal.Gimmicks
         /// gimmick assigned at all, and they default true (see CommunityChallengesSettings.Bind).
         /// So a character who has never touched this gimmick would still read every challenge as
         /// "enabled" by that check alone -- this method's own GimmickGate.IsActiveFor half is what
-        /// actually keeps tracking scoped to characters that opted in.</summary>
+        /// actually keeps tracking scoped to characters that opted in.
+        ///
+        /// Added 2026-09-17: a GimmickAssignments.IsEnabledForAnyCharacter check runs FIRST, before
+        /// either of the two checks above. Every one of the 50 ChallengeTrackers subscribes to its
+        /// own SurvivorEvents permanently at mod startup (ChallengeTrackerRegistry.RegisterAll),
+        /// regardless of whether ANY character has Community Challenges assigned at all -- without
+        /// this, a save where nobody uses the gimmick still pays for 50 independent per-tracker
+        /// resolutions (GimmickGate.IsActiveFor's own PrimalSlot+character-lookup, then a
+        /// CommunityChallengesSettings dictionary read) on every relevant vanilla event, for
+        /// nothing. This is one O(1) dictionary read shared by all 50 trackers (they all check the
+        /// same gimmick ID), so the common "nobody's using this" case now costs one lookup instead
+        /// of fifty.</summary>
         protected bool TryGetEnabledCharacter(Player player, out string characterID)
         {
+            characterID = null;
+            if (!GimmickAssignments.IsEnabledForAnyCharacter(CommunityChallengesGimmick.ID))
+            {
+                return false;
+            }
+
             return GimmickGate.IsActiveFor(player, CommunityChallengesGimmick.ID, out characterID)
                 && CommunityChallengesSettings.IsChallengeEnabled(characterID, Challenge.ID);
         }
