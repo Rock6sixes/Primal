@@ -3489,7 +3489,7 @@ namespace Primal.Gimmicks
     /// it without an instance; Register() is correspondingly a no-op.
     ///
     /// All three carried items are simultaneously possible under vanilla's own rules, confirmed by
-    /// decompilation: a slugpup (CreatureTemplate.Type.SlugNPC) and a mask (VultureMask, a
+    /// decompilation: a slugpup (MoreSlugcatsEnums.CreatureTemplateType.SlugNPC) and a mask (VultureMask, a
     /// PlayerCarryableItem) each occupy one of the player's two hand grasps, while a "cloak"
     /// (MoreSlugcatsEnums.AbstractObjectType.MoonCloak, the robe the Moon gives) is worn via
     /// SaveState.wearingCloak, a plain persistent bool flag set the moment the object is picked up
@@ -3541,7 +3541,7 @@ namespace Primal.Gimmicks
             }
 
             bool holdingSlugpup = SurvivorCreatureTracking.FindCarried(player,
-                creature => !creature.dead && creature.creatureTemplate?.type == CreatureTemplate.Type.SlugNPC) != null;
+                creature => !creature.dead && creature.abstractCreature?.creatureTemplate?.type == MoreSlugcatsEnums.CreatureTemplateType.SlugNPC) != null;
             if (!holdingSlugpup || !IsCarryingMask(player) || !IsWearingCloak(player))
             {
                 return;

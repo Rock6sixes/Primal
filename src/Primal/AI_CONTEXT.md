@@ -5986,6 +5986,31 @@ deserves particular scrutiny, along with whether the ambient-context bracketing 
 every code path that can reach `AddImage`/`AddAltEndingImage` (only `SlugcatPageContinue` and
 `SlugcatPageNewGame` were traced; a third caller this pass didn't find could see stale context).
 
+## 2026-09-17 (same day, later still): first real build of the day's whole 15-commit batch found one compile error
+
+Ran `dotnet build` directly in this environment (real toolchain now available, see the 2026-09-15
+"sessions now run directly on the user's own Windows machine" section) against everything committed
+today from "Elder/Heist/Triplopia/Outlaw trackers" through "Primal-mode character-select portrait
+override" -- the whole Requirements architecture, the Remix UI redesign, the mode gate, per-character
+icons, and the portrait override, none of which had been built or tested per each section's own
+closing caveat. Found exactly one compile error, in `InvHighestPointRequirement.CheckPlayer`
+(`Gimmicks/Requirements.cs`): `creature.creatureTemplate` (the predicate runs over a realized
+`Creature`, which has no such member -- needs `creature.abstractCreature.creatureTemplate`, the same
+pattern every other tracker in this file already uses) and `CreatureTemplate.Type.SlugNPC` (not a
+real member -- the correct value is the MSC ExtEnum `MoreSlugcatsEnums.CreatureTemplateType.SlugNPC`,
+already used correctly elsewhere in this same file's own header comment's citation and in
+`PrimalOptions.CommunityIconSprite()`). Fixed both on one line; also corrected the stale
+`CreatureTemplate.Type.SlugNPC` mention in this class's own header doc comment. Rebuilt clean (0
+errors, 0 warnings) immediately after.
+
+**This does not mean the rest of today's batch is now verified** -- a clean compile only proves the
+other ~14 commits' worth of new code is syntactically and type-correct, not that any of it behaves
+correctly in-game (OpComboBox's runtime behavior, the mode-gate's greyedOut enforcement, the icon
+sizing, the portrait-override AssetManager patch, and all four new character-specific requirements
+are all still exactly as untested as each section above already says). Still needed: an actual
+in-game pass, ideally in the order the "Outstanding items" table below already recommends for
+large batches -- does it load, does the Remix screen open, then work down from there.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)
