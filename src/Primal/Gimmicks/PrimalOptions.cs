@@ -271,6 +271,16 @@ namespace Primal.Gimmicks
         // on this screen already uses.
         private Configurable<string> _selectedCharacterConfig;
 
+        // The character-select OpComboBox itself, built lazily once and reused on every later
+        // BuildPermanentItems() call (ShowNormal() re-runs it any time the screen returns from
+        // ModeSelect, e.g. Custom -> Change Mode -> Custom). Per Gotcha #4 (see this file's own
+        // header comment / AI_CONTEXT.md), a Configurable can only ever be bound to one UIconfig at
+        // once -- constructing a second OpComboBox against the same _selectedCharacterConfig throws
+        // Menu.Remix.MultiuseConfigurableException the instant it happens, even though the first
+        // OpComboBox was already detached from the tab via RemoveItems (which un-displays an
+        // element but never unbinds it from its Configurable).
+        private OpComboBox _characterSelectBox;
+
         // Persists which mode this screen is in, across restarts -- "" (never chosen, show
         // ModeSelect), "Primal" (read-only), or "Custom" (fully editable). See IsReadOnly.
         private Configurable<string> _modeConfig;
@@ -406,20 +416,23 @@ namespace Primal.Gimmicks
             }
 
             items.Add(new OpLabel(ContentLeft, CharSelectY + 4f, "Character:", false));
-            var characterListItems = new List<ListItem>();
-            for (int i = 0; i < AllCharacters.Length; i++)
+            if (_characterSelectBox == null)
             {
-                characterListItems.Add(new ListItem(AllCharacters[i].ID, AllCharacters[i].DisplayName, i));
+                var characterListItems = new List<ListItem>();
+                for (int i = 0; i < AllCharacters.Length; i++)
+                {
+                    characterListItems.Add(new ListItem(AllCharacters[i].ID, AllCharacters[i].DisplayName, i));
+                }
+                _characterSelectBox = new OpComboBox(
+                    _selectedCharacterConfig,
+                    new Vector2(ContentLeft + CharSelectLabelWidth, CharSelectY),
+                    CharSelectWidth,
+                    characterListItems)
+                {
+                    description = "Select a character to edit its gimmicks and requirements."
+                };
             }
-            OpComboBox characterSelect = new OpComboBox(
-                _selectedCharacterConfig,
-                new Vector2(ContentLeft + CharSelectLabelWidth, CharSelectY),
-                CharSelectWidth,
-                characterListItems)
-            {
-                description = "Select a character to edit its gimmicks and requirements."
-            };
-            items.Add(characterSelect);
+            items.Add(_characterSelectBox);
 
             _permanentItems.AddRange(items);
             _tab.AddItems(_permanentItems.ToArray());

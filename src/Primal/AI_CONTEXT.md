@@ -6011,6 +6011,52 @@ are all still exactly as untested as each section above already says). Still nee
 in-game pass, ideally in the order the "Outstanding items" table below already recommends for
 large batches -- does it load, does the Remix screen open, then work down from there.
 
+## 2026-09-17 (same day, later still): first in-game launch of the day's batch found two real bugs -- a Harmony load failure and a Gotcha #4 repeat
+
+First actual in-game run of today's whole 15-commit batch (Requirements architecture through the
+portrait override). Found two independent bugs, both fixed and redeployed.
+
+**Bug 1 -- Primal failed to load entirely, via a Harmony `AmbiguousMatchException`.**
+`BepInEx/LogOutput.log` showed `Primal v0.1.0 FAILED TO LOAD: HarmonyLib.HarmonyException:
+Ambiguous match for HarmonyMethod[(class=Spear, methodname=LodgeInCreature, ...)]`, from
+`SurvivorPinningHook` (`Gimmicks/SurvivorPinning.cs`, part of the Ornaments requirement's pinning
+tracker, added 2026-09-16). `[HarmonyPatch(typeof(Spear), nameof(Spear.LodgeInCreature))]` names the
+method with no argument types, but `Spear.LodgeInCreature` is genuinely overloaded (confirmed via
+`reference/GameSource/Spear.cs`: a real 3-arg implementation, `(CollisionResult, bool, bool
+isJellyFish = false)`, plus a real 2-arg wrapper that just forwards into it) -- Harmony's own
+`AccessTools.DeclaredMethod` can't pick one without argument types and throws, which aborts the rest
+of that `Harmony.PatchAll()` call inside `Plugin.OnEnable()`'s try/catch. **This is worse than "one
+gimmick doesn't work"**: patches for whichever Harmony patch classes the reflection-order enumeration
+hadn't reached yet never got applied either that run -- `RainWorldHooks` (which registers the Remix
+options screen) happened to run first, which is the only reason the user could still open Remix and
+hit Bug 2 below in the same session. Fixed by adding explicit argument types to the `HarmonyPatch`
+attribute (`new Type[] { typeof(SharedPhysics.CollisionResult), typeof(bool), typeof(bool) }`),
+targeting the 3-arg version specifically since the 2-arg one always delegates into it.
+
+**Bug 2 -- reopening Custom mode a second time crashed the Remix screen with `Menu.Remix.
+MultiuseConfigurableException: Configurable SelectedCharacter is bound to multiple UIconfigs`.**
+Exact repro: pick Custom mode, click "Change Mode," pick Custom again -> crash, `OptionInterface`
+shown replaced with Remix's own red error screen. This is a second, independent instance of
+**Gotcha #4** (see that section above) inside the 2026-09-17 Remix-redesign work:
+`BuildPermanentItems()` (called fresh every time `ShowNormal()` runs, which includes every
+ModeSelect -> Normal transition) built a brand-new `OpComboBox` against `_selectedCharacterConfig`
+every single call, never accounting for the fact that `ClearAllScreens()`'s `RemoveItems()` only
+detaches the previous OpComboBox from the tab's display list -- it does not unbind it from the
+Configurable, so the second `OpComboBox` construction throws the instant it runs, exactly the same
+mechanism Gotcha #4 already documents for gimmick settings sub-views. `PrimalSettings
+.BuildSlotSwitchBinder`'s `OpKeyBinder` (the screen's other Configurable-backed permanent-row
+element) was already correctly cached/reused -- only the newer character-select combo box, added in
+the same redesign pass that introduced ModeSelect/ShowNormal churn, had the bug. **Fixed** by adding
+a `_characterSelectBox` field and building the `OpComboBox` lazily once (`_characterSelectBox ??
+(_characterSelectBox = new OpComboBox(...))`), matching `BuildSlotSwitchBinder`'s own established
+pattern exactly.
+
+Both fixes compiled clean and were redeployed to the actual game install
+(`...\StreamingAssets\mods\Primal\plugins\Primal.dll`). **Not yet re-tested in-game** -- next check
+should be the exact repro sequence that found Bug 2 (Custom -> Change Mode -> Custom, repeatedly),
+plus confirming `BepInEx/LogOutput.log` now shows `Primal 0.1.0` loading without the FAILED TO LOAD
+line from Bug 1.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

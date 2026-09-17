@@ -1,3 +1,4 @@
+using System;
 using HarmonyLib;
 
 namespace Primal.Gimmicks
@@ -29,7 +30,15 @@ namespace Primal.Gimmicks
             => OnCreaturePinnedToWall?.Invoke(spear, creature);
     }
 
-    [HarmonyPatch(typeof(Spear), nameof(Spear.LodgeInCreature))]
+    // Spear.LodgeInCreature is overloaded (a real 3-arg implementation plus a 2-arg wrapper that
+    // just forwards to it with isJellyFish: false, confirmed via decompiling Spear.cs) -- naming it
+    // via plain nameof() leaves Harmony's own AccessTools.DeclaredMethod to resolve it with no
+    // argument types at all, which throws AmbiguousMatchException (surfaced as a HarmonyException
+    // that aborts the rest of this assembly's Harmony.PatchAll() -- confirmed in a live
+    // BepInEx/LogOutput.log, "Primal v0.1.0 FAILED TO LOAD"). Patching the 3-arg version explicitly
+    // covers both call paths, since the 2-arg wrapper always delegates into it.
+    [HarmonyPatch(typeof(Spear), nameof(Spear.LodgeInCreature),
+        new Type[] { typeof(SharedPhysics.CollisionResult), typeof(bool), typeof(bool) })]
     internal static class SurvivorPinningHook
     {
         private static void Prefix(Spear __instance, out bool __state)
