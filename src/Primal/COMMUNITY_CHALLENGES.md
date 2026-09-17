@@ -1008,3 +1008,72 @@ buildable -- nothing vague, no re-investigation needed, just the missing input o
 **Still not built or tested in-game for any of the 40 implemented trackers** -- no .NET toolchain
 in this container across the whole session. All 40 should be treated as "should compile and behave
 correctly per source-level review," not as verified working.
+
+## Status update, 2026-09-17: Elder, Heist, Triplopia, Outlaw implemented; 44 of 50 now done
+
+Picked up on branch `claude/peaceful-babbage-tfadzw`. Re-reviewed all 10 remaining challenges from
+the list above rather than trusting the prior "Needs" column unchecked, and found two of them
+(#9 Elder, #6 Triplopia above) were mis-scoped, not just unresearched:
+
+- **Elder (#9 above) -- the "entirely new mechanic" it asked for doesn't exist, and doesn't need
+  to.** Re-reading the CSV's own verification requirement ("6 Scavengers **holding** the Masks at a
+  toll") shows "kit out" means a grasp, not an equip slot -- vanilla has no mask-wearing state for
+  an ordinary Scavenger at all (confirmed via decompiling `Scavenger.cs`/`ScavengerAI.cs`), only the
+  same held-item mechanic `ScavengerAI`'s own item-desirability table already scores `VultureMask`
+  for. Implemented as `ElderTracker`, off one new shared mechanism: `SurvivorTollState.
+  OnOutpostTick`, piggybacked onto the existing per-tick `ScavengerOutpost.Update` Postfix
+  (`SurvivorTollRosterObserveHook`) rather than a second Harmony patch on the same method. Checks,
+  every tick, whether 6+ distinct live Scavengers in an active outpost's own room are each
+  currently grasping a `VultureMask` -- a stateless snapshot, so "in one cycle" and "masks can be
+  gathered on any cycle" both fall out for free (a snapshot is inherently within one cycle, and only
+  the masks' CURRENT holders matter, never their history).
+- **Heist (#8 above) -- wired up with the flagged simplification already anticipated.** "The
+  lowest" GW toll still has no known room ID, so this accepts any GW toll (`GW_`-prefixed room),
+  same treatment as Criminal's own unresolved Stronghold room. Everything else reuses existing,
+  proven mechanisms: `SurvivorTollState.OnItemStolen` (built earlier, never actually consumed by any
+  tracker until now) filtered to a `DataPearl`, correlated by the stolen pearl's own specific
+  `EntityID.number` (not just "some pearl") against `SurvivorShelterContents.EntitiesInShelter` at
+  the next hibernation -- the same per-instance correlation Feast/Usurper already established.
+- **Triplopia (#? in the mechanism-gap list, "genuinely undetectable, leaning honor-system" per the
+  2026-09-16 write-up) -- a concrete signature existed all along, just not in the challenge's own
+  primary description.** The CSV's secondary verification line was overlooked in earlier passes:
+  "short clip of killing 3 Pole Plants spawned in the same den" -- a triple-spawned region shows up
+  as its own normally-unique objects (a den's one Pole Plant, `CreatureTemplate.Type.PoleMimic`)
+  existing 3 times simultaneously. `TriplopiaTracker` completes the instant 3+ live `PoleMimic`s are
+  seen at once in one Chimney Canopy room. Flagged simplification: doesn't check "survive the starve
+  cycle," doesn't require the sighting and a kill on separate cycles, doesn't require killing them
+  at all -- same class of trade-off as Nomad's "entered the gate room."
+- **Outlaw (#14 in the shared-mechanisms list, "research-only... `PrimalKillTracker`'s point table
+  alone likely won't reach realistic thresholds") -- the real formula, found.** Decompiling
+  `Menu/StoryGameStatisticsScreen.cs` (the CSV's own "Screenshot of final score screen" hint, taken
+  literally instead of treated as flavor text) turned up
+  `StoryGameStatisticsScreen.ScoreKeeper`: `sum(food×1 + survivedCycles×10 + deaths×-3 + quits×-3 +
+  (totalSeconds/60)×-1 + perKillCreatureValue)`, THEN multiplied by `(1 + fulfilled endgame
+  passages)` -- confirming "follow other standard scorerunning rules." Rather than re-deriving that
+  (the kill-value table alone is large), `OutlawTracker` reads vanilla's own already-computed
+  `ScoreKeeper.score` once the screen's own tally animation finishes (`allDone`). This needed two
+  small new pieces of GENERAL plumbing (not Outlaw-specific): `ChallengeCompletion.
+  ReportCompletionForSave` (persists straight off a `DeathPersistentSaveData` reference, no
+  Player/RainWorldGame needed -- this is the first tracker with no live Player to detect against at
+  all, since the story session is fully over by the time this screen exists) and two new reflected
+  accessors on `PrimalMenuAccess` (`IsScoreScreenDone`/`GetFinalScore`, same Gotcha #1 caution its
+  existing `saveState` accessor already uses). Detected via its own Harmony Postfix on
+  `StoryGameStatisticsScreen.Update`, not a `SurvivorEvents` subscription.
+
+**Broadcast and the true room-ID-dependent 4 (Journey/Visitor/Vegan/Fishtank) -- re-searched, still
+blocked, confirmed rather than assumed.** Broadcast: repeated the same exhaustive keyword sweep
+("laser," "beam," "signal," "array," "relay," "transmission," "antenna," "communication") fresh this
+session across the whole decompiled tree -- still nothing beyond menu/scene-illustration code:
+whatever drives the Communications Array laser mechanic isn't present in `reference/GameSource/` at
+all, which this repo has no level-geometry data for regardless. Journey/Visitor/Vegan/Fishtank: all
+four need a specific room ID or community map (a shelter, the tutorial's exact spawn room, a Hazer
+den map) that was never going to be findable by searching C# source -- every room ID this mod's
+trackers already rely on (Devotee's `SB_E05`, Martyr's `SS_LAB7`/`SS_A01`, Nomad's 4 gate rooms,
+Chieftain's `SL_AI`) came from the user directly, not from a search pass. Saint is unchanged --
+still genuinely underspecified, not a research gap.
+
+**44 of 50 challenges now have a tracker registered. Still not built or tested in-game** -- no .NET
+toolchain in this container this session either. `OutlawTracker` is the one to treat with the most
+suspicion of the 4 -- it's the first tracker touching `Menu.StoryGameStatisticsScreen`/
+`KarmaLadderScreen.ScoreKeeper`, a class family this mod has never compiled against before, versus
+Elder/Heist/Triplopia which all reuse already-proven mechanisms.

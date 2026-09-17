@@ -130,9 +130,20 @@ namespace Primal.Gimmicks
         /// that same outpost.</summary>
         public static event System.Action<ScavengerOutpost, Player, bool> OnTollPassed;
 
+        /// <summary>Added 2026-09-17 for Elder ("kit out any 6 Scavengers at any toll with Vulture
+        /// Masks in one cycle" -- the CSV's own note clarifies this means holding, not wearing, a
+        /// mask: "6 Scavengers holding the Masks at a toll"). Fires every tick for every active
+        /// outpost, piggybacking on SurvivorTollRosterObserveHook's own existing per-tick Postfix
+        /// on ScavengerOutpost.Update rather than adding a second Harmony patch on the same
+        /// method -- that hook already re-derives "is this outpost live and is PrimalSlot active"
+        /// once per tick for its own roster bookkeeping, so this just piggybacks the same
+        /// gate.</summary>
+        public static event System.Action<ScavengerOutpost> OnOutpostTick;
+
         internal static bool HasOutpostTransgressionSubscribers => OnOutpostTransgression != null;
         internal static bool HasItemStolenSubscribers => OnItemStolen != null;
         internal static bool HasTollPassedSubscribers => OnTollPassed != null;
+        internal static bool HasOutpostTickSubscribers => OnOutpostTick != null;
 
         internal static void RaiseOutpostTransgression(ScavengerOutpost outpost, Player player, bool becameHostile)
             => OnOutpostTransgression?.Invoke(outpost, player, becameHostile);
@@ -142,6 +153,9 @@ namespace Primal.Gimmicks
 
         internal static void RaiseTollPassed(ScavengerOutpost outpost, Player player, bool paid)
             => OnTollPassed?.Invoke(outpost, player, paid);
+
+        internal static void RaiseOutpostTick(ScavengerOutpost outpost)
+            => OnOutpostTick?.Invoke(outpost);
 
         // In-memory only, per characterID -- which outpost's room (if any) this character was
         // last known to be in, for SurvivorTollPassageHook to detect a genuine departure from.

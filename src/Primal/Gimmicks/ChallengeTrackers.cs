@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using HarmonyLib;
 
 namespace Primal.Gimmicks
 {
@@ -2680,6 +2681,309 @@ namespace Primal.Gimmicks
                     ReportCompletion(player, characterID, isLive: false);
                 }
             };
+        }
+    }
+
+    /// <summary>Added 2026-09-17. "Kit out any 6 Scavengers at any toll with Vulture Masks in one
+    /// cycle" -- the "Outstanding items" list originally flagged this as needing a wholly new
+    /// "is this Scavenger wearing a mask" mechanism (nothing like an equip/cosmetic slot exists for
+    /// an ordinary Scavenger, only the King's own permanent mask sprite). Re-reading the CSV's own
+    /// evidence requirement dissolves that gap instead: "a screenshot/short clip of 6 Scavengers
+    /// HOLDING the Masks at a toll" -- this is a grasp, the same thing ScavengerAI.cs's own item-
+    /// desirability table already scores VultureMask for (confirmed via decompilation -- masks are
+    /// just another item Scavengers evaluate picking up, nothing cosmetic). Consumes the new
+    /// SurvivorTollState.OnOutpostTick (see that event's own doc comment) to check, every tick,
+    /// whether 6+ distinct live Scavengers physically present in an active outpost's own room
+    /// (Room.updateList, the same list SurvivorTollState.OutpostIn already scans to find the
+    /// outpost itself) are each currently grasping a VultureMask. A plain snapshot check, so
+    /// "in one cycle" needs no separate scoping -- any single tick is inherently within one cycle --
+    /// and "the masks can be gathered on any cycle" needs no handling either, since this only ever
+    /// looks at the masks' CURRENT holders, never when or how they got there.</summary>
+    internal sealed class ElderTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Elder");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredMaskedScavengers = 6;
+
+        public override void Register()
+        {
+            SurvivorTollState.OnOutpostTick += (outpost) =>
+            {
+                Room room = outpost?.room;
+                List<UpdatableAndDeletable> updateList = room?.updateList;
+                if (updateList == null)
+                {
+                    return;
+                }
+
+                int maskedScavengers = 0;
+                foreach (UpdatableAndDeletable obj in updateList)
+                {
+                    if (!(obj is Scavenger scavenger) || scavenger.dead)
+                    {
+                        continue;
+                    }
+
+                    Creature.Grasp[] grasps = scavenger.grasps;
+                    if (grasps == null)
+                    {
+                        continue;
+                    }
+
+                    foreach (Creature.Grasp grasp in grasps)
+                    {
+                        if (grasp?.grabbed is VultureMask)
+                        {
+                            maskedScavengers++;
+                            break;
+                        }
+                    }
+                }
+
+                if (maskedScavengers < RequiredMaskedScavengers)
+                {
+                    return;
+                }
+
+                RainWorldGame game = room.game;
+                if (game?.Players == null)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player) || player.room != room)
+                    {
+                        continue;
+                    }
+                    if (TryGetEnabledCharacter(player, out string characterID))
+                    {
+                        ReportCompletion(player, characterID, isLive: true);
+                    }
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-17. "Steal a pearl from the lowest Garbage Wastes Scavenger Toll
+    /// without paying and hibernate with it before the rain starts." **Known simplification,
+    /// flagged explicitly, same treatment as CriminalTracker's own unresolved "Stronghold" room
+    /// above:** "the LOWEST" toll needs a specific room ID this pass didn't have available (no
+    /// in-repo map data says which of Garbage Wastes' several tolls is "lowest") -- this accepts
+    /// ANY Garbage Wastes toll instead. Consumes SurvivorTollState.OnItemStolen (a real
+    /// EventID.Theft, independent of whether it happened to also cross the separate hostility-
+    /// report threshold -- see that event's own doc comment) filtered to a DataPearl stolen from a
+    /// roomKey starting "GW_", then waits for OnSuccessfulHibernation with that EXACT pearl
+    /// instance (AbstractDataPearl.ID.number, not just any pearl of any kind) present in the
+    /// shelter -- the same "specific item instance, not just any item of that type" correlation
+    /// FeastTracker/UsurperTracker already use. "Toll scavengers must become visibly aggressive"
+    /// needs no separate check -- a real Theft SocialEvent already IS vanilla's own hostility
+    /// trigger. "Must show The Chieftain progress at under half, requiring The Survivor passage" is
+    /// a video-proof-format requirement for the community's own verification process, not
+    /// observable game state -- left unenforced, same treatment as the CSV's other pure-
+    /// documentation notes (e.g. Manslaughter's kill-credit guide link).</summary>
+    internal sealed class HeistTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Heist");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string GarbageWastesRoomPrefix = "GW_";
+
+        // Per characterID -- the stolen pearl's own EntityID.number, awaiting a hibernation with it
+        // still in the shelter.
+        private static readonly Dictionary<string, int> _stolenPearlByCharacter = new Dictionary<string, int>();
+
+        public override void Register()
+        {
+            SurvivorTollState.OnItemStolen += (outpost, player, item) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !(item is DataPearl pearl))
+                {
+                    return;
+                }
+
+                string roomKey = SurvivorTollRoster.RoomKeyFor(outpost);
+                if (roomKey == null || !roomKey.StartsWith(GarbageWastesRoomPrefix))
+                {
+                    return;
+                }
+
+                _stolenPearlByCharacter[characterID] = pearl.AbstractPearl.ID.number;
+            };
+
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID)
+                    || !_stolenPearlByCharacter.TryGetValue(characterID, out int pearlID))
+                {
+                    return;
+                }
+
+                foreach (AbstractWorldEntity entity in SurvivorShelterContents.EntitiesInShelter(player))
+                {
+                    if (entity is DataPearl.AbstractDataPearl pearl && pearl.ID.number == pearlID)
+                    {
+                        ReportCompletion(player, characterID, isLive: false);
+                        _stolenPearlByCharacter.Remove(characterID);
+                        return;
+                    }
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _stolenPearlByCharacter.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-17. "Triple-spawn Chimney Canopy, then survive the starve cycle" --
+    /// the doc's own "Outstanding items" research pass had concluded this was "likely a signature-
+    /// less emergent bug" needing either a concrete observable side effect or a decision to leave
+    /// it untracked. The CSV's own secondary evidence requirement supplies exactly that side
+    /// effect: "short clip of killing 3 Pole Plants spawned in the same den on the next cycle" --
+    /// a triple-spawned region manifests as its own normally-unique objects existing 3 times
+    /// simultaneously, and a Pole Plant (CreatureTemplate.Type.PoleMimic -- the same class
+    /// FlytrapTracker/SurvivorPoleMimicPredation already use for the community's "Pole Plant" name)
+    /// anchored to one den is exactly that kind of normally-unique object. Checked on every room
+    /// arrival (the same FindNearbyLiveScavengers-style room scan ChieftainTracker already uses,
+    /// generalized to PoleMimic): 3+ live PoleMimics simultaneously present in one Chimney Canopy
+    /// (CC) room is treated as the triple-spawn having happened. **Known simplification, flagged
+    /// explicitly:** this does not verify "survive the starve cycle" (no malnourishment/forced-
+    /// cycle check), does not require the sighting and the kill to happen on DIFFERENT cycles as
+    /// the CSV's own two-part verification implies, and does not require actually killing them --
+    /// same trade-off this mod already makes elsewhere (e.g. Nomad's "entering the gate room" vs.
+    /// literally crossing the middle line) when the full letter of a challenge needs in-room
+    /// position/state data this mod doesn't track.</summary>
+    internal sealed class TriplopiaTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Triplopia");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string ChimneyCanopy = "CC";
+        private const int RequiredPoleMimics = 3;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || region != ChimneyCanopy)
+                {
+                    return;
+                }
+
+                AbstractRoom room = player.abstractCreature?.Room;
+                if (room?.entities == null)
+                {
+                    return;
+                }
+
+                int liveMimics = 0;
+                foreach (AbstractWorldEntity entity in room.entities)
+                {
+                    if (entity is AbstractCreature creature && !creature.state.dead
+                        && creature.creatureTemplate?.type == CreatureTemplate.Type.PoleMimic)
+                    {
+                        liveMimics++;
+                    }
+                }
+
+                if (liveMimics >= RequiredPoleMimics)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-17. "Get 10k+ points in a Hunter run" -- the doc's own earlier
+    /// research pass found no lead at all after searching WinState.CycleCompleted and
+    /// RedsIllness.cs, and flagged the real scoring formula as possibly living in an undecompiled
+    /// DLC assembly. It doesn't -- it's in Menu.StoryGameStatisticsScreen.ScoreKeeper, the vanilla
+    /// end-of-campaign "final score screen" the CSV's own Notes column already points at
+    /// ("Screenshot of final score screen"). Traced via decompilation
+    /// (TickerIsDone/ScoreKeeper.AddMulti/ScoreKeeper.Update): the displayed number is
+    /// sum(food*1 + survivedCycles*10 + deaths*-3 + quits*-3 + (totalSeconds/60)*-1 +
+    /// perKillCreatureValue) -- vanilla's own GetNonSandboxKillscore/killScores table, a large
+    /// hardcoded list not worth re-deriving -- then MULTIPLIED by (1 + however many endgame
+    /// passages are already fulfilled when the screen tallies up), confirming the CSV's own "follow
+    /// other standard scorerunning rules" hint. Rather than re-implementing that formula (and its
+    /// large kill-value table) from scratch, this reads vanilla's own already-computed answer
+    /// straight off ScoreKeeper.score once the screen's own tally/multiplier animation finishes
+    /// (StoryGameStatisticsScreen.allDone) -- the same "ride vanilla's own tested machinery instead
+    /// of reimplementing it" preference this whole mod follows elsewhere.
+    ///
+    /// This is the first ChallengeTracker whose own detection point has no live Player to hang the
+    /// usual TryGetEnabledCharacter/ReportCompletion pair off -- by the time this screen exists, the
+    /// story session is fully over. Uses PrimalMenuAccess (extended this same pass with
+    /// allDone/scoreKeeper/ScoreKeeper.score reflected accessors, on the same Gotcha #1 reasoning
+    /// its existing GetSaveState/GetCharacterID already apply to this exact screen family) plus the
+    /// new GimmickGate.IsEnabledForCharacter/ChallengeCompletion.ReportCompletionForSave menu-
+    /// context pair instead -- CommunityChallengesButtonHook already established this same
+    /// no-Player-available pattern one screen earlier in the story-end flow (the cycle-end
+    /// CHALLENGES button). No live notification fires here (no HUD exists on this screen) --
+    /// completion here is silent until the player's next actual cycle-end summary reads the
+    /// persisted flag.
+    ///
+    /// Registered via its own Harmony patch (OutlawScoreScreenHook, below) rather than a
+    /// SurvivorEvents subscription, since Register() has nothing gameplay-side to subscribe to.</summary>
+    internal sealed class OutlawTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Outlaw");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredScore = 10000;
+
+        public override void Register()
+        {
+            // Nothing to subscribe to here -- see this class's own doc comment. Detection happens
+            // in OutlawScoreScreenHook's Postfix, below.
+        }
+
+        internal static void CheckScoreScreen(Menu.StoryGameStatisticsScreen screen)
+        {
+            if (screen == null || !PrimalMenuAccess.IsScoreScreenDone(screen))
+            {
+                return;
+            }
+
+            string characterID = PrimalMenuAccess.GetCharacterID(screen);
+            RainWorld rainWorld = screen.manager?.rainWorld;
+            if (characterID != SlugcatStats.Name.Red.value || rainWorld == null)
+            {
+                return;
+            }
+
+            if (!GimmickGate.IsEnabledForCharacter(rainWorld, characterID, CommunityChallengesGimmick.ID)
+                || !CommunityChallengesSettings.IsChallengeEnabled(characterID, _entry.ID))
+            {
+                return;
+            }
+
+            int? score = PrimalMenuAccess.GetFinalScore(screen);
+            if (!score.HasValue || score.Value < RequiredScore)
+            {
+                return;
+            }
+
+            DeathPersistentSaveData saveData = PrimalMenuAccess.GetSaveState(screen)?.deathPersistentSaveData;
+            ChallengeCompletion.ReportCompletionForSave(saveData, characterID, _entry.ID);
+        }
+    }
+
+    /// <summary>See OutlawTracker's own doc comment for the full trace of why this challenge is
+    /// detected from a menu screen Postfix rather than a SurvivorEvents subscription.</summary>
+    [HarmonyPatch(typeof(Menu.StoryGameStatisticsScreen), nameof(Menu.StoryGameStatisticsScreen.Update))]
+    internal static class OutlawScoreScreenHook
+    {
+        private static void Postfix(Menu.StoryGameStatisticsScreen __instance)
+        {
+            OutlawTracker.CheckScoreScreen(__instance);
         }
     }
 }

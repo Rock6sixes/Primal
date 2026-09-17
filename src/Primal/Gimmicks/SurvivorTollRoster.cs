@@ -141,6 +141,10 @@ namespace Primal.Gimmicks
                 return;
             }
             SurvivorTollRoster.Observe(__instance);
+            if (SurvivorTollState.HasOutpostTickSubscribers)
+            {
+                SurvivorTollState.RaiseOutpostTick(__instance);
+            }
         }
     }
 

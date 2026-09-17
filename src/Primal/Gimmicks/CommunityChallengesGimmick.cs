@@ -298,9 +298,38 @@ namespace Primal.Gimmicks
             }
 
             DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(GimmickGate.GameFor(player));
-            if (saveData == null)
+            if (!RecordCompletion(saveData, characterID, challengeID))
             {
                 return;
+            }
+
+            if (isLive)
+            {
+                ChallengeNotification.ShowChallengeCompleted(player, DisplayNameFor(challengeID));
+            }
+        }
+
+        /// <summary>Added 2026-09-17 for Outlaw -- the first challenge whose own detection point
+        /// (Menu.StoryGameStatisticsScreen, the vanilla end-of-campaign score screen) has no live
+        /// Player or RainWorldGame to hang the usual ReportCompletion overload off: by the time that
+        /// screen exists, the story session is fully over. Takes the DeathPersistentSaveData
+        /// directly instead (KarmaLadderScreen.saveState.deathPersistentSaveData is reachable from
+        /// that menu with no Player needed -- see OutlawTracker's own doc comment). Never fires the
+        /// live popup+sound -- there's no HUD on this screen to show it on -- so completion here is
+        /// silent until the player's next actual cycle-end summary reads the persisted flag.</summary>
+        public static void ReportCompletionForSave(DeathPersistentSaveData saveData, string characterID, string challengeID)
+        {
+            RecordCompletion(saveData, characterID, challengeID);
+        }
+
+        /// <summary>The part shared by both overloads above: idempotently persist the marker and
+        /// update the live accumulator. Returns true only the first time this challenge is ever
+        /// completed by this character on this save.</summary>
+        private static bool RecordCompletion(DeathPersistentSaveData saveData, string characterID, string challengeID)
+        {
+            if (characterID == null || challengeID == null || saveData == null)
+            {
+                return false;
             }
 
             bool firstTimeEver = PrimalSaveMarkers.Add(
@@ -309,15 +338,11 @@ namespace Primal.Gimmicks
             if (!firstTimeEver)
             {
                 // Already completed on some earlier cycle -- idempotent, nothing more to do.
-                return;
+                return false;
             }
 
             GetOrCreate(_accumulating, characterID).Add(challengeID);
-
-            if (isLive)
-            {
-                ChallengeNotification.ShowChallengeCompleted(player, DisplayNameFor(challengeID));
-            }
+            return true;
         }
 
         /// <summary>Has this character ever completed this challenge, on this save file?</summary>
@@ -526,6 +551,10 @@ namespace Primal.Gimmicks
             new AscensionTracker(),
             new FriendChallengeTracker(),
             new ScholarTracker(),
+            new ElderTracker(),
+            new HeistTracker(),
+            new TriplopiaTracker(),
+            new OutlawTracker(),
         };
 
         private static bool _registered;

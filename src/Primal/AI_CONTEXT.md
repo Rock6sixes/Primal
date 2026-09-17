@@ -5138,6 +5138,98 @@ toolchain was available in this container for this entire session. Treat all 40 
 and behave correctly per source-level review, verified against `reference/GameSource/*.cs`," not as
 confirmed-working.
 
+## 2026-09-17: 4 more of the 10 remaining challenges implemented — 44 of 50 now tracked
+
+Picked up directly from "Final status before merge to main" above, on branch
+`claude/peaceful-babbage-tfadzw` (46 commits ahead of `main` as of session start — the
+`survivor-gimmick` merge described above hadn't actually reached `origin/main` yet; `main` was
+still just its initial commit). Reviewed all 10 remaining challenges again from scratch rather than
+trusting last session's own conclusions unchecked, and found two of the earlier "blocked" verdicts
+were wrong, not just incomplete:
+
+- **Elder — implemented.** The earlier doc entry said this "needs a wholly new mechanism: detecting
+  a Scavenger's *equipped* mask item." Re-reading the CSV's own evidence requirement ("a
+  screenshot/short clip of 6 Scavengers **holding** the Masks at a toll") shows this was never about
+  equipping anything — vanilla has no mask-wearing slot for an ordinary Scavenger at all, only a
+  grasp, the same thing `ScavengerAI`'s own item-desirability table already scores `VultureMask`
+  for. New shared mechanism added for this: `SurvivorTollState.OnOutpostTick`, a per-tick event
+  piggybacked onto `SurvivorTollRosterObserveHook`'s existing Postfix on `ScavengerOutpost.Update`
+  (no second Harmony patch needed on the same method). `ElderTracker` (`ChallengeTrackers.cs`)
+  checks every tick whether 6+ distinct live Scavengers in an active outpost's own room
+  (`Room.updateList`) are each currently grasping a `VultureMask`. Stateless — a plain snapshot
+  check needs no cycle-scoping, since any single tick is inherently within one cycle.
+- **Heist — implemented, with a flagged simplification.** "The **lowest** Garbage Wastes Scavenger
+  Toll" still has no known room ID (same gap `CriminalTracker`'s own "Stronghold" already accepted a
+  simplification for) — this accepts ANY Garbage Wastes toll instead, same treatment. Everything
+  else is real: `SurvivorTollState.OnItemStolen` (already-existing mechanism, previously unused by
+  any tracker) filtered to a `DataPearl` stolen from a `GW_`-prefixed room, correlated by the exact
+  stolen pearl's own `EntityID.number` (not just "some pearl") against
+  `SurvivorShelterContents.EntitiesInShelter` at the next `OnSuccessfulHibernation` — the same
+  specific-instance correlation `FeastTracker`/`UsurperTracker` already established.
+- **Triplopia — implemented, with a flagged simplification.** The earlier doc entry said this was
+  "likely a signature-less emergent bug" needing "a concrete observable side effect to key on, or a
+  decision to leave it untracked." The CSV's own secondary evidence line supplies exactly that
+  signature: "short clip of killing **3 Pole Plants spawned in the same den**." A triple-spawned
+  region manifests as its own normally-unique objects (like a den's one Pole Plant,
+  `CreatureTemplate.Type.PoleMimic`) existing 3 times at once. `TriplopiaTracker` completes the
+  instant 3+ live `PoleMimic`s are seen simultaneously in one Chimney Canopy (`CC`) room. Flagged
+  gap: doesn't check "survive the starve cycle" (no malnourishment/forced-cycle state), and doesn't
+  require actually killing them or that the sighting/kill happen on separate cycles the way the
+  CSV's own two-part verification implies — same class of trade-off as Nomad's "entered the gate
+  room" standing in for "crossed the middle line."
+- **Outlaw — implemented.** The earlier doc entry said the real Hunter-run scoring formula had been
+  searched for exhaustively with no result, and might live in an undecompiled DLC assembly. It
+  doesn't — decompiling `Menu/StoryGameStatisticsScreen.cs` (the CSV's own "Screenshot of final
+  score screen" hint, taken literally) turned up the whole thing:
+  `StoryGameStatisticsScreen.ScoreKeeper` computes `sum(food×1 + survivedCycles×10 + deaths×-3 +
+  quits×-3 + (totalSeconds/60)×-1 + perKillCreatureValue)` (creature values from vanilla's own
+  `GetNonSandboxKillscore`/`killScores` table) then **multiplies the whole thing by (1 + however
+  many endgame passages are already fulfilled)** — confirming the CSV's own "follow other standard
+  scorerunning rules" hint. Rather than re-deriving that formula (the kill-value table alone is
+  large), `OutlawTracker` reads vanilla's own already-computed answer straight off
+  `ScoreKeeper.score` once the screen's own animation finishes (`StoryGameStatisticsScreen.
+  allDone`), the same "ride vanilla's own tested machinery" preference used throughout this mod.
+  This is the **first ChallengeTracker with no live Player** to detect against — by the time this
+  screen exists the story session is fully over — which needed two small new pieces of shared
+  plumbing rather than anything Outlaw-specific: `ChallengeCompletion.ReportCompletionForSave`
+  (persists a completion straight from a `DeathPersistentSaveData` reference, no `Player`/
+  `RainWorldGame` needed, and never fires the live popup since there's no HUD on this screen to show
+  it on) and three new reflected accessors on `PrimalMenuAccess`
+  (`IsScoreScreenDone`/`GetFinalScore`, alongside the existing `GetSaveState`/`GetCharacterID` which
+  already covered this exact screen family via its `KarmaLadderScreen` base class) — reflected
+  rather than direct field access on the same Gotcha #1 reasoning `PrimalMenuAccess`'s own header
+  comment already gives for `saveState`, even though nothing here has actually been caught broken
+  yet, since this is genuinely new territory for the mod. Detected via its own Harmony Postfix on
+  `StoryGameStatisticsScreen.Update` (`OutlawScoreScreenHook`) rather than a `SurvivorEvents`
+  subscription, since there's no gameplay-side event this challenge's own detection point could
+  hang off.
+
+**Broadcast and the other 6 — re-checked, genuinely still blocked, not just untried again:**
+- **Broadcast** — repeated the same broad keyword search ("laser," "beam," "signal," "array,"
+  "relay," "transmission," "antenna," "Communication," "Sky Island") across the whole decompiled
+  source fresh this session; still zero hits beyond menu/scene-illustration code. Confirmed, not
+  just repeated: whatever implements the Communications Array laser-tower mechanic isn't present
+  anywhere in `reference/GameSource/` at all (it may be encoded in room/level data this repo simply
+  doesn't have, not missed source scanning). Still needs the user's own knowledge of the real
+  class/field names, if any exist as identifiable C# state at all rather than being purely
+  level-geometry-driven.
+- **Journey, Visitor, Vegan, Fishtank** — all four need exact room IDs or community map data (a
+  specific shelter, the tutorial's exact spawn room/fruit positions, a Hazer den map) that simply
+  isn't derivable from decompiled C# source — this repo has no level/room geometry files at all,
+  only compiled behavior. Every room ID this mod's own trackers already rely on elsewhere (Devotee's
+  `SB_E05`, Martyr's `SS_LAB7`/`SS_A01`, Nomad's four gate rooms, Chieftain's `SL_AI`) was supplied
+  by the user directly, not found by searching source — these four are waiting on the same kind of
+  input, not a deeper search pass.
+- **Saint** — unchanged from the prior write-up: genuinely underspecified (the exclusion clauses
+  describe technique legality, not observable state), not a research gap.
+
+**None of these 4 new trackers have been built or tested in-game** — same standing caveat as the
+other 40 (no `.NET` toolchain in this container this session either). `OutlawTracker` in particular
+touches an entirely new class family (`Menu.StoryGameStatisticsScreen`/`KarmaLadderScreen.
+ScoreKeeper`) this mod has never compiled against before, so treat it with a bit more suspicion than
+the other three (which all reuse already-proven mechanisms) until it's actually been through a
+build.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
