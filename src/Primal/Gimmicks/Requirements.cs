@@ -6,7 +6,7 @@ namespace Primal.Gimmicks
 {
     /// <summary>
     /// Region acronyms (World.name), confirmed via decompiling Menu/RegionSelectMenu.cs the same
-    /// way DescensionTracker.Regions below already established. Added 2026-09-17 after several
+    /// way DescensionRequirement.Regions below already established. Added 2026-09-17 after several
     /// trackers turned out to have independently redeclared their own private copy of the same
     /// string under different local names -- Five Pebbles ("SS") alone was separately declared as
     /// "FivePebbles" four times (Pilgrimage, Chef, Martyr, and a "SS_" prefix variant in Saint),
@@ -35,8 +35,8 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>
-    /// Concrete ChallengeTracker implementations, one class per community challenge, registered in
-    /// ChallengeTrackerRegistry.All at the bottom of this file. First three picked without
+    /// Concrete Requirement implementations, one class per community challenge, registered in
+    /// RequirementRegistry.All at the bottom of this file. First three picked without
     /// deliberating over which were "most" easy (per explicit request) -- each one just happened
     /// to fall out of the shared mechanisms/existing gimmicks already built with essentially no
     /// new detection logic of its own:
@@ -57,12 +57,19 @@ namespace Primal.Gimmicks
     /// Primal-slot character's kills unconditionally. Both trackers below now read that instead,
     /// so either can complete independent of whether Kill List is assigned at all.
     ///
+    /// **2026-09-17: renamed from ChallengeTracker to Requirement, this file from
+    /// ChallengeTrackers.cs to Requirements.cs.** Part of the general "Requirements layer"
+    /// refactor -- see Requirement.cs's own header comment for the full architecture. Every one of
+    /// these 50 classes keeps its exact prior detection logic; what changed is the base class
+    /// (Requirement, no longer hardwired to Community Challenges specifically) and how a
+    /// character opts into one (a direct per-(character, requirement) toggle now, not "assign the
+    /// Community Challenges gimmick, then also check this specific challenge").
+    ///
     /// **Not yet built or tested in-game** -- no .NET toolchain in this container.
     /// </summary>
-    internal sealed class DescensionTracker : ChallengeTracker
+    internal sealed class DescensionRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Descension");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Descension";
 
         /// <summary>The 12 vanilla (MSC/Watcher disabled) regions -- confirmed via decompiling
         /// Menu/RegionSelectMenu.cs, whose own `new string[12]` of display names lines up 1:1,
@@ -94,7 +101,7 @@ namespace Primal.Gimmicks
                 // Checks the region this exact death just happened in directly, rather than
                 // relying on SurvivorRegionMarkers already having recorded it -- SurvivorEvents
                 // fires subscribers in registration order, and SurvivorRegionMarkers.Init() is
-                // registered before ChallengeTrackerRegistry.RegisterAll() runs (see
+                // registered before RequirementRegistry.RegisterAll() runs (see
                 // RainWorldHooks.Postfix), so in practice the marker for THIS death would already
                 // be written by the time this handler runs -- but not depending on that ordering
                 // holding is one less thing to get subtly wrong later if that registration order
@@ -116,10 +123,9 @@ namespace Primal.Gimmicks
         }
     }
 
-    internal sealed class RangerTracker : ChallengeTracker
+    internal sealed class RangerRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Ranger");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Ranger";
 
         private const int RequiredUniqueKills = 32;
 
@@ -154,10 +160,9 @@ namespace Primal.Gimmicks
         }
     }
 
-    internal sealed class SpearfisherTracker : ChallengeTracker
+    internal sealed class SpearfisherRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Spearfisher");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Spearfisher";
 
         public override void Register()
         {
@@ -180,10 +185,9 @@ namespace Primal.Gimmicks
     /// <summary>Kill all 9 Lizard types in a single cycle and hibernate. Unlike Ranger (any 32
     /// EVER, whole save file), this is scoped to one cycle -- built on PrimalKillTracker
     /// .WasKilledThisCycle rather than IsKilled for exactly that reason.</summary>
-    internal sealed class FoeTracker : ChallengeTracker
+    internal sealed class FoeRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Foe");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Foe";
 
         // Vanilla's full 9-color Lizard roster -- the same 9 already in KillListRegistry.All.
         private static readonly CreatureTemplate.Type[] LizardTypes =
@@ -224,10 +228,9 @@ namespace Primal.Gimmicks
     /// <summary>Earn 300 kill points in one cycle. Same "this cycle only" scoping as Foe, via
     /// PrimalKillTracker.ThisCycleKillPointTotal -- see that method's own doc comment for the one
     /// real limitation (each distinct species counts once, not per-kill).</summary>
-    internal sealed class MassacreTracker : ChallengeTracker
+    internal sealed class MassacreRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Massacre");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Massacre";
 
         private const int RequiredPoints = 300;
 
@@ -255,10 +258,9 @@ namespace Primal.Gimmicks
     /// increments on a SUCCESSFUL cycle end, inside RainCycleTick, which Win's own body calls
     /// AFTER this Prefix-driven check already ran -- so reading it here, at Win-Prefix time,
     /// still correctly reflects "which cycle is this cycle" rather than the next one).</summary>
-    internal sealed class MotherTracker : ChallengeTracker
+    internal sealed class MotherRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Mother");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Mother";
 
         private const int RequiredEggs = 7;
 
@@ -296,12 +298,11 @@ namespace Primal.Gimmicks
     /// rather than re-derived. "Tamed" is checked as `friend == player` specifically (tamed BY
     /// THIS character), not merely `friend != null` (tamed by anyone) -- matching the challenge's
     /// own wording ("without taming... it").</summary>
-    internal sealed class SleepoverTracker : ChallengeTracker
+    internal sealed class SleepoverRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Sleepover");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Sleepover";
 
-        // Industrial Complex's region acronym -- same roster DescensionTracker.Regions already
+        // Industrial Complex's region acronym -- same roster DescensionRequirement.Regions already
         // confirmed via decompiling Menu/RegionSelectMenu.cs.
         private const string IndustrialComplex = RegionCodes.IndustrialComplex;
 
@@ -345,10 +346,9 @@ namespace Primal.Gimmicks
     /// false). A future pass could patch RainWorld.ShowAchievement (or similar) for the live
     /// case, if one exists and turns out to fire achievement-by-achievement -- not investigated
     /// this pass.</summary>
-    internal sealed class PassagesTracker : ChallengeTracker
+    internal sealed class PassagesRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Passages");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Passages";
 
         public override void Register()
         {
@@ -388,10 +388,9 @@ namespace Primal.Gimmicks
     /// a runtime size stat) -- **judgment call, flagged explicitly:** counted all three as
     /// satisfying "a centipede" rather than guessing the community means only the base
     /// (mature-sized) one.</summary>
-    internal sealed class TastyTracker : ChallengeTracker
+    internal sealed class TastyRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Tasty");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Tasty";
 
         private static readonly string[] CentipedeTypes =
         {
@@ -414,7 +413,7 @@ namespace Primal.Gimmicks
                     if (killerType == type)
                     {
                         // A death is as "live" a moment as this mod ever sees -- same reasoning
-                        // DescensionTracker's own fall-death completion already uses.
+                        // DescensionRequirement's own fall-death completion already uses.
                         ReportCompletion(player, characterID, isLive: true);
                         return;
                     }
@@ -425,13 +424,12 @@ namespace Primal.Gimmicks
 
     /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnPlayerDeath exists. "Get
     /// eaten by a Daddy Long Legs inside of a shelter" -- a direct read of the same two flags
-    /// TastyTracker uses, just the other location check (inShelter instead of inDen) and a single
+    /// TastyRequirement uses, just the other location check (inShelter instead of inDen) and a single
     /// killer type (CreatureTemplate.Type.DaddyLongLegs, confirmed via decompiling
     /// CreatureTemplate.cs).</summary>
-    internal sealed class LeukocyteTracker : ChallengeTracker
+    internal sealed class LeukocyteRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Leukocyte");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Leukocyte";
 
         public override void Register()
         {
@@ -456,20 +454,19 @@ namespace Primal.Gimmicks
     /// the next one), checked live the instant the 10th flower lands. KarmaFlower is a plain
     /// vanilla class (`public class KarmaFlower : ... IPlayerEdible ...`) -- a direct `is`
     /// type-check needs no reflection, same as every other concrete-type check already in this
-    /// file (e.g. FoeTracker's CreatureTemplate.Type comparisons). **Known gap, flagged
+    /// file (e.g. FoeRequirement's CreatureTemplate.Type comparisons). **Known gap, flagged
     /// explicitly:** the community rules' own "No Hunter Flower!" exclusion (a specific
     /// Hunter-campaign Karma Flower that apparently shouldn't count) isn't checked -- no
     /// vanilla flag for it was found on a first pass, and confirming one exists would need
     /// dedicated research beyond this batch's "wire up existing mechanics" scope.</summary>
-    internal sealed class VisionsTracker : ChallengeTracker
+    internal sealed class VisionsRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Visions");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Visions";
 
         private const int RequiredFlowers = 10;
 
         // In-memory only, per characterID -- never persisted, matching every other "this cycle"
-        // counter in this file (see FoeTracker/MassacreTracker's own use of PrimalKillTracker's
+        // counter in this file (see FoeRequirement/MassacreRequirement's own use of PrimalKillTracker's
         // equivalent in-memory tables).
         private static readonly Dictionary<string, int> _eatenThisCycle = new Dictionary<string, int>();
 
@@ -497,16 +494,15 @@ namespace Primal.Gimmicks
 
     /// <summary>Added 2026-09-16, wired up now that SurvivorEvents.OnObjectEaten exists. "Eat a
     /// Mushroom from 4 different regions on the starting cycle" -- a per-character, per-cycle
-    /// distinct-region set (same reset-at-cycle-boundary shape as VisionsTracker), gated
-    /// additionally on SaveState.cycleNumber == 0 the same way MotherTracker already establishes
+    /// distinct-region set (same reset-at-cycle-boundary shape as VisionsRequirement), gated
+    /// additionally on SaveState.cycleNumber == 0 the same way MotherRequirement already establishes
     /// "starting cycle" (checked at the moment of eating here, not at Win time, since this
     /// challenge cares about the eating itself happening during cycle 0 -- reading cycleNumber
     /// mid-cycle is safe the same way it's safe at Win-Prefix time, since RainCycleTick's own
     /// increment only ever happens inside a successful Win call, never mid-cycle).</summary>
-    internal sealed class MycologistTracker : ChallengeTracker
+    internal sealed class MycologistRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Mycologist");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Mycologist";
 
         private const int RequiredRegions = 4;
 
@@ -566,10 +562,9 @@ namespace Primal.Gimmicks
     /// flagged explicitly:** the challenge's own "No Echo pacification!" exclusion isn't checked,
     /// left as an honor-system note, the same treatment Saint/Vegan's own unenforceable clauses
     /// already get in this doc.</summary>
-    internal sealed class UsurperTracker : ChallengeTracker
+    internal sealed class UsurperRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Usurper");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Usurper";
 
         private const int RequiredDemasks = 2;
 
@@ -636,10 +631,9 @@ namespace Primal.Gimmicks
     /// and Bonus cycles to 0 via remix assists") rather than any in-run state this mod could check
     /// -- reaching this ending at all already implies a completed run, so no separate cycle-number
     /// check is applied here. "No Guardian skip!" is likewise left as an honor-system note.</summary>
-    internal sealed class PerseveranceTracker : ChallengeTracker
+    internal sealed class PerseveranceRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Perseverance");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Perseverance";
 
         public override void Register()
         {
@@ -677,10 +671,9 @@ namespace Primal.Gimmicks
     /// SurvivorEvents.OnObjectEaten eventually reports being eaten), so checking `edible is
     /// Centipede` and cross-referencing its own abstractCreature.ID.number against
     /// WasInstanceKilledBy is a direct, non-guessed correlation, not an approximation.</summary>
-    internal sealed class FeastTracker : ChallengeTracker
+    internal sealed class FeastRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Feast");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Feast";
 
         public override void Register()
         {
@@ -723,10 +716,9 @@ namespace Primal.Gimmicks
     /// method (a video of the full cycle) implies the sighting and the sleep happen in the same
     /// attempt, so the "seen together" flag resets on both a successful sleep (whether or not it
     /// completed the challenge) and a failed cycle.</summary>
-    internal sealed class SafariTracker : ChallengeTracker
+    internal sealed class SafariRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Safari");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Safari";
 
         // In-memory only, per characterID -- has this character seen all three alive together at
         // some point THIS cycle.
@@ -792,11 +784,10 @@ namespace Primal.Gimmicks
     /// needed here at all, only the region-name research the user provided. "Lineage a Cyan Lizard
     /// in Outskirts" means tracking starts the first time this character is seen carrying a live
     /// Cyan Lizard while in SU specifically -- CreatureTemplate.Type.CyanLizard is already a
-    /// confirmed distinct Type (reused from FoeTracker's own roster).</summary>
-    internal sealed class PilgrimageTracker : ChallengeTracker
+    /// confirmed distinct Type (reused from FoeRequirement's own roster).</summary>
+    internal sealed class PilgrimageRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Pilgrimage");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Pilgrimage";
 
         private const string Outskirts = RegionCodes.Outskirts;
         private const string ShadedCitadel = RegionCodes.ShadedCitadel;
@@ -886,7 +877,7 @@ namespace Primal.Gimmicks
 
     /// <summary>Added 2026-09-16. "Carry a live albino Jetfish from Subterranean into Five
     /// Pebbles, kill it on a zapper and eat it." Carry-tracking is the same SU-style shape as
-    /// PilgrimageTracker (start tracking the first time this character is seen carrying a live
+    /// PilgrimageRequirement (start tracking the first time this character is seen carrying a live
     /// albino Jetfish while in Subterranean specifically, abandon if ever not-carried or dead).
     /// The zap-kill half consumes the new SurvivorHazardDeath.OnZapCoilDeath (see that class's own
     /// doc comment for why this is a room-proximity proxy, not a guaranteed per-kill signal) --
@@ -895,11 +886,10 @@ namespace Primal.Gimmicks
     /// OnZapCoilDeath only hands back the dead Creature (no player/character -- a zap coil kills
     /// autonomously, nobody's killTag is ever set), a small reverse index
     /// (creature instance number -&gt; characterID) resolves who was carrying it, the same
-    /// shape-of-problem OfferingTracker's own OnLeviathanSwallow integration has.</summary>
-    internal sealed class ChefTracker : ChallengeTracker
+    /// shape-of-problem OfferingRequirement's own OnLeviathanSwallow integration has.</summary>
+    internal sealed class ChefRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Chef");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Chef";
 
         private const string Subterranean = RegionCodes.Subterranean;
         private const string FivePebbles = RegionCodes.FivePebbles;
@@ -1018,14 +1008,13 @@ namespace Primal.Gimmicks
     /// (SurvivorCreatureVariant.IsAlbinoLeviathan). Since OnLeviathanSwallow only hands back the
     /// prey Creature (no player/character), the player's own AbstractCreature is captured at the
     /// moment tracking starts and re-resolved to a live Player at swallow time -- simpler than
-    /// ChefTracker's characterID-keyed reverse index since ReportCompletion needs an actual Player
+    /// ChefRequirement's characterID-keyed reverse index since ReportCompletion needs an actual Player
     /// reference anyway. "Survive the encounter" is checked as "the player is not ALSO currently
     /// dead at the exact moment of the swallow" -- not a longer post-encounter survival window,
     /// flagged as a deliberate simplification.</summary>
-    internal sealed class OfferingTracker : ChallengeTracker
+    internal sealed class OfferingRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Offering");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Offering";
 
         private const string Subterranean = RegionCodes.Subterranean;
 
@@ -1129,10 +1118,9 @@ namespace Primal.Gimmicks
     /// state check. Consumes the new SurvivorPinning.OnCreaturePinnedToWall directly: "live"
     /// means the creature must not be dead at the exact moment it gets pinned (a pin can
     /// definitely also be lethal, so this doesn't assume every pin qualifies).</summary>
-    internal sealed class OrnamentsTracker : ChallengeTracker
+    internal sealed class OrnamentsRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Ornaments");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Ornaments";
 
         private const int RequiredPins = 12;
 
@@ -1176,10 +1164,9 @@ namespace Primal.Gimmicks
     /// SurvivorVanillaProgress.AllSandboxUnlockIDs() directly -- with MSC disabled, that list is
     /// already naturally scoped to the vanilla roster (see that method's own doc comment), so no
     /// extra category filtering is applied here.</summary>
-    internal sealed class CollectorTracker : ChallengeTracker
+    internal sealed class CollectorRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Collector");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Collector";
 
         public override void Register()
         {
@@ -1226,10 +1213,9 @@ namespace Primal.Gimmicks
     /// consecutive successful cycles"), a cycle ending in DEATH does NOT reset the chain (only a
     /// hibernation from a different shelter does) -- Devotee's own OnCycleFailed handler is
     /// deliberately absent for this reason.</summary>
-    internal sealed class DevoteeTracker : ChallengeTracker
+    internal sealed class DevoteeRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Devotee");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Devotee";
 
         private const string DepthsRoom = "SB_E05";
 
@@ -1313,10 +1299,9 @@ namespace Primal.Gimmicks
     /// from the moment this tracker starts paying attention, touches one of the two rot-less
     /// rooms at some point, and ends in a successful hibernation -- leaving Five Pebbles at any
     /// point abandons the attempt.</summary>
-    internal sealed class MartyrTracker : ChallengeTracker
+    internal sealed class MartyrRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Martyr");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Martyr";
 
         private const string FivePebbles = RegionCodes.FivePebbles;
         private static readonly string[] RotlessMemoryConfluxRooms = { "SS_LAB7", "SS_A01" };
@@ -1395,10 +1380,9 @@ namespace Primal.Gimmicks
     /// simplification:** doesn't verify the "highest room in Communication Arrays" waypoint (its
     /// exact room ID wasn't available this pass) -- only the final Guardians-room arrival with
     /// both creatures alive, uninterrupted carrying, and no starving is checked.</summary>
-    internal sealed class GuardianTracker : ChallengeTracker
+    internal sealed class GuardianRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Guardian");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Guardian";
 
         private const string Subterranean = RegionCodes.Subterranean;
         private const string GuardiansRoom = "SB_D03";
@@ -1486,13 +1470,12 @@ namespace Primal.Gimmicks
     /// this event is a Postfix on RainWorldGame.Win (the only one in this whole event bus that has
     /// to be), so by the time it fires, SaveState.cycleNumber has ALREADY incremented past the
     /// cycle that just ended. Every OTHER "starting cycle" check in this codebase
-    /// (MotherTracker, MycologistTracker) reads cycleNumber from a PREFIX, where it's still 0 --
+    /// (MotherRequirement, MycologistRequirement) reads cycleNumber from a PREFIX, where it's still 0 --
     /// getting this backwards here would silently detect the SECOND cycle instead of the
     /// first.</summary>
-    internal sealed class DespicableTracker : ChallengeTracker
+    internal sealed class DespicableRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Despicable");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Despicable";
 
         public override void Register()
         {
@@ -1516,7 +1499,7 @@ namespace Primal.Gimmicks
     /// <summary>Added 2026-09-16, per the user's own confirmation: "SL_AI contains the Looks to
     /// the Moon iterator entity and if you throw a neuron to her, she stores them." Confirmed via
     /// decompilation: `SLOracleBehavior.ConvertingSSSwarmer()` increments
-    /// `SLOrcacleState.neuronsLeft` (the same field DespicableTracker's own MoonThief detection
+    /// `SLOrcacleState.neuronsLeft` (the same field DespicableRequirement's own MoonThief detection
     /// already reads, confirming this is one persistent, real vanilla counter, not a guess) --
     /// this is Moon accepting an SSOracleSwarmer (a Five Pebbles neuron) delivered to her.
     /// Per the CSV's own explicit numeric requirement ("Total neurons at the end of the challenge
@@ -1532,10 +1515,9 @@ namespace Primal.Gimmicks
     /// back DeathPersistentSaveData (see that event's own updated doc comment) -- trivially
     /// available at its raise site and, since nothing else consumed that event yet, cheaper than
     /// adding a second event just to carry one already-available value.</summary>
-    internal sealed class EnlightenmentTracker : ChallengeTracker
+    internal sealed class EnlightenmentRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Enlightenment");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Enlightenment";
 
         private const int RequiredNeurons = 12;
         private const string PassagedMarkerKey = "PRIMAL_ENLIGHTENMENT_PASSAGED";
@@ -1578,12 +1560,11 @@ namespace Primal.Gimmicks
     /// checked as "not currently dead" rather than a longer post-event survival window. Since the
     /// event fires from an autonomous creature-vs-creature Collide call with no player directly
     /// involved, this iterates the game's own Players list (the same pattern
-    /// PerseveranceTracker's own OnGameEnding consumption already uses) to find whichever gated
+    /// PerseveranceRequirement's own OnGameEnding consumption already uses) to find whichever gated
     /// character is present.</summary>
-    internal sealed class FlytrapTracker : ChallengeTracker
+    internal sealed class FlytrapRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Flytrap");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Flytrap";
 
         public override void Register()
         {
@@ -1623,10 +1604,9 @@ namespace Primal.Gimmicks
     /// already persistent (session-only, not per-cycle). Checked on every room arrival at the
     /// outpost's own room, so it fires the next time the player happens to walk back through
     /// after the last guard dies.</summary>
-    internal sealed class ManslaughterTracker : ChallengeTracker
+    internal sealed class ManslaughterRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Manslaughter");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Manslaughter";
 
         // Per (characterID, roomKey) -- has this outpost ever gone hostile against this character.
         private static readonly HashSet<string> _everHostile = new HashSet<string>();
@@ -1687,10 +1667,9 @@ namespace Primal.Gimmicks
     /// in the same room (the "Karma Gate" moment); "2+" is a judgment call, flagged explicitly --
     /// the challenge's own text just says "Scavengers" (plural) with no explicit count given
     /// anywhere in its own CSV row.</summary>
-    internal sealed class ChieftainTracker : ChallengeTracker
+    internal sealed class ChieftainRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Chieftain");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Chieftain";
 
         private const string Shoreline = RegionCodes.Shoreline;
         private const string MoonRoom = "SL_AI";
@@ -1781,10 +1760,9 @@ namespace Primal.Gimmicks
     /// stayed inside Garbage Wastes (GW) during the starting cycle (cycleNumber == 0, checked
     /// during ordinary room-entry, not a Win-Prefix/Postfix -- no timing gotcha here, cycleNumber
     /// is stable for the whole cycle once set).</summary>
-    internal sealed class CriminalTracker : ChallengeTracker
+    internal sealed class CriminalRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Criminal");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Criminal";
 
         private const string GarbageWastes = RegionCodes.GarbageWastes;
         private const int RequiredUnpaidTolls = 3;
@@ -1863,10 +1841,9 @@ namespace Primal.Gimmicks
     /// own wording is more precise ("crossing the middle line"), but gate rooms are typically
     /// simple single-purpose transition rooms where entering and crossing are practically the
     /// same event; Primal has no in-room-position data to check the literal middle line.</summary>
-    internal sealed class NomadTracker : ChallengeTracker
+    internal sealed class NomadRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Nomad");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Nomad";
 
         private static readonly string[] KarmaGates = { "GATE_HI_GW", "GATE_SU_HI", "GATE_HI_CC", "GATE_HI_SH" };
 
@@ -1919,10 +1896,9 @@ namespace Primal.Gimmicks
     /// during the original 8-mechanism batch specifically for this shape of challenge and never
     /// used until now. 3m45s = 225s = 9000 ticks at the confirmed 40 ticks/second nominal
     /// rate.</summary>
-    internal sealed class CircuitTracker : ChallengeTracker
+    internal sealed class CircuitRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Circuit");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Circuit";
 
         private const string StartShelter = "SS_S05";
         private const int TimeLimitTicks = 225 * 40;
@@ -1981,10 +1957,9 @@ namespace Primal.Gimmicks
     /// player is alive and moving) -- checked the moment they leave, with progress reset on any
     /// departure, matching this as one continuous encounter rather than several separate
     /// visits.</summary>
-    internal sealed class DesperadoTracker : ChallengeTracker
+    internal sealed class DesperadoRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Desperado");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Desperado";
 
         private const string DeerPearlRoom = "LF_D07";
         private const int RequiredPlants = 2;
@@ -2038,10 +2013,10 @@ namespace Primal.Gimmicks
     /// zero-length checkpoint array, so this falls out of the exact same code path Circuit uses
     /// with no special-casing needed. 1 minute = 2400 ticks, the same 40-ticks/second constant
     /// used throughout this codebase.</summary>
-    internal sealed class UTurnTracker : ChallengeTracker
+    internal sealed class UTurnRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("UTurn");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "UTurn";
+        public override string DisplayName => "U-Turn";
 
         private const string StartShelter = "SU_S04";
         private const int TimeLimitTicks = 2400;
@@ -2092,10 +2067,9 @@ namespace Primal.Gimmicks
     /// continuously at every room transition during the carry, not just at the start or end --
     /// becoming well-fed at any point during the journey abandons the attempt, matching the
     /// literal "while starving" framing.</summary>
-    internal sealed class SymbioteTracker : ChallengeTracker
+    internal sealed class SymbioteRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Symbiote");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Symbiote";
 
         private const string StartShelter = "UW_S01";
         private const string EndShelter = "UW_S07";
@@ -2165,10 +2139,9 @@ namespace Primal.Gimmicks
     /// that exact instant -- more robust against however grasp state behaves during the sleep
     /// transition, the same reasoning Mother/Sleepover's own shelter-presence checks already
     /// use.</summary>
-    internal sealed class ChargedTracker : ChallengeTracker
+    internal sealed class ChargedRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Charged");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Charged";
 
         private const string TargetShelter = "DS_S02";
 
@@ -2264,10 +2237,9 @@ namespace Primal.Gimmicks
     /// -- this dedupes by raw type instead, since this mod has no icon-grouping data. The two
     /// could diverge if vanilla's own icon system groups some distinct types under one shared
     /// icon (or vice versa) -- not verified either way this pass.</summary>
-    internal sealed class CatalogueTracker : ChallengeTracker
+    internal sealed class CatalogueRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Catalogue");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Catalogue";
 
         private const int RequiredUniqueObjects = 15;
 
@@ -2303,7 +2275,7 @@ namespace Primal.Gimmicks
 
     /// <summary>Added 2026-09-16. "Travel to Five Pebbles and then reach the final camera
     /// transition in the Void Sea in under 38 minutes IGT from game start." Reuses the same
-    /// `standardVoidSea` ending flag PerseveranceTracker already consumes -- reaching this ending
+    /// `standardVoidSea` ending flag PerseveranceRequirement already consumes -- reaching this ending
     /// at all already implies having traveled through Five Pebbles, so no separate waypoint check
     /// is needed (same reasoning Perseverance's own doc comment already gives for "reaching
     /// Depths"). Confirmed via decompilation that RainWorldGame.clock (a plain public int,
@@ -2317,10 +2289,9 @@ namespace Primal.Gimmicks
     /// that real timer (e.g. if the Remix timer excludes paused time this mod's own reading
     /// doesn't). "No skipping Guardians" is left as an honor-system note, the same treatment
     /// Perseverance's own "no Guardian skip" gets.</summary>
-    internal sealed class AscensionTracker : ChallengeTracker
+    internal sealed class AscensionRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Ascension");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Ascension";
 
         private const int TimeLimitTicks = 38 * 60 * 40;
 
@@ -2355,15 +2326,14 @@ namespace Primal.Gimmicks
     /// Primal character" assumption was simply wrong, not a real architectural gap. No new
     /// persistence infrastructure needed: the existing per-character PrimalSaveMarkers is exactly
     /// right. Consumes the new SurvivorTaming.OnCreatureTamed, checking against the same 9-Lizard
-    /// roster FoeTracker's own kill checklist already uses. Named `FriendChallengeTracker` rather
-    /// than `FriendTracker` specifically to avoid colliding with vanilla's own `FriendTracker`
-    /// class (the AI module SurvivorTaming.cs itself patches) -- both would otherwise share this
-    /// namespace, and a same-named type here would shadow the vanilla one for any file in
-    /// Primal.Gimmicks that references it by its bare name.</summary>
-    internal sealed class FriendChallengeTracker : ChallengeTracker
+    /// roster FoeRequirement's own kill checklist already uses. Named `FriendRequirement` with no
+    /// collision risk against vanilla's own `FriendTracker` class (the AI module SurvivorTaming.cs
+    /// itself patches) -- unlike the old `FriendTracker`-suffixed naming convention this file used
+    /// before the 2026-09-17 Requirement rename, "Requirement" as a suffix doesn't collide with
+    /// anything vanilla defines.</summary>
+    internal sealed class FriendRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Friend");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Friend";
 
         private const string TamedMarkerKey = "PRIMAL_FRIEND_TAMED";
 
@@ -2427,10 +2397,9 @@ namespace Primal.Gimmicks
     /// instruction, not worked around here (matching how several other challenges are only
     /// completable on a starting cycle and become permanently uncompletable afterward -- an
     /// accepted, not a fixed, property of some of these challenges).</summary>
-    internal sealed class ScholarTracker : ChallengeTracker
+    internal sealed class ScholarRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Scholar");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Scholar";
 
         public override void Register()
         {
@@ -2475,10 +2444,9 @@ namespace Primal.Gimmicks
     /// "in one cycle" needs no separate scoping -- any single tick is inherently within one cycle --
     /// and "the masks can be gathered on any cycle" needs no handling either, since this only ever
     /// looks at the masks' CURRENT holders, never when or how they got there.</summary>
-    internal sealed class ElderTracker : ChallengeTracker
+    internal sealed class ElderRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Elder");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Elder";
 
         private const int RequiredMaskedScavengers = 6;
 
@@ -2552,16 +2520,15 @@ namespace Primal.Gimmicks
     /// specifically from GW_C11, then waits for OnSuccessfulHibernation with that EXACT pearl
     /// instance (AbstractDataPearl.ID.number, not just any pearl of any kind) present in the
     /// shelter -- the same "specific item instance, not just any item of that type" correlation
-    /// FeastTracker/UsurperTracker already use. "Toll scavengers must become visibly aggressive"
+    /// FeastRequirement/UsurperRequirement already use. "Toll scavengers must become visibly aggressive"
     /// needs no separate check -- a real Theft SocialEvent already IS vanilla's own hostility
     /// trigger. "Must show The Chieftain progress at under half, requiring The Survivor passage" is
     /// a video-proof-format requirement for the community's own verification process, not
     /// observable game state -- left unenforced, same treatment as the CSV's other pure-
     /// documentation notes (e.g. Manslaughter's kill-credit guide link).</summary>
-    internal sealed class HeistTracker : ChallengeTracker
+    internal sealed class HeistRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Heist");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Heist";
 
         private const string LowestGarbageWastesToll = "GW_C11";
 
@@ -2623,7 +2590,7 @@ namespace Primal.Gimmicks
     /// killing those 3 pole plants that all come from the same den," matching the CSV's own
     /// secondary evidence line ("short clip of killing 3 Pole Plants spawned in the same den").
     /// A triple-spawned region manifests as its own normally-unique objects (a den's one Pole
-    /// Plant -- CreatureTemplate.Type.PoleMimic, the same class FlytrapTracker/
+    /// Plant -- CreatureTemplate.Type.PoleMimic, the same class FlytrapRequirement/
     /// SurvivorPoleMimicPredation already use for the community's "Pole Plant" name) existing 3
     /// times at once, all anchored to the SAME den. "Same den" is identified by
     /// (room name, AbstractCreature.pos.abstractNode) -- abstractNode is the specific den/burrow
@@ -2646,10 +2613,12 @@ namespace Primal.Gimmicks
     /// cycle and the 3 kills to happen on separate cycles the way the CSV's own two-part
     /// verification implies -- per the user's own framing, the kill IS the signal this mod
     /// tracks.</summary>
-    internal sealed class TriplopiaTracker : ChallengeTracker
+    internal sealed class TriplopiaRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Triplopia");
-        public override ChallengeEntry Challenge => _entry;
+        // A plain const, not just the ID property, because OnPoleMimicKilled below is static (no
+        // `this` to read the instance property from) -- see that method's own doc comment.
+        internal const string RequirementID = "Triplopia";
+        public override string ID => RequirementID;
 
         internal const string ChimneyCanopy = RegionCodes.ChimneyCanopy;
         private const int RequiredPoleMimicKills = 3;
@@ -2668,8 +2637,12 @@ namespace Primal.Gimmicks
 
         internal static void OnPoleMimicKilled(Player player, string denKey, int instanceNumber)
         {
-            if (!GimmickGate.IsActiveFor(player, CommunityChallengesGimmick.ID, out string characterID)
-                || !CommunityChallengesSettings.IsChallengeEnabled(characterID, _entry.ID))
+            // GimmickGate.IsActiveFor/GimmickAssignments are fully generic over (characterID, ID)
+            // pairs -- a requirement ID works exactly the same way a gimmick ID does, no separate
+            // "is Community Challenges assigned" layer needed anymore (see Requirement's own doc
+            // comment for the full trace of that simplification).
+            if (!GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
+                || !GimmickGate.IsActiveFor(player, RequirementID, out string characterID))
             {
                 return;
             }
@@ -2684,12 +2657,12 @@ namespace Primal.Gimmicks
 
             if (killed.Count >= RequiredPoleMimicKills)
             {
-                ChallengeCompletion.ReportCompletion(player, characterID, _entry.ID, isLive: true);
+                RequirementCompletion.Report(player, characterID, RequirementID, isLive: true);
             }
         }
     }
 
-    /// <summary>See TriplopiaTracker's own doc comment for the full trace of why this duplicates
+    /// <summary>See TriplopiaRequirement's own doc comment for the full trace of why this duplicates
     /// SurvivorTollRosterDeathHook's own killer-attribution logic rather than depending on
     /// execution order against PrimalKillDieHook, another independent Postfix on this same
     /// method.</summary>
@@ -2707,7 +2680,7 @@ namespace Primal.Gimmicks
             }
 
             AbstractCreature abstractMimic = mimic.abstractCreature;
-            if (abstractMimic?.world?.name != TriplopiaTracker.ChimneyCanopy)
+            if (abstractMimic?.world?.name != TriplopiaRequirement.ChimneyCanopy)
             {
                 return;
             }
@@ -2722,7 +2695,7 @@ namespace Primal.Gimmicks
             _processed.Add(mimic, null);
 
             string denKey = abstractMimic.Room?.name + "#" + abstractMimic.pos.abstractNode;
-            TriplopiaTracker.OnPoleMimicKilled(player, denKey, abstractMimic.ID.number);
+            TriplopiaRequirement.OnPoleMimicKilled(player, denKey, abstractMimic.ID.number);
         }
     }
 
@@ -2743,12 +2716,12 @@ namespace Primal.Gimmicks
     /// (StoryGameStatisticsScreen.allDone) -- the same "ride vanilla's own tested machinery instead
     /// of reimplementing it" preference this whole mod follows elsewhere.
     ///
-    /// This is the first ChallengeTracker whose own detection point has no live Player to hang the
+    /// This is the first Requirement whose own detection point has no live Player to hang the
     /// usual TryGetEnabledCharacter/ReportCompletion pair off -- by the time this screen exists, the
     /// story session is fully over. Uses PrimalMenuAccess (extended this same pass with
     /// allDone/scoreKeeper/ScoreKeeper.score reflected accessors, on the same Gotcha #1 reasoning
     /// its existing GetSaveState/GetCharacterID already apply to this exact screen family) plus the
-    /// new GimmickGate.IsEnabledForCharacter/ChallengeCompletion.ReportCompletionForSave menu-
+    /// new GimmickGate.IsEnabledForCharacter/RequirementCompletion.ReportForSave menu-
     /// context pair instead -- CommunityChallengesButtonHook already established this same
     /// no-Player-available pattern one screen earlier in the story-end flow (the cycle-end
     /// CHALLENGES button). No live notification fires here (no HUD exists on this screen) --
@@ -2757,10 +2730,12 @@ namespace Primal.Gimmicks
     ///
     /// Registered via its own Harmony patch (OutlawScoreScreenHook, below) rather than a
     /// SurvivorEvents subscription, since Register() has nothing gameplay-side to subscribe to.</summary>
-    internal sealed class OutlawTracker : ChallengeTracker
+    internal sealed class OutlawRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Outlaw");
-        public override ChallengeEntry Challenge => _entry;
+        // A plain const, not just the ID property, because CheckScreenScreen below is static (no
+        // `this` to read the instance property from) -- see that method's own doc comment.
+        internal const string RequirementID = "Outlaw";
+        public override string ID => RequirementID;
 
         private const int RequiredScore = 10000;
 
@@ -2779,13 +2754,9 @@ namespace Primal.Gimmicks
 
             string characterID = PrimalMenuAccess.GetCharacterID(screen);
             RainWorld rainWorld = screen.manager?.rainWorld;
-            if (characterID != SlugcatStats.Name.Red.value || rainWorld == null)
-            {
-                return;
-            }
-
-            if (!GimmickGate.IsEnabledForCharacter(rainWorld, characterID, CommunityChallengesGimmick.ID)
-                || !CommunityChallengesSettings.IsChallengeEnabled(characterID, _entry.ID))
+            if (characterID != SlugcatStats.Name.Red.value
+                || !GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
+                || !GimmickGate.IsEnabledForCharacter(rainWorld, characterID, RequirementID))
             {
                 return;
             }
@@ -2797,38 +2768,37 @@ namespace Primal.Gimmicks
             }
 
             DeathPersistentSaveData saveData = PrimalMenuAccess.GetSaveState(screen)?.deathPersistentSaveData;
-            ChallengeCompletion.ReportCompletionForSave(saveData, characterID, _entry.ID);
+            RequirementCompletion.ReportForSave(saveData, characterID, RequirementID);
         }
     }
 
-    /// <summary>See OutlawTracker's own doc comment for the full trace of why this challenge is
+    /// <summary>See OutlawRequirement's own doc comment for the full trace of why this challenge is
     /// detected from a menu screen Postfix rather than a SurvivorEvents subscription.</summary>
     [HarmonyPatch(typeof(Menu.StoryGameStatisticsScreen), nameof(Menu.StoryGameStatisticsScreen.Update))]
     internal static class OutlawScoreScreenHook
     {
         private static void Postfix(Menu.StoryGameStatisticsScreen __instance)
         {
-            OutlawTracker.CheckScoreScreen(__instance);
+            OutlawRequirement.CheckScoreScreen(__instance);
         }
     }
 
     /// <summary>Added 2026-09-17, room IDs confirmed by the user: "Reach the Depths from the
     /// highest shelter in Five Pebbles in one cycle" -- the highest shelter is SS_S04, the Depths
-    /// entry room is SB_E05 (already established by DevoteeTracker). Closest existing analog is
-    /// actually DevoteeTracker's own HomeShelter/DepthsReached shape, not UTurnTracker as originally
+    /// entry room is SB_E05 (already established by DevoteeRequirement). Closest existing analog is
+    /// actually DevoteeRequirement's own HomeShelter/DepthsReached shape, not UTurnRequirement as originally
     /// guessed in the doc -- Journey is a one-way "started this cycle at shelter X, reach checkpoint
     /// Y before the cycle ends" check, with no round trip and no time limit, so
     /// SurvivorCheckpointRun's loop-timing machinery (built for U-Turn/Circuit) doesn't apply here.
     /// "Started this cycle at the highest shelter" is read off the hibernation that ends the
     /// PREVIOUS cycle: hibernating in SS_S04 arms the NEXT cycle's watch for SB_E05, mirroring
-    /// exactly how DevoteeTracker's own HomeShelter locks in off OnSuccessfulHibernation. Persists
+    /// exactly how DevoteeRequirement's own HomeShelter locks in off OnSuccessfulHibernation. Persists
     /// across cycles until either Depths is reached or a hibernation happens somewhere else
     /// (disarming it) -- matching "on any cycle" wording (no CSV cycle-number requirement, unlike
     /// e.g. Criminal's explicit "starting cycle").</summary>
-    internal sealed class JourneyTracker : ChallengeTracker
+    internal sealed class JourneyRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Journey");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Journey";
 
         private const string HighestFivePebblesShelter = "SS_S04";
         private const string DepthsRoom = "SB_E05";
@@ -2898,10 +2868,9 @@ namespace Primal.Gimmicks
     /// much bigger region than just these 6 tutorial rooms, so this is a real, meaningful
     /// boundary, not just "left SU entirely"). Persists across cycles ("on any cycle" -- no
     /// per-cycle reset), matching Journey's own "on any cycle" treatment above.</summary>
-    internal sealed class VisitorTracker : ChallengeTracker
+    internal sealed class VisitorRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Visitor");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Visitor";
 
         private const string SpawnRoom = "SU_C04";
 
@@ -2948,10 +2917,9 @@ namespace Primal.Gimmicks
     /// Doesn't require a single trip -- if Hazers accumulate in one water room across several
     /// separate carries until 7 are alive there together, that satisfies "brought 7 ... to the same
     /// body of water" exactly as well as one trip with all 7 in hand.</summary>
-    internal sealed class FishtankTracker : ChallengeTracker
+    internal sealed class FishtankRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Fishtank");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Fishtank";
 
         private const int RequiredHazers = 7;
 
@@ -2986,15 +2954,14 @@ namespace Primal.Gimmicks
     /// EATEN anywhere -- so this doesn't gate eating by room, only by a running count. The
     /// charge-hop gap is SU_A43, and per the user's own suggested checkpoint, this is checked at
     /// arrival in SU_A22 (the room immediately after the gap jump, confirmed as one of the 6
-    /// vanilla tutorial rooms by VisitorTracker's own DefineTutorialRooms trace above) rather than
+    /// vanilla tutorial rooms by VisitorRequirement's own DefineTutorialRooms trace above) rather than
     /// trying to detect the charge-hop jump itself mid-room: has the running eaten-count already
     /// reached 7 by the time SU_A22 is entered? If not, this attempt is permanently disqualified
     /// (matching "before crossing... for the first time" -- a later re-crossing can't retroactively
     /// count). Resets on a failed cycle, the same as the other early-tutorial-scoped trackers.</summary>
-    internal sealed class VeganTracker : ChallengeTracker
+    internal sealed class VeganRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Vegan");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Vegan";
 
         private const string PostGapRoom = "SU_A22";
         private const int RequiredFruit = 7;
@@ -3075,7 +3042,7 @@ namespace Primal.Gimmicks
     /// absolute, not a per-cycle, condition.
     ///
     /// **Shared completion:** all 3 objectives true (visited+slept, delivered neuron, ascended --
-    /// the last read off the same SurvivorEvents.OnGameEnding(standardVoidSea) PerseveranceTracker
+    /// the last read off the same SurvivorEvents.OnGameEnding(standardVoidSea) PerseveranceRequirement
     /// already uses) AND the restriction was never violated.
     ///
     /// **Known gaps, left unimplemented per the user's own explicit instruction:** "no karma
@@ -3083,10 +3050,9 @@ namespace Primal.Gimmicks
     /// with no corresponding observable state this mod tracks -- same treatment as every other
     /// unenforceable exclusion clause elsewhere in this file (e.g. Ranger/Massacre's own "no karma
     /// caching" notes).</summary>
-    internal sealed class SaintTracker : ChallengeTracker
+    internal sealed class SaintRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Saint");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Saint";
 
         private const string FivePebblesShelterPrefix = RegionCodes.FivePebbles + "_";
         private static readonly string Hunter = SlugcatStats.Name.Red.value;
@@ -3229,7 +3195,7 @@ namespace Primal.Gimmicks
     /// SI_S03 -- leaving that shelter without ever having thrown one there cancels the whole
     /// attempt outright, it doesn't just fail to arm it.
     ///
-    /// Arms the same way JourneyTracker does (hibernating in the start shelter arms the next
+    /// Arms the same way JourneyRequirement does (hibernating in the start shelter arms the next
     /// cycle), then tracks exactly one specific VultureGrub instance -- whichever one
     /// SurvivorVultureSignal.OnGrubThrown reports thrown while the player is still in SI_S03 (the
     /// most recent one, if more than one is thrown before leaving). Only THAT grub's own
@@ -3241,10 +3207,9 @@ namespace Primal.Gimmicks
     /// DLC-exclusive variant, is skipped -- every one of these challenges requires MSC/DLC content
     /// disabled per the CSV's own header note, so it can never actually appear here), with the
     /// tracked grub's signal never having failed.</summary>
-    internal sealed class BroadcastTracker : ChallengeTracker
+    internal sealed class BroadcastRequirement : Requirement
     {
-        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Broadcast");
-        public override ChallengeEntry Challenge => _entry;
+        public override string ID => "Broadcast";
 
         private const string StartShelter = "SI_S03";
         private const string TopRoom = "SI_A07";

@@ -169,6 +169,24 @@ namespace Primal.Gimmicks
         // changes, without touching the grid, the title, or the subtitle above it.
         private readonly List<UIelement> _detailItems = new List<UIelement>();
 
+        // ---- the Requirements tab's own, independent copy of the same grid/detail structure ----
+        // Added 2026-09-17. Deliberately a second, fully separate OpTab/detail-area/state set
+        // rather than folding a third DetailView case into the Gimmicks tab's own state -- a
+        // requirement is not a kind of gimmick, and giving it its own tab keeps the UX split the
+        // user asked for explicit: gameplay-altering mechanics on one tab, run-completion
+        // conditions on the other.
+        private OpTab _reqTab;
+        private readonly List<UIelement> _reqDetailItems = new List<UIelement>();
+
+        private enum RequirementsDetailView
+        {
+            None,
+            List,
+        }
+
+        private RequirementsDetailView _reqDetailView = RequirementsDetailView.None;
+        private string _reqCharID;
+
         // This class used to keep its own parallel Dictionary<string, Configurable<bool>> of every
         // (character, gimmick) assignment flag, keyed by a private EnabledKey() helper that was a
         // verbatim duplicate of GimmickAssignments' own composite-key format -- two copies of the
@@ -193,7 +211,8 @@ namespace Primal.Gimmicks
             EnsureConfigBound();
 
             _tab = new OpTab(this, "Gimmicks");
-            Tabs = new OpTab[] { _tab };
+            _reqTab = new OpTab(this, "Requirements");
+            Tabs = new OpTab[] { _tab, _reqTab };
 
             // Title, subtitle, and the character grid are all permanent -- added once here and
             // never removed or rebuilt. Only _detailItems (below) is ever wiped/replaced.
@@ -215,11 +234,29 @@ namespace Primal.Gimmicks
                 permanentItems.Add(slotSwitchBinder);
             }
 
-            permanentItems.AddRange(BuildCharacterGrid());
+            permanentItems.AddRange(BuildCharacterGrid(OpenCharacter, "Edit gimmicks assigned to "));
             _tab.AddItems(permanentItems.ToArray());
 
             _detailView = DetailView.None;
             RenderDetail();
+
+            // The Requirements tab: the gameplay-altering, "what mechanics apply" half of this
+            // screen (the Gimmicks tab above) is deliberately kept separate from this, the
+            // "what does this run need to accomplish" half -- see Requirement.cs's own header
+            // comment for the full architecture this splits out of what used to be a single
+            // Community-Challenges-specific gimmick. Same permanent-grid-plus-detail-area shape
+            // as the Gimmicks tab, just with a single detail sub-view (a checkbox grid) instead of
+            // three, since there is no per-requirement settings drill-in needed yet.
+            var reqPermanentItems = new List<UIelement>
+            {
+                new OpLabel(10f, TitleY, "Primal -- Requirements", true),
+                new OpLabel(10f, SubtitleY, "Select a character to edit which run requirements it tracks:", false)
+            };
+            reqPermanentItems.AddRange(BuildCharacterGrid(OpenRequirementsCharacter, "Edit requirements tracked for "));
+            _reqTab.AddItems(reqPermanentItems.ToArray());
+
+            _reqDetailView = RequirementsDetailView.None;
+            RenderRequirementsDetail();
         }
 
         /// <summary>
@@ -306,6 +343,25 @@ namespace Primal.Gimmicks
                     // eagerly, same as the plain enabled/disabled flag above -- so the values
                     // exist before the settings sub-view is ever opened.
                     gimmick.BindSettings?.Invoke(this, character.ID);
+                }
+
+                // Added 2026-09-17: one Configurable<bool> per (character, requirement), bound
+                // through the exact same GimmickAssignments store as the loop above -- a
+                // requirement ID and a gimmick ID are both just strings to it (see
+                // GimmickAssignments' own header comment). Defaults to false (GimmickAssignments.
+                // GetDefault returns false for any key nothing has called SetDefault for) --
+                // unlike gimmicks, no requirement ships pre-enabled for any character; a player
+                // opts into each one explicitly via the Requirements tab.
+                foreach (Requirement requirement in RequirementRegistry.All)
+                {
+                    string key = character.ID + "_Requirement_" + requirement.ID;
+                    bool defaultValue = GimmickAssignments.GetDefault(character.ID, requirement.ID);
+                    Configurable<bool> configurable = config.Bind(
+                        key,
+                        defaultValue,
+                        new ConfigurableInfo("Track the \"" + requirement.DisplayName + "\" requirement for " + character.DisplayName + "."));
+
+                    GimmickAssignments.Register(character.ID, requirement.ID, configurable);
                 }
             }
         }
@@ -551,7 +607,11 @@ namespace Primal.Gimmicks
 
         // ---- the permanent character grid ---------------------------------------------------
 
-        private List<UIelement> BuildCharacterGrid()
+        // Takes the click callback and the button's own description text as parameters so the
+        // Requirements tab (added 2026-09-17) can build its own, independent copy of this same
+        // grid -- same layout, same roster, different destination -- rather than this method
+        // being hardwired to the Gimmicks tab's own OpenCharacter.
+        private List<UIelement> BuildCharacterGrid(Action<string> onClick, string descriptionPrefix)
         {
             var items = new List<UIelement>();
 
@@ -565,9 +625,9 @@ namespace Primal.Gimmicks
 
                 OpSimpleButton button = new OpSimpleButton(new Vector2(x, y), new Vector2(GridButtonW, GridButtonH), character.DisplayName)
                 {
-                    description = "Edit gimmicks assigned to " + character.DisplayName
+                    description = descriptionPrefix + character.DisplayName
                 };
-                button.OnClick += _ => OpenCharacter(capturedID);
+                button.OnClick += _ => onClick(capturedID);
                 items.Add(button);
 
                 col++;
@@ -902,6 +962,145 @@ namespace Primal.Gimmicks
             {
                 new OpLabel(ContentLeft, DetailTopY, "Select a character above to view or edit its gimmicks.", false)
             });
+        }
+
+        // ---- the Requirements tab's own detail area -------------------------------------------
+
+        // 50 requirements, 5 columns of 10 rows, column-major -- the exact grid
+        // CommunityChallengesSettings.BuildUI used to lay out before this migration (see
+        // Requirement.cs's own header comment), just driven off RequirementRegistry.All instead
+        // of a Community-Challenges-specific roster, so ANY registered requirement (not just the
+        // curated 50 Community Challenges ones) shows up here automatically. **Exact pixel fit
+        // for the longest display names at 5-column width is unverified in-game as of this pass**
+        // -- same honest caveat the original grid carried.
+        private const int RequirementsRows = 10;
+        private const float RequirementsColumnWidth = 116f;
+        private const float RequirementsRowHeight = 32f;
+        private const float RequirementsCheckboxLabelGap = 20f;
+        // Scroll-box content coordinates are local to the box (bottom-left origin), not the
+        // screen's own ContentLeft -- see RenderAddGimmick's own comment on this. 20f matches the
+        // left margin CommunityChallengesSettings.BuildUI used to use for this exact grid.
+        private const float RequirementsGridLeft = 20f;
+
+        private void OpenRequirementsCharacter(string characterID)
+        {
+            _reqCharID = characterID;
+            _reqDetailView = RequirementsDetailView.List;
+            RenderRequirementsDetail();
+        }
+
+        private void RenderRequirementsDetail()
+        {
+            switch (_reqDetailView)
+            {
+                case RequirementsDetailView.None:
+                    RenderRequirementsNoSelection();
+                    break;
+                case RequirementsDetailView.List:
+                    RenderRequirementsList();
+                    break;
+            }
+        }
+
+        // Wipes and replaces only the Requirements tab's own detail area -- mirrors ShowDetail
+        // above, kept as a separate method (rather than parameterizing ShowDetail by tab) since
+        // the two tabs' own _detailItems/_reqDetailItems lists must never be conflated: an item
+        // removed from the wrong tab's tracked list would leak the same way Gotcha-class bugs
+        // already documented elsewhere in this file (RenderGimmickSettings/RenderAddGimmick) did
+        // for OpScrollBox contents.
+        private void ShowRequirementsDetail(List<UIelement> items)
+        {
+            if (_reqDetailItems.Count > 0)
+            {
+                _reqTab.RemoveItems(_reqDetailItems.ToArray());
+                _reqDetailItems.Clear();
+            }
+            _reqDetailItems.AddRange(items);
+            _reqTab.AddItems(_reqDetailItems.ToArray());
+        }
+
+        private void RenderRequirementsNoSelection()
+        {
+            ShowRequirementsDetail(new List<UIelement>
+            {
+                new OpLabel(ContentLeft, DetailTopY, "Select a character above to view or edit its requirements.", false)
+            });
+        }
+
+        private void RenderRequirementsList()
+        {
+            if (!TryFindCharacter(_reqCharID, out CharacterEntry character))
+            {
+                _reqCharID = null;
+                _reqDetailView = RequirementsDetailView.None;
+                RenderRequirementsNoSelection();
+                return;
+            }
+
+            var items = new List<UIelement>();
+            items.Add(new OpLabel(10f, DetailTopY, character.DisplayName + " -- requirements to track:", true)
+            {
+                description = "Enable whichever run-completion conditions this character should track. Each one is tracked independently by its own global mechanism -- see PrimalOptions.cs and Requirement.cs."
+            });
+
+            // Same OpScrollBox wrapping RenderGimmickSettings uses, and for the same reason: 50
+            // requirements at 10 rows tall (RequirementsRows * RequirementsRowHeight = 320px) is
+            // taller than the ~241px actually available below the heading.
+            int rowCount = RequirementsRows;
+            float gridHeight = rowCount * RequirementsRowHeight;
+            float contentHeight = Mathf.Max(SettingsViewportHeight, gridHeight + SettingsContentTopPadding);
+            float contentTopY = contentHeight - SettingsContentTopPadding;
+
+            OpScrollBox scrollBox = new OpScrollBox(
+                new Vector2(ContentLeft, SettingsViewportBottom),
+                new Vector2(SettingsViewportWidth, SettingsViewportHeight),
+                contentHeight,
+                false,  // horizontal
+                false,  // hasBack
+                true    // hasSlideBar
+            );
+            items.Add(scrollBox);
+
+            ShowRequirementsDetail(items);
+
+            // See the identical note in RenderGimmickSettings/RenderAddGimmick: OpScrollBox.AddItems
+            // forwards every row straight to _tab.AddItems (here, _reqTab), so these controls must
+            // also be tracked in _reqDetailItems, or the next ShowRequirementsDetail teardown
+            // leaves them permanently attached and clickable.
+            List<UIelement> requirementControls = BuildRequirementsUI(character.ID, contentTopY);
+            scrollBox.AddItems(requirementControls.ToArray());
+            _reqDetailItems.AddRange(requirementControls);
+        }
+
+        private List<UIelement> BuildRequirementsUI(string characterID, float topY)
+        {
+            var items = new List<UIelement>();
+
+            Requirement[] all = RequirementRegistry.All;
+            for (int i = 0; i < all.Length; i++)
+            {
+                Requirement requirement = all[i];
+                Configurable<bool> configurable = GimmickAssignments.GetConfigurable(characterID, requirement.ID);
+                if (configurable == null)
+                {
+                    continue;
+                }
+
+                int column = i / RequirementsRows;
+                int row = i % RequirementsRows;
+                float x = ColumnX(column);
+                float y = topY - row * RequirementsRowHeight;
+
+                items.Add(new OpCheckBox(configurable, x, y));
+                items.Add(new OpLabel(x + RequirementsCheckboxLabelGap, y + 4f, requirement.DisplayName, false));
+            }
+
+            return items;
+        }
+
+        private static float ColumnX(int column)
+        {
+            return RequirementsGridLeft + column * RequirementsColumnWidth;
         }
     }
 }

@@ -5523,6 +5523,98 @@ unbuilt and untested**, the same standing caveat as everything else in this doc 
 slip through unnoticed, so give this one particular scrutiny on the next real build, not just the
 newest trackers.
 
+## 2026-09-17 (later still): the Requirements architecture -- ChallengeTracker generalized, gated by a performance check, and split into its own Remix tab
+
+Follow-on to the review pass immediately above, this time an architectural discussion rather than
+a mechanical dedup. The user asked directly for an opinion on making the tracking hooks global
+with gimmicks enabling only what they need (for performance, and because future gimmicks --
+MasterSpear needing story% completed, "every shelter visited," "run has to not have had a single
+death" -- will need their own success-state conditions that have nothing to do with Community
+Challenges). Talking it through surfaced the real distinction: it's not the *tracking mechanisms*
+that need per-gimmick gating (SurvivorEvents etc. are already global, cheap, always-on), it's
+*what counts as a satisfied condition for a character* that had been wrongly hardwired to one
+specific gimmick (Community Challenges) instead of being its own concept. Confirmed with two
+worked examples before implementing anything (Visitor: tracker is global, "the requirement is a
+separate piece of code... UI wise, you enable this setup by adding a requirement"; Kill List:
+tracker is global, gameplay is the Kill List button gimmick, "Chains Kill List" would be a
+separate requirement layered on top) -- both matched the design implemented below.
+
+**The perf gate, added first, standalone:** `GimmickAssignments` (previously just a
+`(characterID, gimmickID) -> Configurable<bool>` store) gained a live, incrementally-maintained
+`Dictionary<string, int> _enabledCount` and `IsEnabledForAnyCharacter(gimmickID)` -- an O(1) read
+of "does at least one character have this ID enabled at all," kept in sync by `SetDefault`/
+`Register` adjusting it on write and every live `Configurable.OnChange` toggle adjusting it again,
+rather than ever being recomputed by scanning. `ChallengeTracker.TryGetEnabledCharacter` (now
+`Requirement.TryGetEnabledCharacter`, see below) checks this FIRST -- one dictionary lookup shared
+by all 50 (now, any number of) trackers, instead of 50 independent `GimmickGate.IsActiveFor`
+resolutions running on every relevant vanilla event on a save where nobody uses any of them.
+
+**The architecture itself: `ChallengeTracker`/`ChallengeTrackerRegistry`/`ChallengeCompletion`
+generalized into `Requirement`/`RequirementRegistry`/`RequirementCompletion` (Requirement.cs,
+new), with `ChallengeTrackers.cs` renamed to `Requirements.cs` and every one of its 50 classes
+mechanically renamed (`XTracker : ChallengeTracker` -> `XRequirement : Requirement`, its
+`ChallengeEntry`/`Challenge` property pair collapsed into one `ID` property).** The key change
+isn't the rename, it's what a Requirement is gated by: previously a challenge needed BOTH the
+CommunityChallenges gimmick assigned to a character AND that specific challenge checked in that
+gimmick's own 50-checkbox settings sub-view -- two nested layers for one conceptual choice, that
+existed purely because Requirements were invented while building Community Challenges specifically.
+Now a Requirement is directly, individually enabled per character through the exact same
+`GimmickAssignments` (characterID, ID) -> Configurable<bool> store gimmick assignment already
+uses -- confirmed to be genuinely generic under the hood despite its name, and `GimmickGate.
+IsActiveFor`/`IsEnabledForCharacter` are equally generic over any ID string, so neither needed any
+new plumbing. `TriplopiaRequirement`/`OutlawRequirement` (the two trackers whose own detection
+methods are `static`, with no `this` to read an instance `ID` property from) each keep a
+`internal const string RequirementID = "..."` alongside the `ID` property, used directly inside
+their static methods. `RequirementCompletion` renamed its persistence key from
+`SurvivorChallengeCompleted` to `PrimalRequirementCompleted` -- a clean break, not a compat shim,
+since nothing has shipped and no real save data exists anywhere with the old key. `OnSatisfied` is
+a plain multicast event explicitly designed for multiple independent subscribers -- Community
+Challenges' own popup is one; a future MasterSpear gate reacting to its own prerequisite becoming
+true would be a second, entirely unrelated one, for a different ID.
+
+**Community Challenges is now a pure CONSUMER, not the owner (CommunityChallengesGimmick.cs,
+rewritten).** `ChallengeEntry`/`ChallengeCompletion`/`ChallengeNotification`/`ChallengeTracker`/
+`ChallengeTrackerRegistry` are gone from this file entirely (superseded by Requirement.cs). What's
+left: `CommunityChallengesRoster` (just the ordered 50-ID list, matching the community's own
+ranking, display names sourced from each `Requirement.DisplayName` rather than duplicated),
+`CommunityChallengesNotifications` (a thin `RequirementCompletion.OnSatisfied` subscriber, gated
+`isLive && CommunityChallengesRoster.Contains(requirementID)`, replacing the old inline
+`ChallengeCompletion.ReportCompletion` popup call), and the button/dialog pair, unchanged in
+spirit but repointed onto `RequirementCompletion`/`RequirementRegistry`/`GimmickAssignments`
+directly. **There is no "Community Challenges" gimmick to assign anymore** -- it's gone from
+`GimmickRegistry.All` entirely. The cycle-end CHALLENGES button's own gate changed from "is the
+CommunityChallenges gimmick assigned to this character" to `CommunityChallengesRoster.
+IsAnyEnabledFor(characterID)` -- does this character have at least one of the 50 curated
+Requirement IDs directly enabled. `CommunityChallengesNotifications.Init()` is wired into
+`RainWorldHooks.Postfix` alongside `RequirementRegistry.RegisterAll()`, the same explicit
+one-shot-call-site pattern this file's siblings already use for plain event subscriptions that
+aren't Harmony patches.
+
+**PrimalOptions.cs gained a second Remix tab, "Requirements," fully independent of the existing
+"Gimmicks" tab** -- matching the UX the user asked for directly: "open it up, set up the gameplay
+altering mechanics that they want, then... set up the requirements needed to complete the run...
+everything else should be performantly and neatly automatically handled for them." Structurally a
+second, parallel copy of the Gimmicks tab's own permanent-grid-plus-detail-area shape (own `OpTab`,
+own `_reqDetailItems`/`_reqDetailView`/`_reqCharID` state, deliberately NOT folded into the
+Gimmicks tab's own `DetailView` enum -- a requirement isn't a kind of gimmick), but with a single
+detail sub-view (a 5-column/10-row checkbox grid, one row per registered Requirement, wrapped in
+the same `OpScrollBox` pattern `RenderGimmickSettings` already uses) rather than three -- there's
+no per-requirement settings drill-in needed yet, though the structure leaves room for one later.
+`BuildCharacterGrid` was generalized to take a click callback and description prefix so both tabs
+share the exact same character-grid-building code without duplicating it. `EnsureConfigBound()`
+grew a second loop (per character, per `RequirementRegistry.All` entry) binding a
+`Configurable<bool>` and calling `GimmickAssignments.Register` for the pair -- unlike gimmicks,
+every requirement defaults to OFF for every character (nothing calls `GimmickAssignments.
+SetDefault` for a requirement ID), since these are meant to be explicitly opted into per run, not
+pre-enabled.
+
+**Not yet built or tested** -- no .NET toolchain in this container, same standing caveat as
+everything else in this doc. This is a genuinely large mechanical + structural change (a 3300+
+line file's worth of renames, a new ~320-line file, a full rewrite of the old gimmick file, and a
+~150-line addition to the options screen) with no compiler available to catch a typo -- give the
+whole Requirements/Requirement.cs/CommunityChallengesGimmick.cs/PrimalOptions.cs set particular
+scrutiny on the next real build.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

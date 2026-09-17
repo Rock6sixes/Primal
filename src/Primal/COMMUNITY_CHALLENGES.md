@@ -1186,3 +1186,32 @@ deliberately left alone):
 Plus a `RegionCodes` constants class replacing ~13 independently-typed region-code literals across
 9 trackers. `ChallengeTrackers.cs` shrank from 3593 to 3345 lines. Zero intended behavior change --
 every extraction preserves its call sites' exact original conditions. Still unbuilt/untested.
+
+## Status update, 2026-09-17 (later still): Community Challenges is no longer its own gimmick -- generalized into a "Requirements" architecture
+
+Following a design discussion about future gimmicks needing their own success-state conditions
+(MasterSpear's own story%, "every shelter visited," etc.), the 50 `ChallengeTracker`s and their
+completion/persistence machinery were pulled out of this gimmick entirely and generalized into a
+gimmick-agnostic layer: `Requirement`/`RequirementRegistry`/`RequirementCompletion`
+(`Requirement.cs`, new), with `ChallengeTrackers.cs` renamed `Requirements.cs` and every one of its
+50 classes mechanically renamed (`XTracker : ChallengeTracker` -> `XRequirement : Requirement`).
+Each of the 50 requirements is now enabled directly per character (no more "assign the
+CommunityChallenges gimmick AND check this specific challenge in its settings" -- just one
+Requirements-tab checkbox per requirement per character), through the exact same
+`GimmickAssignments`/`GimmickGate` machinery gimmick assignment already used. See AI_CONTEXT.md's
+"the Requirements architecture" entry (same date) for the full trace, including the O(1)
+`GimmickAssignments.IsEnabledForAnyCharacter` perf gate added alongside this.
+
+This file's own 50-challenge roster survives as `CommunityChallengesRoster` in
+`CommunityChallengesGimmick.cs` -- now a pure CONSUMER of the Requirements layer: it just curates
+which 50 Requirement IDs count as "a community challenge," reads `RequirementCompletion`'s already-
+persisted state for them to build the cycle-end summary dialog, and subscribes to
+`RequirementCompletion.OnSatisfied` (filtered to its own curated IDs) for the live popup. There is
+no "Community Challenges" gimmick to assign anymore -- the cycle-end CHALLENGES button now appears
+whenever a character has at least one of the 50 curated requirements enabled directly, rather than
+based on any gimmick assignment. Remix now has a second, independent "Requirements" tab
+(PrimalOptions.cs) alongside the existing "Gimmicks" tab, matching the intended UX: assign
+gameplay-altering gimmicks on one tab, pick which run-completion conditions to track on the other.
+
+Still unbuilt/untested -- no .NET toolchain in this container, and this pass touches essentially
+every file this project's Community Challenges work has ever produced.
