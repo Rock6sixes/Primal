@@ -6288,6 +6288,51 @@ gone. This is, functionally, exactly the color-only look this screen had before 
 
 **Not yet seen in-game** -- compiled clean and redeployed.
 
+## 2026-09-17 (same day, later still): requirement rows' button look restored, screen-wide padding bumped, hover bump-highlight no longer pokes out of bounds
+
+Requested directly, after looking at the icon-removal pass: "requirements lost their button
+appearance and hovering over a gimmick makes it go a bit out of bounds -- add a bit more left and
+right padding to this window and the gimmick and requirements windows."
+
+**Requirement rows are OpSimpleButtons again (greyedOut, not clickable).** They were deliberately
+made a plain `OpLabel` in UI redesign round 2 ("there's no requirement-settings screen to open yet
+... a button that opens nothing would just be a dead click target") -- that reasoning still holds,
+so this isn't reverted to a real clickable button. Instead, `RenderSplit`'s requirement row is now an
+`OpSimpleButton` with `greyedOut = true` set unconditionally (not tied to `IsReadOnly` -- there's
+still nothing to click regardless of mode). Confirmed via decompiling `OpSimpleButton.GrafUpdate`
+that a greyed-out button still draws its bordered `_rect` (just without the hover/focus highlight
+ring, and its click-handling branch never runs) -- exactly "looks like a button, reads as
+non-interactive," restoring the visual weight/border a plain label didn't have, without reopening
+the "dead click target" concern.
+
+**"Hovering over a gimmick makes it go a bit out of bounds" -- root cause, confirmed by
+decompilation, not guessed: `OpSimpleButton`'s own hover highlight (`_rectH`) grows a few px beyond
+the button's own rect on focus/hover (`GrafUpdate`'s `_rect.addSize = new Vector2(6f, 6f) *
+bumpBehav.AddSize`).** A button built flush to its container's own edge (every gimmick/requirement
+row's name button sat at LOCAL x=0 within its OpScrollBox, and the Split view's Add buttons/scroll
+boxes sat flush at `LeftColumnX`/`RightColumnX`) has nowhere for that growth to go but past the
+visible boundary. Fixed with a new `ColumnSidePadding` (8f) that insets the ENTIRE column's content
+-- the Add button and the OpScrollBox itself, not just individual rows -- from both
+`LeftColumnX`/`RightColumnX`, shrinking their effective width to a new `ColumnContentWidth`
+(`ColumnNameButtonW`'s own formula was rebased onto this instead of the raw `ColumnWidth`). Since
+row content coordinates are LOCAL to the (now inset) scroll box, this fixes the hover-bump issue for
+every row automatically without touching the per-row layout math at all. The exact same treatment
+(`PickerSidePadding`, `PickerAreaX`/`PickerAreaWidth`) was applied to the AddGimmick/AddRequirement
+pickers' own category tabs and scroll box, for the same reason and the same fix shape.
+
+**Screen-wide padding.** `ContentLeft`/`ContentWidth` (10f/580f, i.e. a 10px margin on each side of
+the ~600-wide screen) became 18f/564f -- an extra 8px of margin on both the left and right edges of
+the WHOLE screen, per the "add a bit more left and right padding to this window" half of the
+request. Since virtually everything on this screen derives its X position from these two constants,
+this one change shifts the title, character grid, Change Mode button, both Split columns, and every
+modal's own frame inward together, keeping all of them proportionally consistent with each other
+without needing separate adjustments.
+
+**Not yet seen in-game** -- compiled clean and redeployed, but the exact pixel result (especially
+whether `ColumnNameButtonW`/`PickerColumnWidth`, both now a bit narrower than before these paddings
+were added, still fit the longest gimmick/requirement display names without clipping) hasn't been
+looked at yet.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

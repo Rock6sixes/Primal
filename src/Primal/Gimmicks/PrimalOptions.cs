@@ -188,9 +188,11 @@ namespace Primal.Gimmicks
         // Remix's OptionInterface screen is a fixed ~600x600 coordinate space (confirmed by
         // disassembling the game's own MoreSlugcatsOptionInterface, whose own elements never sit
         // outside roughly that range). Every view's horizontal layout is sized against this usable
-        // content width.
-        private const float ContentLeft = 10f;
-        private const float ContentWidth = 580f;
+        // content width. Bumped from 10f/580f (same width on both sides, 600 - 2*10 = 580) to
+        // 18f/564f the same day icons were removed, per direct request for a bit more left/right
+        // breathing room around the whole screen.
+        private const float ContentLeft = 18f;
+        private const float ContentWidth = 564f;
 
         // ---- title row: "Primal" / mode indicator (left) + the single "Change Mode" button (right) ----
         // 2026-09-17 (UI redesign round 2, per direct request): the old two stacked buttons
@@ -236,6 +238,18 @@ namespace Primal.Gimmicks
         private const float LeftColumnX = ContentLeft;
         private const float RightColumnX = LeftColumnX + ColumnWidth + ColumnGap;
 
+        // Added the same day icons were removed, per direct request ("hovering over a gimmick makes
+        // it go a bit out of bounds"): a name button/Add button built flush to a column's own edge
+        // (LOCAL x=0) has nowhere to grow into when OpSimpleButton's own hover bump-highlight
+        // (_rectH, confirmed via decompiling OpSimpleButton.GrafUpdate -- it grows a few px beyond
+        // the button's own rect on focus/hover) pushes outward, so it visibly pokes past the
+        // column's true boundary. Insetting the Add button AND the OpScrollBox itself by this much
+        // on both sides (rather than just padding individual rows, which are already positioned
+        // relative to the scroll box's own now-inset origin) gives that bump room to grow into
+        // without leaving the visible column area at all.
+        private const float ColumnSidePadding = 8f;
+        private const float ColumnContentWidth = ColumnWidth - 2f * ColumnSidePadding;
+
         // 2026-09-17 (UI redesign round 3): "+ Add Gimmick"/"+ Add Requirement" moved to the TOP of
         // each column (per direct request, so they're reachable without scrolling down first), and
         // the "GIMMICKS"/"REQUIREMENTS" header labels above them were dropped entirely -- the two
@@ -253,19 +267,18 @@ namespace Primal.Gimmicks
         // 2026-09-17 (UI redesign round 3, per direct request -- rows were visually running into the
         // OpScrollBox's own slide bar): a vertical OpScrollBox draws its slide bar inset from its
         // OWN right edge (confirmed via decompiling OpScrollBox -- the bar sits at `size.x - 20f`),
-        // but AddItems has no idea that reservation exists -- a row built to the column's full
-        // ColumnWidth (as every row here used to be, by construction: ColumnNameButtonW was defined
-        // to make name button + gap + remove-button add up to exactly ColumnWidth) ends with its "x"
-        // remove button sitting flush against, and effectively under, that slide bar. Reserving this
-        // clearance up front keeps every row's rightmost element short of the column's true right
-        // edge, same as ModalListViewportWidth already does for the wider modal scroll boxes.
+        // but AddItems has no idea that reservation exists -- a row built to the scroll box's full
+        // (now ColumnSidePadding-inset) own width ends with its "x" remove button sitting flush
+        // against, and effectively under, that slide bar. Reserving this clearance up front keeps
+        // every row's rightmost element short of the scroll box's true right edge, same as
+        // ModalListViewportWidth already does for the wider modal scroll boxes.
         // 30f, not a round 20f matching the slide bar's own width exactly (confirmed via
         // decompiling OpScrollBox: with the (pos, size, ...) constructor this codebase always uses,
         // _isTab is false, so the bar sits at exactly `size.x - 20f` to `size.x`) -- a small extra
         // margin so this doesn't degrade to a paper-thin few-pixel gap from one more rounding
         // adjustment somewhere in this row's own math.
         private const float ColumnScrollbarClearance = 30f;
-        private const float ColumnNameButtonW = ColumnWidth - ColumnScrollbarClearance - ColumnRemoveButtonW - ColumnRowGap;
+        private const float ColumnNameButtonW = ColumnContentWidth - ColumnScrollbarClearance - ColumnRemoveButtonW - ColumnRowGap;
 
         // ---- the GimmickSettings/AddGimmick/AddRequirement "modal" overlays --------------------
         // Each spans the full detail area (both Split columns combined) rather than half of it.
@@ -281,6 +294,16 @@ namespace Primal.Gimmicks
         private const float ModalListViewportWidth = ContentWidth - 40f;
         private const float ModalContentTopPadding = 20f;
 
+        // Added the same day icons were removed, per direct request for more left/right padding and
+        // to fix hover bump-highlight poking past a picker button's own edge -- same reasoning as
+        // ColumnSidePadding above, applied to the picker's own content area (both its category tabs
+        // and its grid) instead of the Split view's columns. ModalListViewportWidth itself (and so
+        // the modal's own backdrop/frame) is unchanged -- only what's laid out inside it shrinks and
+        // shifts inward.
+        private const float PickerSidePadding = 8f;
+        private const float PickerAreaX = ContentLeft + PickerSidePadding;
+        private const float PickerAreaWidth = ModalListViewportWidth - 2f * PickerSidePadding;
+
         // 2026-09-17 (UI redesign round 4, per direct request -- reported with a screenshot showing
         // the Add Requirement picker's own slide bar drawn directly on top of its 4th column):
         // same root cause as ColumnScrollbarClearance above -- PickerColumnWidth used to be sized to
@@ -291,7 +314,7 @@ namespace Primal.Gimmicks
         // backdrop and shouldn't change).
         // Same 30f-not-20f reasoning as ColumnScrollbarClearance above.
         private const float PickerScrollbarClearance = 30f;
-        private const float PickerContentWidth = ModalListViewportWidth - PickerScrollbarClearance;
+        private const float PickerContentWidth = PickerAreaWidth - PickerScrollbarClearance;
 
         private const int PickerColumns = 4;
         private const float PickerColumnGap = 10f;
@@ -307,7 +330,7 @@ namespace Primal.Gimmicks
         private const float PickerCategoryTabHeight = 30f;
         private const float PickerCategoryTabGap = 10f;
         private const float PickerCategoryTabY = ModalListViewportTop - PickerCategoryTabHeight;
-        private const float PickerCategoryTabWidth = (ModalListViewportWidth - PickerCategoryTabGap) / 2f;
+        private const float PickerCategoryTabWidth = (PickerAreaWidth - PickerCategoryTabGap) / 2f;
         // The grid's own viewport shrinks to make room for the tab row above it.
         private const float PickerListViewportTop = PickerCategoryTabY - PickerCategoryTabGap;
         private const float PickerListViewportHeight = PickerListViewportTop - ModalListViewportBottom;
@@ -1099,7 +1122,7 @@ namespace Primal.Gimmicks
             // 2026-09-17 (UI redesign round 3): "+ Add Gimmick" now sits at the TOP of the column,
             // above the list, with no "GIMMICKS" caption above it -- both per direct request.
             string capturedCharIDForGimmickAdd = character.ID;
-            OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Gimmick")
+            OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX + ColumnSidePadding, ColumnAddButtonY), new Vector2(ColumnContentWidth, ColumnAddButtonHeight), "+ Add Gimmick")
             {
                 description = "Add a gameplay-altering gimmick to " + character.DisplayName,
                 greyedOut = IsReadOnly
@@ -1117,8 +1140,8 @@ namespace Primal.Gimmicks
             }
             float gimmickContentHeight = Mathf.Max(ColumnListViewportHeight, gimmickRows.Count * ColumnRowHeight);
             OpScrollBox gimmickScroll = new OpScrollBox(
-                new Vector2(LeftColumnX, ColumnListViewportBottom),
-                new Vector2(ColumnWidth, ColumnListViewportHeight),
+                new Vector2(LeftColumnX + ColumnSidePadding, ColumnListViewportBottom),
+                new Vector2(ColumnContentWidth, ColumnListViewportHeight),
                 gimmickContentHeight,
                 false,  // horizontal
                 false,  // hasBack
@@ -1128,7 +1151,7 @@ namespace Primal.Gimmicks
 
             // ---- right column: run-completion requirements ----
             string capturedCharIDForReqAdd = character.ID;
-            OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Requirement")
+            OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX + ColumnSidePadding, ColumnAddButtonY), new Vector2(ColumnContentWidth, ColumnAddButtonHeight), "+ Add Requirement")
             {
                 description = "Add a run-completion requirement to track for " + character.DisplayName,
                 greyedOut = IsReadOnly
@@ -1146,8 +1169,8 @@ namespace Primal.Gimmicks
             }
             float requirementContentHeight = Mathf.Max(ColumnListViewportHeight, requirementRows.Count * ColumnRowHeight);
             OpScrollBox requirementScroll = new OpScrollBox(
-                new Vector2(RightColumnX, ColumnListViewportBottom),
-                new Vector2(ColumnWidth, ColumnListViewportHeight),
+                new Vector2(RightColumnX + ColumnSidePadding, ColumnListViewportBottom),
+                new Vector2(ColumnContentWidth, ColumnListViewportHeight),
                 requirementContentHeight,
                 false,  // horizontal
                 false,  // hasBack
@@ -1216,15 +1239,24 @@ namespace Primal.Gimmicks
 
                 Color? color = GetRequirementColor(requirement);
 
-                // No settings to drill into yet (see this class's own header comment) -- just a
-                // plain label, not a button, so there's nothing clickable that would silently do
-                // nothing.
-                var nameLabel = new OpLabel(0f, requirementRowY + 4f, requirement.DisplayName, false);
+                // No settings to drill into yet (see this class's own header comment), so this
+                // still isn't clickable -- but it's an OpSimpleButton with greyedOut permanently
+                // true (not a plain OpLabel) so it keeps the same bordered look every gimmick's own
+                // name button has, restoring visual consistency between the two columns that got
+                // lost once the per-row icons (which used to carry some of that visual weight) were
+                // removed the same day. greyedOut's own rendering (confirmed via decompiling
+                // OpSimpleButton.GrafUpdate) still draws the bordered _rect, just without the
+                // hover/focus highlight ring -- exactly "looks like a button, reads as non-
+                // interactive," unlike a plain click-does-nothing button would.
+                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(0f, requirementRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), requirement.DisplayName)
+                {
+                    greyedOut = true
+                };
                 if (color.HasValue)
                 {
-                    nameLabel.color = color.Value;
+                    nameButton.colorEdge = color.Value;
                 }
-                requirementRowItems.Add(nameLabel);
+                requirementRowItems.Add(nameButton);
 
                 OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, requirementRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
                 {
@@ -1372,7 +1404,7 @@ namespace Primal.Gimmicks
             // own mechanics, e.g. Misery/Chains) -- filters `candidates` above. Clicking a tab
             // re-renders this whole modal, the same "click -> rebuild the detail area" interaction
             // every other control on this screen already uses.
-            OpSimpleButton generalTab = new OpSimpleButton(new Vector2(ContentLeft, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
+            OpSimpleButton generalTab = new OpSimpleButton(new Vector2(PickerAreaX, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
             if (_gimmickPickerCategory == GimmickPickerCategory.General)
             {
                 generalTab.colorEdge = Color.white;
@@ -1384,7 +1416,7 @@ namespace Primal.Gimmicks
             };
             items.Add(generalTab);
 
-            OpSimpleButton specializedTab = new OpSimpleButton(new Vector2(ContentLeft + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Specialized");
+            OpSimpleButton specializedTab = new OpSimpleButton(new Vector2(PickerAreaX + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Specialized");
             if (_gimmickPickerCategory == GimmickPickerCategory.Specialized)
             {
                 specializedTab.colorEdge = Color.white;
@@ -1412,8 +1444,8 @@ namespace Primal.Gimmicks
             float contentHeight = Mathf.Max(PickerListViewportHeight, rows * PickerRowHeight);
 
             OpScrollBox scrollBox = new OpScrollBox(
-                new Vector2(ContentLeft, ModalListViewportBottom),
-                new Vector2(ModalListViewportWidth, PickerListViewportHeight),
+                new Vector2(PickerAreaX, ModalListViewportBottom),
+                new Vector2(PickerAreaWidth, PickerListViewportHeight),
                 contentHeight,
                 false,  // horizontal
                 false,  // hasBack
@@ -1496,7 +1528,7 @@ namespace Primal.Gimmicks
             // character-specific ones and Unique Kills) vs. Community Challenges (CommunityChallengesRoster's
             // own 50 IDs) -- filters `candidates` above, same interaction as RenderAddGimmickModal's
             // own tabs.
-            OpSimpleButton generalTab = new OpSimpleButton(new Vector2(ContentLeft, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
+            OpSimpleButton generalTab = new OpSimpleButton(new Vector2(PickerAreaX, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
             if (_requirementPickerCategory == RequirementPickerCategory.General)
             {
                 generalTab.colorEdge = Color.white;
@@ -1508,7 +1540,7 @@ namespace Primal.Gimmicks
             };
             items.Add(generalTab);
 
-            OpSimpleButton communityTab = new OpSimpleButton(new Vector2(ContentLeft + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Community Challenges");
+            OpSimpleButton communityTab = new OpSimpleButton(new Vector2(PickerAreaX + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Community Challenges");
             if (_requirementPickerCategory == RequirementPickerCategory.CommunityChallenges)
             {
                 communityTab.colorEdge = Color.white;
@@ -1534,8 +1566,8 @@ namespace Primal.Gimmicks
             float contentHeight = Mathf.Max(PickerListViewportHeight, rows * PickerRowHeight);
 
             OpScrollBox scrollBox = new OpScrollBox(
-                new Vector2(ContentLeft, ModalListViewportBottom),
-                new Vector2(ModalListViewportWidth, PickerListViewportHeight),
+                new Vector2(PickerAreaX, ModalListViewportBottom),
+                new Vector2(PickerAreaWidth, PickerListViewportHeight),
                 contentHeight,
                 false,  // horizontal
                 false,  // hasBack
