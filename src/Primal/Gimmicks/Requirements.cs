@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using MoreSlugcats;
 
 namespace Primal.Gimmicks
 {
@@ -3305,6 +3306,217 @@ namespace Primal.Gimmicks
                     _attempts.Remove(eventCharacterID);
                 }
             };
+        }
+    }
+
+    /// <summary>
+    /// Added 2026-09-17: four requirements requested directly by character, each tied to that one
+    /// specific character's own story mechanics rather than being a generic, any-character
+    /// condition -- unlike the 50 curated Community Challenges above, these were never part of
+    /// that community list. Each gates on `characterID == &lt;SlugcatStatsName&gt;.value` inside its
+    /// own detection code, the same "check the resolved character against one specific name"
+    /// pattern OutlawRequirement already established for its own Hunter-only completion --
+    /// TryGetEnabledCharacter's own gate only confirms the requirement is enabled and the player is
+    /// on a reserved slot, not which real character it resolved to, so this second check is still
+    /// needed the same way it was there. (Nothing stops a player from enabling one of these for a
+    /// character it doesn't apply to via the Add Requirement picker -- it will simply never
+    /// complete, exactly the same accepted behavior OutlawRequirement already has among the 50
+    /// above.)
+    /// </summary>
+    internal sealed class ArtificerKillAscendRequirement : Requirement
+    {
+        public override string ID => "ArtificerKillAscend";
+        public override string DisplayName => "Artificer -- Kill List & Ascend";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            {
+                // standardVoidSea == true is the separate void-sea/ascension ending -- "ascend" --
+                // see OnGameEnding's own doc comment (AscensionRequirement above reads the same
+                // flag the same way).
+                if (!standardVoidSea || game?.Players == null)
+                {
+                    return;
+                }
+
+                DeathPersistentSaveData saveData = game.GetStorySession?.saveState?.deathPersistentSaveData;
+                if (saveData == null)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player)
+                        || !TryGetEnabledCharacter(player, out string characterID)
+                        || characterID != MoreSlugcatsEnums.SlugcatStatsName.Artificer.value)
+                    {
+                        continue;
+                    }
+
+                    if (HasKilledEveryKillListSpecies(saveData, characterID))
+                    {
+                        ReportCompletion(player, characterID, isLive: false);
+                    }
+                }
+            };
+        }
+
+        // "The specified list of creature types found under the Kill List gimmick" -- the exact
+        // same 55-species roster CreatureKillListGimmick.cs's own cycle-end popup checks off,
+        // reusing PrimalKillTracker's own global, permanent (ever-on-this-save) kill records
+        // rather than any Kill-List-gimmick-specific state (Kill List's own assignment/UI is
+        // irrelevant here, same as Ranger/Spearfisher above already established).
+        private static bool HasKilledEveryKillListSpecies(DeathPersistentSaveData saveData, string characterID)
+        {
+            foreach (KillListEntry entry in KillListRegistry.All)
+            {
+                if (!PrimalKillTracker.IsKilled(saveData, characterID, entry.ID))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    /// <summary>"Complete the food quest and save cycle" -- vanilla's own "Gourmand Passage"
+    /// checklist (WinState.GourFeastTracker, MoreSlugcatsEnums.EndgameID.Gourmand), which tracks
+    /// exactly this already: one progress slot per required food/creature, GoalFullfilled true
+    /// once every slot has been eaten at least once. Not reimplemented here -- read straight off
+    /// the save's own WinState via DeathPersistentSaveData.winState, the same
+    /// GetStorySession?.saveState?.deathPersistentSaveData chain every other menu/save-context
+    /// reader in this codebase already uses. Checked on every successful hibernation rather than
+    /// only the one where the last food item happens to be eaten, since GoalFullfilled reads as
+    /// "ever complete," not "completed this exact cycle" -- the first successful save AFTER the
+    /// checklist is finished is what satisfies "complete the food quest AND save cycle," whether
+    /// that's the same cycle the last item was eaten in or a later one.</summary>
+    internal sealed class GourmandFoodQuestRequirement : Requirement
+    {
+        public override string ID => "GourmandFoodQuest";
+        public override string DisplayName => "Gourmand -- Food Quest & Save";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, characterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string resolvedCharacterID)
+                    || resolvedCharacterID != MoreSlugcatsEnums.SlugcatStatsName.Gourmand.value)
+                {
+                    return;
+                }
+
+                WinState winState = game?.GetStorySession?.saveState?.deathPersistentSaveData?.winState;
+                if (winState?.GetTracker(MoreSlugcatsEnums.EndgameID.Gourmand, addIfMissing: false) is WinState.GourFeastTracker tracker
+                    && tracker.GoalFullfilled)
+                {
+                    ReportCompletion(player, resolvedCharacterID, isLive: true);
+                }
+            };
+        }
+    }
+
+    /// <summary>"Gets the story ending (standardVoidSea = false) under 1 hour" -- the mirror image
+    /// of AscensionRequirement above (which wants standardVoidSea TRUE, the void-sea/ascension
+    /// path, within 38 minutes): here it's standardVoidSea FALSE (any "standard" story ending --
+    /// see OnGameEnding's own doc comment) within 1 in-game hour. RainWorldGame.clock only ever
+    /// increments (confirmed via decompilation -- no reset call anywhere in RainWorldGame.cs), so
+    /// it's already a running total across every cycle of the whole story session, exactly what
+    /// "under 1 hour" needs to mean here -- the same property AscensionRequirement's own
+    /// TimeLimitTicks already relies on.</summary>
+    internal sealed class SpearmasterFastEndingRequirement : Requirement
+    {
+        public override string ID => "SpearmasterFastEnding";
+        public override string DisplayName => "Spearmaster -- Fast Ending (Under 1 Hour)";
+
+        private const int TimeLimitTicks = 60 * 60 * 40;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            {
+                if (standardVoidSea || game?.Players == null || game.clock > TimeLimitTicks)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (abstractPlayer?.realizedCreature is Player player
+                        && TryGetEnabledCharacter(player, out string characterID)
+                        && characterID == MoreSlugcatsEnums.SlugcatStatsName.Spear.value)
+                    {
+                        ReportCompletion(player, characterID, isLive: false);
+                    }
+                }
+            };
+        }
+    }
+
+    /// <summary>"Reach the highest point in LC_highestpoint room while holding a slugpup, a mask
+    /// and a cloak." LC_highestpoint is a real, single, dedicated room -- confirmed via
+    /// decompiling GhostWorldPresence.cs, where it's the "Metropolis" (region acronym LC) entry in
+    /// the per-region ghost/echo encounter table -- so simply entering it IS reaching that named
+    /// location, the same "arrived in room X" shape VisitorRequirement/FishtankRequirement above
+    /// already use, with no need for any further in-room position math.
+    ///
+    /// All three carried items are simultaneously possible under vanilla's own rules, confirmed by
+    /// decompilation: a slugpup (CreatureTemplate.Type.SlugNPC) and a mask (VultureMask, a
+    /// PlayerCarryableItem) each occupy one of the player's two hand grasps, while a "cloak"
+    /// (MoreSlugcatsEnums.AbstractObjectType.MoonCloak, the robe the Moon gives) is worn via
+    /// SaveState.wearingCloak, a plain persistent bool flag set the moment the object is picked up
+    /// (Player.cs) -- NOT a grasp slot, so it costs neither hand. Hence two hands genuinely suffice
+    /// for all three at once.</summary>
+    internal sealed class InvHighestPointRequirement : Requirement
+    {
+        public override string ID => "InvHighestPoint";
+        public override string DisplayName => "Inv -- Highest Point Triple Carry";
+
+        private const string TargetRoom = "LC_highestpoint";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (roomName != TargetRoom
+                    || !TryGetEnabledCharacter(player, out string characterID)
+                    || characterID != MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value)
+                {
+                    return;
+                }
+
+                bool holdingSlugpup = SurvivorCreatureTracking.FindCarried(player,
+                    creature => !creature.dead && creature.creatureTemplate?.type == CreatureTemplate.Type.SlugNPC) != null;
+                if (!holdingSlugpup || !IsCarryingMask(player) || !IsWearingCloak(player))
+                {
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: true);
+            };
+        }
+
+        private static bool IsCarryingMask(Player player)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return false;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp?.grabbed is VultureMask)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private static bool IsWearingCloak(Player player)
+        {
+            return GimmickGate.GameFor(player)?.GetStorySession?.saveState?.wearingCloak ?? false;
         }
     }
 }

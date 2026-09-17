@@ -158,6 +158,14 @@ namespace Primal.Gimmicks
             new VeganRequirement(),
             new SaintRequirement(),
             new BroadcastRequirement(),
+
+            // Character-specific requirements (2026-09-17) -- see their own shared header comment
+            // in Requirements.cs for why these are gated to one specific character each, unlike
+            // every entry above.
+            new ArtificerKillAscendRequirement(),
+            new GourmandFoodQuestRequirement(),
+            new SpearmasterFastEndingRequirement(),
+            new InvHighestPointRequirement(),
         };
 
         private static bool _registered;

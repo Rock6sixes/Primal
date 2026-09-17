@@ -5773,6 +5773,64 @@ interactivity -- worth particular scrutiny (does `UIfocusable.greyedOut` genuine
 of control this mod's various gimmicks return, not just the button/checkbox cases confirmed by
 reading source) on the next real build.
 
+## 2026-09-17 (later still): four character-specific requirements (Artificer, Gourmand, Spearmaster, Inv)
+
+Requested directly, one per character: Artificer kills every Kill List species and ascends;
+Gourmand completes the vanilla "food quest" and saves the cycle; Spearmaster gets the story ending
+(not the void-sea one) in under an in-game hour; Inv reaches LC_highestpoint while holding a
+slugpup, a mask, and a cloak. Added as four new `Requirement` subclasses at the bottom of
+Requirements.cs, registered in `RequirementRegistry.All` alongside the 50 curated Community
+Challenges -- these were never part of that community list, so they get their own short doc-comment
+section explaining why each is gated to one specific character (`characterID == <SlugcatStatsName>
+.value` inside the detection code itself, the exact pattern `OutlawRequirement` already established
+for Hunter-only completion -- `TryGetEnabledCharacter` only confirms the requirement is enabled and
+the player is on a reserved slot, not which real character it resolved to). Nothing stops enabling
+one of these for the "wrong" character via the Add Requirement picker; it will simply never
+complete, the same pre-existing, accepted OutlawRequirement behavior.
+
+**ArtificerKillAscendRequirement.** "Ascend" is `standardVoidSea == true` on
+`SurvivorEvents.OnGameEnding` -- the same flag `AscensionRequirement` already reads, confirmed via
+`SlugpupGimmick.cs`'s own long trace of what that flag actually means (the separate void-sea/
+ascension ending vs. every "standard" one). "The specified list of creature types found under the
+Kill List gimmick" is `KillListRegistry.All`'s own 55-species roster (`CreatureKillListGimmick.cs`)
+-- checked via `PrimalKillTracker.IsKilled` for every entry, the same global, permanent, ever-on-
+this-save kill record Ranger/Spearfisher already read, deliberately independent of whether the Kill
+List GIMMICK itself is assigned (only its roster DATA is reused).
+
+**GourmandFoodQuestRequirement.** "The food quest" turned out to be vanilla's own real,
+already-implemented mechanic -- `WinState.GourFeastTracker` (`MoreSlugcatsEnums.EndgameID
+.Gourmand`), the checklist behind the "Gourmand Passage": one progress slot per required food/
+creature, `GoalFullfilled` true once every slot has been eaten at least once. Read straight off
+`DeathPersistentSaveData.winState` via the same `GetStorySession?.saveState?
+.deathPersistentSaveData` chain every other save-context reader in this codebase already uses --
+nothing to reimplement. Checked on every `OnSuccessfulHibernation` ("and save cycle") rather than
+only the exact hibernation where the last food item happens to get eaten, since `GoalFullfilled`
+means "ever complete," not "completed this specific cycle."
+
+**SpearmasterFastEndingRequirement.** The mirror image of `AscensionRequirement`: wants
+`standardVoidSea == false` (any standard story ending, not the void-sea path) within 1 in-game hour
+instead of `== true` within 38 minutes. Confirmed `RainWorldGame.clock` only ever increments (no
+reset call anywhere in the decompiled `RainWorldGame.cs`) before trusting it as a whole-session
+running total the same way `AscensionRequirement`'s own `TimeLimitTicks` already does -- 1 hour =
+`60 * 60 * 40` ticks at the nominal 40 ticks/second.
+
+**InvHighestPointRequirement.** `LC_highestpoint` is confirmed a real, single, dedicated room (LC =
+Metropolis, Inv's own home region) via decompiling `GhostWorldPresence.cs`'s per-region ghost/echo
+table -- so simply entering it IS reaching that named location, no in-room position math needed,
+the same "arrived in room X" shape `VisitorRequirement`/`FishtankRequirement` already use. The
+three simultaneous carries are confirmed possible under vanilla's own rules by decompilation before
+implementing, not assumed: a slugpup (`CreatureTemplate.Type.SlugNPC`) and a mask (`VultureMask`, a
+`PlayerCarryableItem`) each occupy one of the player's two hand grasps, while the "cloak" (the robe
+the Moon iterator gives, `MoreSlugcatsEnums.AbstractObjectType.MoonCloak`) is worn via
+`SaveState.wearingCloak` -- a plain persistent bool flag set the instant the object is picked up
+(`Player.cs`), not a grasp slot at all -- so two hands genuinely suffice for all three items at
+once, with no third grasp needed.
+
+**Not yet built or tested** -- no .NET toolchain in this container, same standing caveat as
+everything else in this doc. All four rely on real vanilla mechanics (WinState's own passage
+tracker, SaveState.wearingCloak, RainWorldGame.clock) confirmed by reading the decompiled source
+directly rather than guessed at, but none of the four has been exercised in a live game.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)
