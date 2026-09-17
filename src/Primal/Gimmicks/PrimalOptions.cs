@@ -63,6 +63,22 @@ namespace Primal.Gimmicks
     /// MachineConnector.SetRegisteredOI -- see that file for why it has to happen there rather
     /// than in Plugin.OnEnable.
     ///
+    /// **2026-09-17: a mode-selection gate sits in front of all of the above.** The very first
+    /// time this screen is opened (ScreenMode's own persisted Configurable&lt;string&gt; is still
+    /// empty), it shows a title/credits/description blurb (sourced straight from `mod.name`/
+    /// `mod.authors`/`mod.description`, i.e. modinfo.json, rather than a second hand-typed copy of
+    /// the same text) and two choices: Primal mode (view every character's current assignments,
+    /// nothing editable) or Custom mode (exactly the screen described above, fully editable). Once
+    /// a mode is chosen it's persisted the same way every other setting on this screen is, so
+    /// reopening Remix later skips straight to the Split view; a "Change Mode" button in the
+    /// normal view's own top-right corner returns to this chooser without touching the persisted
+    /// choice until a new one is actually clicked. Primal mode is enforced two ways: every control
+    /// that would change an assignment (`+ Add`/`x` buttons, and everything a gimmick's own
+    /// settings sub-view returns) has `greyedOut` set true, which is Remix's own real
+    /// interactivity gate (confirmed via OpSimpleButton/OpCheckBox's own Update() -- a greyed-out
+    /// control's click handling never runs, it's not just dimmed), and SetEnabledFor itself
+    /// no-ops while read-only as a second, UI-independent line of defense.
+    ///
     /// **Not yet built or tested** -- no .NET toolchain in this container.
     /// </summary>
     internal sealed class PrimalOptions : OptionInterface
@@ -152,9 +168,13 @@ namespace Primal.Gimmicks
         private const float ContentLeft = 10f;
         private const float ContentWidth = 580f;
 
+        // The slot-switch key now sits on its own row below the title, since the title row's own
+        // top-right corner is taken by the "Change Mode" button (see BuildPermanentItems).
+        private const float SlotSwitchY = TitleY - 40f;
+
         // The character select row -- one OpComboBox replacing the old 5x2 character-button grid
         // (which alone used to occupy GridStartY 460 down to 365, ~95px, plus the row it sat under).
-        private const float CharSelectY = 525f;
+        private const float CharSelectY = SlotSwitchY - 40f;
         private const float CharSelectLabelWidth = 90f;
         private const float CharSelectWidth = 220f;
 
@@ -198,7 +218,39 @@ namespace Primal.Gimmicks
         private const float PickerColumnWidth = (ModalListViewportWidth - (PickerColumns - 1) * PickerColumnGap) / PickerColumns;
         private const float PickerRowHeight = 40f;
 
+        // ---- the mode-selection screen (shown before ScreenMode has ever been chosen) ----------
+        private const float ModeAuthorY = TitleY - 26f;
+        private const float ModeDescriptionHeight = 100f;
+        private const float ModeDescriptionY = ModeAuthorY - 16f - ModeDescriptionHeight;
+        private const float ModeChoiceHeadingY = ModeDescriptionY - 20f;
+        private const float ModeButtonWidth = 160f;
+        private const float ModeButtonHeight = 50f;
+        private const float ModeChoiceTextGap = 20f;
+        private const float ModeChoiceRow1Y = ModeChoiceHeadingY - 50f;
+        private const float ModeChoiceRowGap = 90f;
+        private const float ModeChoiceRow2Y = ModeChoiceRow1Y - ModeChoiceRowGap;
+
+        // The screen's own top-level state -- ModeSelect (the credits/description blurb plus the
+        // Primal/Custom choice) or Normal (title/slot-switch/character-select plus the Split view
+        // and its modals, i.e. everything this class already did before the mode gate existed).
+        private enum ScreenState
+        {
+            ModeSelect,
+            Normal,
+        }
+
         private OpTab _tab;
+        private ScreenState _screenState = ScreenState.ModeSelect;
+
+        // The Normal state's own permanent row (title, "Change Mode" button, slot-switch key,
+        // character select) -- tracked separately from _detailItems since it has to be torn down
+        // too when switching back to ModeSelect (unlike a plain Split<->modal switch within Normal,
+        // which only ever touches _detailItems).
+        private readonly List<UIelement> _permanentItems = new List<UIelement>();
+
+        // The ModeSelect state's own content -- title/credits/description plus the two mode-choice
+        // rows. Never coexists with _permanentItems/_detailItems; see ClearAllScreens.
+        private readonly List<UIelement> _modeSelectItems = new List<UIelement>();
 
         // Everything in the detail area below the (permanent) title/character-select row, tracked
         // so it can be wiped and replaced wholesale every time the selected character or detail
@@ -213,6 +265,16 @@ namespace Primal.Gimmicks
         // last had selected" across restarts, the same Remix-config mechanism every other setting
         // on this screen already uses.
         private Configurable<string> _selectedCharacterConfig;
+
+        // Persists which mode this screen is in, across restarts -- "" (never chosen, show
+        // ModeSelect), "Primal" (read-only), or "Custom" (fully editable). See IsReadOnly.
+        private Configurable<string> _modeConfig;
+
+        // True while ScreenMode is "Primal" -- every control that would change an assignment
+        // checks this (or is built with greyedOut set from it) before allowing an edit. See this
+        // class's own header comment for the two-layer enforcement (UI greyedOut + this same check
+        // again inside SetEnabledFor).
+        private bool IsReadOnly => _modeConfig != null && _modeConfig.Value == "Primal";
 
         // Guards EnsureConfigBound() against running its config.Bind() loop more than once on
         // this instance -- see that method's own doc comment for why it now gets called from two
@@ -230,24 +292,102 @@ namespace Primal.Gimmicks
             _tab = new OpTab(this, "Primal");
             Tabs = new OpTab[] { _tab };
 
-            var permanentItems = new List<UIelement>
+            if (string.IsNullOrEmpty(_modeConfig.Value))
             {
-                new OpLabel(10f, TitleY, "Primal", true)
+                ShowModeSelect();
+            }
+            else
+            {
+                _charID = _selectedCharacterConfig.Value;
+                ShowNormal();
+            }
+        }
+
+        // ---- top-level screen state: mode selection vs. the normal character/gimmicks/requirements view ----
+
+        // Tears down whichever of the three item lists is currently attached to the tab -- called
+        // before switching between ModeSelect and Normal, since (unlike a plain Split<->modal
+        // switch within Normal) that transition has to replace the permanent row too, not just
+        // _detailItems.
+        private void ClearAllScreens()
+        {
+            if (_modeSelectItems.Count > 0)
+            {
+                _tab.RemoveItems(_modeSelectItems.ToArray());
+                _modeSelectItems.Clear();
+            }
+            if (_detailItems.Count > 0)
+            {
+                _tab.RemoveItems(_detailItems.ToArray());
+                _detailItems.Clear();
+            }
+            if (_permanentItems.Count > 0)
+            {
+                _tab.RemoveItems(_permanentItems.ToArray());
+                _permanentItems.Clear();
+            }
+        }
+
+        private void ShowModeSelect()
+        {
+            ClearAllScreens();
+            _screenState = ScreenState.ModeSelect;
+            RenderModeSelect();
+        }
+
+        private void ShowNormal()
+        {
+            ClearAllScreens();
+            _screenState = ScreenState.Normal;
+            BuildPermanentItems();
+            _detailView = DetailView.Split;
+            RenderDetail();
+        }
+
+        // Both mode-choice buttons on the ModeSelect screen call this. Persists immediately (same
+        // "don't rely on Remix's own easy-to-miss SAVE button" reasoning SetEnabledFor's own doc
+        // comment traces in full) and drops straight into the Normal view.
+        private void SelectMode(string mode)
+        {
+            _modeConfig.Value = mode;
+            SaveConfigNow("the screen mode (" + mode + ")");
+            _charID = _selectedCharacterConfig.Value;
+            ShowNormal();
+        }
+
+        // The Normal state's own permanent row: title, a "Change Mode" button in the top-right
+        // corner (per explicit request), the current mode (so read-only isn't a silent surprise),
+        // the slot-switch key, and the character select.
+        private void BuildPermanentItems()
+        {
+            var items = new List<UIelement>
+            {
+                new OpLabel(ContentLeft, TitleY, "Primal", true)
             };
 
-            // Mod-wide slot-switch key, parked on the title row's right-hand side -- the only
-            // setting on this screen that isn't per (character, gimmick/requirement), so it
-            // deliberately sits outside the character-select/detail structure everything else uses.
+            items.Add(new OpLabel(ContentLeft + ContentWidth - 260f, TitleY, IsReadOnly ? "Mode: Primal (read-only)" : "Mode: Custom", false));
+
+            OpSimpleButton changeModeButton = new OpSimpleButton(new Vector2(ContentLeft + ContentWidth - 120f, TitleY - 4f), new Vector2(120f, 30f), "Change Mode")
+            {
+                description = "Return to the Primal/Custom mode selection screen."
+            };
+            changeModeButton.OnClick += _ => ShowModeSelect();
+            items.Add(changeModeButton);
+
+            // Mod-wide slot-switch key -- the only setting on this screen that isn't per
+            // (character, gimmick/requirement), so it deliberately sits outside the
+            // character-select/detail structure everything else uses. Its own row, below the
+            // title, since the title row's top-right corner is now the Change Mode button.
             OpKeyBinder slotSwitchBinder = PrimalSettings.BuildSlotSwitchBinder(
-                new Vector2(ContentLeft + ContentWidth - 120f, TitleY - 4f),
+                new Vector2(ContentLeft + ContentWidth - 120f, SlotSwitchY - 4f),
                 new Vector2(120f, 30f));
             if (slotSwitchBinder != null)
             {
-                permanentItems.Add(new OpLabel(ContentLeft + ContentWidth - 260f, TitleY, "Slot switch key:", false));
-                permanentItems.Add(slotSwitchBinder);
+                items.Add(new OpLabel(ContentLeft + ContentWidth - 260f, SlotSwitchY, "Slot switch key:", false));
+                items.Add(slotSwitchBinder);
             }
 
-            permanentItems.Add(new OpLabel(ContentLeft, CharSelectY + 4f, "Character:", false));
+            items.Add(new OpLabel(ContentLeft, CharSelectY + 4f, "Character:", false));
             var characterListItems = new List<ListItem>();
             for (int i = 0; i < AllCharacters.Length; i++)
             {
@@ -261,20 +401,72 @@ namespace Primal.Gimmicks
             {
                 description = "Select a character to edit its gimmicks and requirements."
             };
-            permanentItems.Add(characterSelect);
+            items.Add(characterSelect);
 
-            _tab.AddItems(permanentItems.ToArray());
+            _permanentItems.AddRange(items);
+            _tab.AddItems(_permanentItems.ToArray());
+        }
 
-            _charID = _selectedCharacterConfig.Value;
-            _detailView = DetailView.Split;
-            RenderDetail();
+        // The screen shown before ScreenMode has ever been chosen (and reachable again afterward
+        // via the Normal view's own "Change Mode" button). Title/credits/description sourced
+        // straight from `mod` (modinfo.json) rather than a second hand-typed copy of the same text,
+        // so it can't drift out of sync with it.
+        private void RenderModeSelect()
+        {
+            var items = new List<UIelement>();
+
+            items.Add(new OpLabel(ContentLeft, TitleY, mod.name + " v" + mod.version, true));
+            items.Add(new OpLabel(ContentLeft, ModeAuthorY, "by " + mod.authors, false));
+
+            items.Add(new OpLabelLong(
+                new Vector2(ContentLeft, ModeDescriptionY),
+                new Vector2(ContentWidth, ModeDescriptionHeight),
+                mod.description,
+                true,
+                FLabelAlignment.Left));
+
+            items.Add(new OpLabel(ContentLeft, ModeChoiceHeadingY, "Choose how this screen behaves:", true));
+
+            AddModeChoice(
+                items,
+                ModeChoiceRow1Y,
+                "PRIMAL MODE",
+                "View every character's current gimmick and requirement assignments. Nothing can be changed while in this mode.",
+                () => SelectMode("Primal"));
+
+            AddModeChoice(
+                items,
+                ModeChoiceRow2Y,
+                "CUSTOM MODE",
+                "Freely assign gimmicks and requirements to any character, exactly like before.",
+                () => SelectMode("Custom"));
+
+            _modeSelectItems.AddRange(items);
+            _tab.AddItems(_modeSelectItems.ToArray());
+        }
+
+        // One mode-choice row: a button on the left, its own explanatory text to the right --
+        // exactly the layout requested.
+        private static void AddModeChoice(List<UIelement> items, float y, string buttonLabel, string description, Action onClick)
+        {
+            OpSimpleButton button = new OpSimpleButton(new Vector2(ContentLeft, y), new Vector2(ModeButtonWidth, ModeButtonHeight), buttonLabel);
+            button.OnClick += _ => onClick();
+            items.Add(button);
+
+            items.Add(new OpLabelLong(
+                new Vector2(ContentLeft + ModeButtonWidth + ModeChoiceTextGap, y - 10f),
+                new Vector2(ContentWidth - ModeButtonWidth - ModeChoiceTextGap, ModeButtonHeight + 20f),
+                description,
+                true,
+                FLabelAlignment.Left));
         }
 
         /// <summary>
         /// Binds every (character, gimmick) and (character, requirement) "enabled"
         /// Configurable&lt;bool&gt; (plus each gimmick's own extra settings, via
-        /// GimmickDef.BindSettings), and the mod-wide "which character is selected on this screen"
-        /// Configurable&lt;string&gt; -- pure config-holder bookkeeping, no UI construction.
+        /// GimmickDef.BindSettings), and the mod-wide "which character is selected" and
+        /// "which mode this screen is in" Configurable&lt;string&gt;s -- pure config-holder
+        /// bookkeeping, no UI construction.
         /// Idempotent: the actual binding only ever runs once per instance (guarded by
         /// _configBound); every call after the first is a silent no-op, which is required since
         /// ConfigHolder.Bind() throws if the same key is bound twice.
@@ -351,6 +543,14 @@ namespace Primal.Gimmicks
             // persisted value from a previous session, so a reopened screen starts on whichever
             // character was last selected without any extra wiring here.
             _selectedCharacterConfig.OnChange += OnCharacterSelectionChanged;
+
+            // "" means no mode has ever been chosen -- Initialize() reads this directly (not via
+            // OnChange) to decide whether to show ModeSelect or jump straight to Normal, so no
+            // change-handler subscription is needed here the way the character select needed one.
+            _modeConfig = config.Bind(
+                "ScreenMode",
+                "",
+                new ConfigurableInfo("Whether this screen is in read-only Primal mode or fully editable Custom mode."));
 
             foreach (CharacterEntry character in AllCharacters)
             {
@@ -491,6 +691,14 @@ namespace Primal.Gimmicks
         // on its own "SAVE" button.
         private void SetEnabledFor(string characterID, string id, bool value)
         {
+            // Second, UI-independent line of defense (see this class's own header comment): the
+            // controls that call this are already greyedOut while read-only, but this guard means
+            // "Primal mode changes nothing" holds even if some future control forgets to check.
+            if (IsReadOnly)
+            {
+                return;
+            }
+
             Configurable<bool> c = GimmickAssignments.GetConfigurable(characterID, id);
             if (c == null)
             {
@@ -539,13 +747,21 @@ namespace Primal.Gimmicks
             // methods: go through HarmonyLib.AccessTools.Method(...).Invoke(...) instead of calling
             // it directly, which bypasses the runtime accessibility check entirely. See
             // ConfigSaveMethod below.
+            SaveConfigNow("an assignment (" + characterID + "/" + id + " -> " + value + ")");
+        }
+
+        // Shared by SetEnabledFor and SelectMode -- both need the exact same immediate,
+        // unconditional config.Save() (see the long comment above for why it can't be a direct
+        // `config.Save()` call), just with different text for the error log line if it throws.
+        private void SaveConfigNow(string whatChanged)
+        {
             try
             {
                 ConfigSaveMethod?.Invoke(config, null);
             }
             catch (Exception ex)
             {
-                Plugin.Log?.LogError($"ConfigHolder.Save() threw while persisting an assignment ({characterID}/{id} -> {value}) -- the change is still in effect this session, but may not survive a restart: {ex}");
+                Plugin.Log?.LogError($"ConfigHolder.Save() threw while persisting {whatChanged} -- the change is still in effect this session, but may not survive a restart: {ex}");
             }
         }
 
@@ -606,8 +822,11 @@ namespace Primal.Gimmicks
             // this OnChange the moment it applies a persisted value, long before the player has
             // ever opened this mod's Remix page. _tab (and _detailItems) only exist once
             // Initialize() has actually run at least once; _charID is still updated above so
-            // Initialize() picks up the right value when it eventually does run.
-            if (_tab == null)
+            // Initialize() picks up the right value when it eventually does run. Also bail while
+            // ModeSelect is showing -- the character-select combo box itself doesn't exist then
+            // (it's part of _permanentItems, only built by BuildPermanentItems/ShowNormal), so this
+            // can only legitimately fire from real interaction while _screenState is Normal.
+            if (_tab == null || _screenState != ScreenState.Normal)
             {
                 return;
             }
@@ -733,7 +952,8 @@ namespace Primal.Gimmicks
             string capturedCharIDForGimmickAdd = character.ID;
             OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Gimmick")
             {
-                description = "Add a gameplay-altering gimmick to " + character.DisplayName
+                description = "Add a gameplay-altering gimmick to " + character.DisplayName,
+                greyedOut = IsReadOnly
             };
             addGimmickButton.OnClick += _ => OpenAddGimmickPicker(capturedCharIDForGimmickAdd);
             items.Add(addGimmickButton);
@@ -763,7 +983,8 @@ namespace Primal.Gimmicks
             string capturedCharIDForReqAdd = character.ID;
             OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Requirement")
             {
-                description = "Add a run-completion requirement to track for " + character.DisplayName
+                description = "Add a run-completion requirement to track for " + character.DisplayName,
+                greyedOut = IsReadOnly
             };
             addRequirementButton.OnClick += _ => OpenAddRequirementPicker(capturedCharIDForReqAdd);
             items.Add(addRequirementButton);
@@ -804,7 +1025,8 @@ namespace Primal.Gimmicks
 
                 OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, gimmickRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
                 {
-                    description = "Remove " + gimmick.DisplayName + " from " + character.DisplayName
+                    description = "Remove " + gimmick.DisplayName + " from " + character.DisplayName,
+                    greyedOut = IsReadOnly
                 };
                 removeButton.OnClick += _ => RemoveGimmick(capturedCharID, capturedGimmickID);
                 gimmickRowItems.Add(removeButton);
@@ -832,7 +1054,8 @@ namespace Primal.Gimmicks
 
                 OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, requirementRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
                 {
-                    description = "Stop tracking " + requirement.DisplayName + " for " + character.DisplayName
+                    description = "Stop tracking " + requirement.DisplayName + " for " + character.DisplayName,
+                    greyedOut = IsReadOnly
                 };
                 removeButton.OnClick += _ => RemoveRequirement(capturedCharID, capturedRequirementID);
                 requirementRowItems.Add(removeButton);
@@ -908,6 +1131,22 @@ namespace Primal.Gimmicks
             // straight to _tab.AddItems, so these controls must also be tracked in _detailItems, or
             // the next ShowDetail teardown leaves them permanently attached and clickable.
             List<UIelement> settingsControls = gimmick.BuildSettingsUI(character.ID, contentTopY);
+            if (IsReadOnly)
+            {
+                // A gimmick's own settings UI (banlist checkboxes, sliders, ...) writes straight to
+                // its own bound Configurable on interaction -- it never goes through
+                // SetEnabledFor's own read-only guard, so Primal mode has to be enforced here
+                // instead, directly on whatever controls this specific gimmick happens to return.
+                // OpLabel (not a UIfocusable) has no greyedOut and needs none -- it isn't
+                // interactive to begin with.
+                foreach (UIelement element in settingsControls)
+                {
+                    if (element is UIfocusable focusable)
+                    {
+                        focusable.greyedOut = true;
+                    }
+                }
+            }
             scrollBox.AddItems(settingsControls.ToArray());
             _detailItems.AddRange(settingsControls);
         }
@@ -916,6 +1155,15 @@ namespace Primal.Gimmicks
 
         private void RenderAddGimmickModal()
         {
+            // Shouldn't be reachable while read-only -- the "+ Add Gimmick" button that opens this
+            // is itself greyedOut in that case -- but guarded anyway, the same defense-in-depth
+            // spirit as SetEnabledFor's own read-only check.
+            if (IsReadOnly)
+            {
+                CloseModal();
+                return;
+            }
+
             if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
                 CloseModal();
@@ -999,6 +1247,13 @@ namespace Primal.Gimmicks
 
         private void RenderAddRequirementModal()
         {
+            // See RenderAddGimmickModal's own note on this.
+            if (IsReadOnly)
+            {
+                CloseModal();
+                return;
+            }
+
             if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
                 CloseModal();

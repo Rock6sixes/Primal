@@ -5696,6 +5696,83 @@ runtime behavior (this is the first time this mod has used that specific Remix c
 whether four-column picker buttons fit the longest gimmick/requirement display names
 ("Threat Slowdown", "Enlightenment") without clipping.
 
+## 2026-09-17 (later still): a mode-selection gate -- Primal (read-only) vs. Custom (editable)
+
+Requested directly: gate the whole Remix screen behind a first-run choice between "Primal mode"
+(view-only) and "Custom mode" (exactly the existing editable screen), shown as a title/credits/
+description blurb followed by two rows (a button on the left, explanatory text to the right), with
+the choice persisted so it's skipped on every later visit, and a "Change Mode" button in the
+normal view's own top-right corner to revisit the choice. Confirmed before implementing: only two
+modes exist (the "3 choices" in the request was a typo), and Primal mode simply freezes whatever
+is currently configured against further edits rather than snapping to some separate curated preset
+-- there's no second config to design or maintain.
+
+**New top-level screen state, above (not instead of) everything the previous UI-redesign pass
+built.** `ScreenState` (`ModeSelect` / `Normal`) now sits above `DetailView` (`Split`/
+`GimmickSettings`/`AddGimmick`/`AddRequirement`, all unchanged) -- ModeSelect is a whole different
+screen (title/credits/description/two choice rows), Normal is everything that already existed
+(the permanent title/character-select row plus the Split view and its modals). Three separate
+tracked item lists now exist on the one `_tab` -- `_modeSelectItems`, `_permanentItems` (renamed
+from the anonymous local `permanentItems` Initialize() used to build inline), and the existing
+`_detailItems` -- because switching between ModeSelect and Normal has to tear down and rebuild the
+permanent row too, not just the detail area the way a plain Split<->modal switch within Normal
+already did. `ClearAllScreens()` removes whichever of the three is currently populated;
+`ShowModeSelect()`/`ShowNormal()` call it before rebuilding their own content.
+
+**Persistence, and the one real subtlety in wiring it up.** A new `Configurable<string>
+ScreenMode` ("" / "Primal" / "Custom") is bound in EnsureConfigBound exactly like every other
+setting on this screen. Initialize() reads it directly (not via an OnChange handler, unlike the
+character-select Configurable) since it only needs a one-time decision at startup: empty means
+show ModeSelect, anything else jumps straight to Normal. Selecting a mode calls the same
+"immediately, unconditionally call config.Save() via reflection" pattern SetEnabledFor's own long
+doc comment already traces in full (SetEnabledFor's own tail was pulled out into a new shared
+`SaveConfigNow(whatChanged)` helper rather than duplicating that AccessTools.Method Invoke/try-catch
+a second time). "Change Mode" deliberately does NOT touch the persisted value -- it just calls
+`ShowModeSelect()` to let the player look at the chooser again; only an actual click on one of the
+two mode buttons writes to `ScreenMode`. That's what makes "skip the mode question next time" mean
+what it should: reopening Remix later re-reads whatever was last actually chosen, regardless of
+whether the player visited-but-didn't-repick the chooser mid-session.
+
+**Enforcing read-only, and why it needs two separate mechanisms.** Primal mode isn't just a label
+-- every control that would change an assignment has to actually stop responding. Confirmed by
+reading OpSimpleButton/OpCheckBox/OpComboBox's own decompiled Update() methods: `greyedOut` isn't
+cosmetic dimming, it's Remix's own real interactivity gate (`if (greyedOut) { ...; return; }` skips
+the entire click-handling branch, so `OnClick` never fires at all). So: the Split view's own
+`+ Add`/`x` buttons get `greyedOut = IsReadOnly` set at construction; a gimmick's own settings
+sub-view is a different story, though -- ChainsSettings' banlist checkboxes and every other
+gimmick's own settings controls write straight to their own bound Configurable on interaction,
+never routing through this screen's own SetEnabledFor at all, so RenderGimmickSettingsModal
+post-processes whatever `GimmickDef.BuildSettingsUI` returns and sets `greyedOut = true` on every
+element that's a `UIfocusable` (OpLabel isn't one, and needs no such flag -- it was never
+interactive to begin with). On top of both of those, `SetEnabledFor` itself now also no-ops while
+`IsReadOnly` -- a second, UI-independent guarantee that holds even if some future control forgets
+to set `greyedOut`, and `RenderAddGimmickModal`/`RenderAddRequirementModal` bail straight back to
+Split if somehow reached while read-only (shouldn't be possible through the UI, since their own
+"+ Add" buttons are greyed out, but cheap defense-in-depth matching this file's own established
+style). The character-select combo box and "Change Mode" button are deliberately NEVER greyed --
+switching characters or navigating back to the mode chooser isn't "changing the configuration."
+
+**Layout.** The title row's top-right corner, previously the slot-switch key, is now the "Change
+Mode" button (plus a small "Mode: Primal (read-only)" / "Mode: Custom" indicator) -- the
+slot-switch key moved down to its own row (`SlotSwitchY`), and the character-select row shifted
+down to match (`CharSelectY`), which in turn shifts `DetailTopY` and everything derived from it
+down by the same amount; still comfortably tall enough for the Split view's two scrollable columns.
+The ModeSelect screen's own title/author/description/choice-row Y positions
+(`ModeAuthorY`/`ModeDescriptionY`/`ModeChoiceHeadingY`/`ModeChoiceRow1Y`/`ModeChoiceRow2Y`) are all
+derived from `TitleY` by simple constant arithmetic, verified by hand to leave a comfortable,
+non-overlapping gap between every element and stay well clear of both screen edges. The credits/
+description text itself is read live from `mod.name`/`mod.version`/`mod.authors`/`mod.description`
+(i.e. modinfo.json) via `OptionInterface`'s own inherited `mod` property, rather than a second,
+easy-to-drift hand-typed copy of the same text -- an `OpLabelLong` (not the plain single-line
+OpLabel used everywhere else on this screen) renders it with real word-wrap.
+
+**Not yet built or tested** -- no .NET toolchain in this container, and this is the first time this
+project has used a Configurable-driven boolean gate that greys out OTHER gimmicks' own
+independently-written settings UI after the fact, rather than each gimmick controlling its own
+interactivity -- worth particular scrutiny (does `UIfocusable.greyedOut` genuinely block every kind
+of control this mod's various gimmicks return, not just the button/checkbox cases confirmed by
+reading source) on the next real build.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)
