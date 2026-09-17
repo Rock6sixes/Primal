@@ -67,7 +67,7 @@ namespace Primal.Gimmicks
 
         /// <summary>
         /// Optional. Minimum virtual content height (Remix screen units) this gimmick's settings
-        /// sub-view needs. PrimalOptions.RenderGimmickSettings always wraps BuildSettingsUI's
+        /// sub-view needs. PrimalOptions.RenderGimmickSettingsModal always wraps BuildSettingsUI's
         /// result in a scrollable OpScrollBox and clamps its content size up to at least the
         /// plain viewport height (~241px as of this writing), so the default of 0 here just means
         /// "fits already, nothing extra needed" -- for a gimmick whose settings lay out taller

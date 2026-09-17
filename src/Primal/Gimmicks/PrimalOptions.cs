@@ -9,43 +9,52 @@ using UnityEngine;
 namespace Primal.Gimmicks
 {
     /// <summary>
-    /// The mod's Remix config screen. The character select grid is permanent -- it is added once
-    /// in Initialize and never rebuilt or removed -- and a second "detail" area directly below it
-    /// shows whatever is relevant to the currently-selected character. Clicking a different
-    /// character in the grid does NOT navigate to a new screen: it just overwrites the detail
-    /// area's contents (via OpTab.AddItems/RemoveItems on a small tracked list) while the grid
-    /// itself stays exactly where it was. This replaces an earlier version of this screen where
-    /// selecting a character replaced the grid entirely with a drill-down view -- the user asked
-    /// for the grid to stay visible/selectable at all times instead.
+    /// The mod's Remix config screen. Rewritten 2026-09-17: replaces the old 5x2 character-button
+    /// grid with a single OpComboBox character select (saves the ~200px the grid used to occupy),
+    /// and replaces the old two-tab (Gimmicks / Requirements) layout with one tab whose detail
+    /// area is split vertically -- gameplay-altering gimmicks on the left, run-completion
+    /// requirements on the right -- since both apply to the same selected character and the split
+    /// tabs made switching between them more friction than it needed to be.
     ///
-    /// The detail area itself still has three sub-views, chosen by DetailView:
+    /// Permanent (added once in Initialize, never rebuilt): title, the slot-switch key, and the
+    /// character select. Everything else is the swappable "detail area" (_detailItems), driven by
+    /// DetailView:
     ///
-    ///  Gimmicks -- a table of the selected character's currently-assigned gimmicks (a name
-    ///     button per row, opening that gimmick's settings, plus a small "x" button that
-    ///     un-assigns it on the spot) and a "+" button spanning the table's height that opens the
-    ///     add-gimmick picker. This is what shows immediately after clicking a character in the
-    ///     grid, and what re-appears (for the newly-clicked character) if you click a different
-    ///     character while some other detail sub-view is open.
-    ///  Settings -- one specific gimmick's own settings sub-view (GimmickDef.BuildSettingsUI),
-    ///     or a plain "no settings" message for gimmicks that don't have one (see GimmickDef.cs).
-    ///  AddGimmick -- a button per gimmick NOT currently assigned to this character; click one
-    ///     to assign it and drop back to the Gimmicks sub-view.
+    ///  Split -- the normal view: the selected character's assigned gimmicks (left) and enabled
+    ///     requirements (right), each its own scrollable list with a "+ Add" button at the bottom.
+    ///     A gimmick's name button opens its settings; a requirement has no settings yet, so its
+    ///     row is a plain label. Both sides have their own "x" remove button per row.
+    ///  GimmickSettings -- one gimmick's own settings sub-view (GimmickDef.BuildSettingsUI),
+    ///     rendered as a full-width overlay ("modal") over the whole detail area.
+    ///  AddGimmick / AddRequirement -- a 4-column, scrollable grid of everything NOT currently
+    ///     assigned/enabled for this character; clicking an entry assigns it and closes straight
+    ///     back to Split.
     ///
-    /// Before anything is selected (right after opening the menu), the detail area just shows a
-    /// one-line placeholder telling the user to pick a character above.
+    /// **Why these "modals" are still just OpTab detail-view swaps, not real separate windows.**
+    /// Remix's own modder-facing UI controls (OpCheckBox, OpScrollBox, OpComboBox, and every
+    /// existing gimmick's own settings UI, e.g. ChainsSettings' banlist) only exist inside an
+    /// OpTab/ConfigContainer -- they cannot be hosted inside a true Menu.Dialog side-process
+    /// (the mechanism CommunityChallengesDialog/KillListDialog use), which only understands plain
+    /// Menu.MenuObject-derived controls (Menu.SimpleButton, Menu.MenuLabel, ...). Rebuilding every
+    /// existing gimmick's settings screen in that vanilla-menu vocabulary just to get true floating
+    /// windows would be a much larger rewrite than "change up the Remix menu UI" asked for, so
+    /// instead a "modal" here is the detail area's normal split content being replaced wholesale by
+    /// full-width overlay content with its own bordered backdrop (AddModalBackdrop) and a "< Back"
+    /// button -- visually a distinct window, structurally still the same ShowDetail swap the old
+    /// Settings/AddGimmick sub-views already used.
     ///
-    /// Every (character, gimmick) "enabled" Configurable&lt;bool&gt; is still bound eagerly for
-    /// every pair up front in Initialize (exactly as the original flat-grid version did), and so is
-    /// every gimmick's own extra settings (via GimmickDef.BindSettings) -- only how they're
-    /// *displayed* changed. GimmickAssignments.IsEnabled (read every frame by the gimmick patches
-    /// themselves) is completely unaffected by which detail sub-view happens to be open.
+    /// Every (character, gimmick) and (character, requirement) "enabled" Configurable&lt;bool&gt;
+    /// is still bound eagerly for every pair up front (EnsureConfigBound), same as before this UI
+    /// pass -- only how they're *displayed* changed. GimmickAssignments.IsEnabled (read every frame
+    /// by the gimmick/requirement patches themselves) is completely unaffected by which detail view
+    /// happens to be open.
     ///
     /// A gimmick only ever takes effect while playing on this mod's reserved save slot
     /// (PrimalSlot.ReservedSlot) -- every other slot plays every character exactly as vanilla
     /// intends, unmodified.
     ///
-    /// There are no separate "alt" SlugBase characters: the character select screen always shows
-    /// the same, real vanilla roster, on every slot. This screen assigns gimmicks straight to
+    /// There are no separate "alt" SlugBase characters: the character select always lists the same,
+    /// real vanilla roster, on every slot. This screen assigns gimmicks/requirements straight to
     /// those real characters (e.g. "Misery on Gourmand"), so a gimmick-modified playthrough still
     /// keeps every vanilla property, cutscene, and world-state interaction completely intact --
     /// nothing about the character's own identity is ever faked or substituted.
@@ -53,6 +62,8 @@ namespace Primal.Gimmicks
     /// Registered with the game's Remix menu from RainWorldHooks.RainWorld_OnModsInit via
     /// MachineConnector.SetRegisteredOI -- see that file for why it has to happen there rather
     /// than in Plugin.OnEnable.
+    ///
+    /// **Not yet built or tested** -- no .NET toolchain in this container.
     /// </summary>
     internal sealed class PrimalOptions : OptionInterface
     {
@@ -122,20 +133,17 @@ namespace Primal.Gimmicks
             return characters.ToArray();
         }
 
-        // What the (always-visible) detail area, directly below the (also always-visible)
-        // character grid, is currently showing. "None" is the initial placeholder state before
-        // any character has been clicked yet.
+        // What the detail area, directly below the (permanent) title/character-select row, is
+        // currently showing.
         private enum DetailView
         {
-            None,
-            Gimmicks,
-            Settings,
+            Split,
+            GimmickSettings,
             AddGimmick,
+            AddRequirement,
         }
 
         private const float TitleY = 570f;
-        private const float SubtitleY = 548f;
-        private const float RowHeight = 40f;
 
         // Remix's OptionInterface screen is a fixed ~600x600 coordinate space (confirmed by
         // disassembling the game's own MoreSlugcatsOptionInterface, whose own elements never sit
@@ -144,58 +152,67 @@ namespace Primal.Gimmicks
         private const float ContentLeft = 10f;
         private const float ContentWidth = 580f;
 
-        // The character grid: 5 columns x 2 rows -- fits all 9 characters within the ~600-wide
-        // screen (5 * 106 + 4 * 10 = 570, comfortably inside ContentWidth). This is permanent --
-        // built once in Initialize -- and sits above the detail area at a fixed position.
-        private const int GridColumns = 5;
-        private const float GridButtonW = 106f;
-        private const float GridButtonH = 40f;
-        private const float GridGapX = 10f;
-        private const float GridSpacingX = GridButtonW + GridGapX;
-        private const float GridStartY = 460f;
-        private const float GridSpacingY = -55f;
+        // The character select row -- one OpComboBox replacing the old 5x2 character-button grid
+        // (which alone used to occupy GridStartY 460 down to 365, ~95px, plus the row it sat under).
+        private const float CharSelectY = 525f;
+        private const float CharSelectLabelWidth = 90f;
+        private const float CharSelectWidth = 220f;
 
-        // Bottom edge of the grid's last row (GridStartY + 1 * GridSpacingY - GridButtonH =
-        // 460 - 55 - 40 = 365). The detail area starts a comfortable gap below that instead of
-        // overlapping the grid, which is why it uses its own top-Y constant rather than reusing
-        // the old full-screen views' ContentTopY (500) -- that value used to be safe only because
-        // the grid and the detail content were never both on screen at the same time.
-        private const float DetailTopY = 335f;
+        // The detail area starts a comfortable gap below the character select.
+        private const float DetailTopY = CharSelectY - 45f;
+        private const float DetailBottomY = 10f;
+
+        // ---- the Split view's two columns -----------------------------------------------------
+        private const float ColumnGap = 20f;
+        private const float ColumnWidth = (ContentWidth - ColumnGap) / 2f;
+        private const float LeftColumnX = ContentLeft;
+        private const float RightColumnX = LeftColumnX + ColumnWidth + ColumnGap;
+
+        private const float ColumnHeaderY = DetailTopY;
+        private const float ColumnAddButtonHeight = 30f;
+        private const float ColumnAddButtonY = DetailBottomY;
+        private const float ColumnListViewportTop = DetailTopY - 40f;
+        private const float ColumnListViewportBottom = ColumnAddButtonY + ColumnAddButtonHeight + 10f;
+        private const float ColumnListViewportHeight = ColumnListViewportTop - ColumnListViewportBottom;
+
+        private const float ColumnRowHeight = 36f;
+        private const float ColumnRemoveButtonW = 32f;
+        private const float ColumnRowGap = 8f;
+        private const float ColumnNameButtonW = ColumnWidth - ColumnRemoveButtonW - ColumnRowGap;
+
+        // ---- the GimmickSettings/AddGimmick/AddRequirement "modal" overlays --------------------
+        // Each spans the full detail area (both Split columns combined) rather than half of it.
+        private const float ModalTop = DetailTopY;
+        private const float ModalBottom = DetailBottomY;
+        private const float ModalHeaderHeight = 40f;
+        private const float ModalListViewportTop = ModalTop - ModalHeaderHeight;
+        private const float ModalListViewportBottom = ModalBottom;
+        private const float ModalListViewportHeight = ModalListViewportTop - ModalListViewportBottom;
+        // Narrower than the full content width to leave clearance at the right edge for the scroll
+        // box's own slide bar -- same reasoning the old single-column settings viewport used.
+        private const float ModalListViewportWidth = ContentWidth - 40f;
+        private const float ModalContentTopPadding = 20f;
+
+        private const int PickerColumns = 4;
+        private const float PickerColumnGap = 10f;
+        private const float PickerColumnWidth = (ModalListViewportWidth - (PickerColumns - 1) * PickerColumnGap) / PickerColumns;
+        private const float PickerRowHeight = 40f;
 
         private OpTab _tab;
 
-        // Everything in the detail area below the (permanent) character grid, tracked so it can
-        // be wiped and replaced wholesale every time the selected character or detail sub-view
-        // changes, without touching the grid, the title, or the subtitle above it.
+        // Everything in the detail area below the (permanent) title/character-select row, tracked
+        // so it can be wiped and replaced wholesale every time the selected character or detail
+        // view changes.
         private readonly List<UIelement> _detailItems = new List<UIelement>();
 
-        // ---- the Requirements tab's own, independent copy of the same grid/detail structure ----
-        // Added 2026-09-17. Deliberately a second, fully separate OpTab/detail-area/state set
-        // rather than folding a third DetailView case into the Gimmicks tab's own state -- a
-        // requirement is not a kind of gimmick, and giving it its own tab keeps the UX split the
-        // user asked for explicit: gameplay-altering mechanics on one tab, run-completion
-        // conditions on the other.
-        private OpTab _reqTab;
-        private readonly List<UIelement> _reqDetailItems = new List<UIelement>();
-
-        private enum RequirementsDetailView
-        {
-            None,
-            List,
-        }
-
-        private RequirementsDetailView _reqDetailView = RequirementsDetailView.None;
-        private string _reqCharID;
-
-        // This class used to keep its own parallel Dictionary<string, Configurable<bool>> of every
-        // (character, gimmick) assignment flag, keyed by a private EnabledKey() helper that was a
-        // verbatim duplicate of GimmickAssignments' own composite-key format -- two copies of the
-        // same objects under two copies of the same key scheme, in the same assembly. Removed
-        // 2026-09-15: GimmickAssignments.GetConfigurable is now the single lookup for both the
-        // runtime patches and this screen's own "x"/add-gimmick buttons.
-        private DetailView _detailView = DetailView.None;
+        private DetailView _detailView = DetailView.Split;
         private string _charID;
         private string _gimmickID;
+
+        // Backs the character-select OpComboBox -- also what persists "which character this screen
+        // last had selected" across restarts, the same Remix-config mechanism every other setting
+        // on this screen already uses.
+        private Configurable<string> _selectedCharacterConfig;
 
         // Guards EnsureConfigBound() against running its config.Bind() loop more than once on
         // this instance -- see that method's own doc comment for why it now gets called from two
@@ -210,21 +227,17 @@ namespace Primal.Gimmicks
 
             EnsureConfigBound();
 
-            _tab = new OpTab(this, "Gimmicks");
-            _reqTab = new OpTab(this, "Requirements");
-            Tabs = new OpTab[] { _tab, _reqTab };
+            _tab = new OpTab(this, "Primal");
+            Tabs = new OpTab[] { _tab };
 
-            // Title, subtitle, and the character grid are all permanent -- added once here and
-            // never removed or rebuilt. Only _detailItems (below) is ever wiped/replaced.
             var permanentItems = new List<UIelement>
             {
-                new OpLabel(10f, TitleY, "Primal -- Gimmicks", true),
-                new OpLabel(10f, SubtitleY, "Select a character to edit its gimmicks:", false)
+                new OpLabel(10f, TitleY, "Primal", true)
             };
 
             // Mod-wide slot-switch key, parked on the title row's right-hand side -- the only
-            // setting on this screen that isn't per (character, gimmick), so it deliberately sits
-            // outside the grid/detail structure everything else uses.
+            // setting on this screen that isn't per (character, gimmick/requirement), so it
+            // deliberately sits outside the character-select/detail structure everything else uses.
             OpKeyBinder slotSwitchBinder = PrimalSettings.BuildSlotSwitchBinder(
                 new Vector2(ContentLeft + ContentWidth - 120f, TitleY - 4f),
                 new Vector2(120f, 30f));
@@ -234,37 +247,37 @@ namespace Primal.Gimmicks
                 permanentItems.Add(slotSwitchBinder);
             }
 
-            permanentItems.AddRange(BuildCharacterGrid(OpenCharacter, "Edit gimmicks assigned to "));
+            permanentItems.Add(new OpLabel(ContentLeft, CharSelectY + 4f, "Character:", false));
+            var characterListItems = new List<ListItem>();
+            for (int i = 0; i < AllCharacters.Length; i++)
+            {
+                characterListItems.Add(new ListItem(AllCharacters[i].ID, AllCharacters[i].DisplayName, i));
+            }
+            OpComboBox characterSelect = new OpComboBox(
+                _selectedCharacterConfig,
+                new Vector2(ContentLeft + CharSelectLabelWidth, CharSelectY),
+                CharSelectWidth,
+                characterListItems)
+            {
+                description = "Select a character to edit its gimmicks and requirements."
+            };
+            permanentItems.Add(characterSelect);
+
             _tab.AddItems(permanentItems.ToArray());
 
-            _detailView = DetailView.None;
+            _charID = _selectedCharacterConfig.Value;
+            _detailView = DetailView.Split;
             RenderDetail();
-
-            // The Requirements tab: the gameplay-altering, "what mechanics apply" half of this
-            // screen (the Gimmicks tab above) is deliberately kept separate from this, the
-            // "what does this run need to accomplish" half -- see Requirement.cs's own header
-            // comment for the full architecture this splits out of what used to be a single
-            // Community-Challenges-specific gimmick. Same permanent-grid-plus-detail-area shape
-            // as the Gimmicks tab, just with a single detail sub-view (a checkbox grid) instead of
-            // three, since there is no per-requirement settings drill-in needed yet.
-            var reqPermanentItems = new List<UIelement>
-            {
-                new OpLabel(10f, TitleY, "Primal -- Requirements", true),
-                new OpLabel(10f, SubtitleY, "Select a character to edit which run requirements it tracks:", false)
-            };
-            reqPermanentItems.AddRange(BuildCharacterGrid(OpenRequirementsCharacter, "Edit requirements tracked for "));
-            _reqTab.AddItems(reqPermanentItems.ToArray());
-
-            _reqDetailView = RequirementsDetailView.None;
-            RenderRequirementsDetail();
         }
 
         /// <summary>
-        /// Binds every (character, gimmick) "enabled" Configurable&lt;bool&gt; (plus each
-        /// gimmick's own extra settings, via GimmickDef.BindSettings) -- pure config-holder
-        /// bookkeeping, no UI construction. Idempotent: the actual binding only ever runs once per
-        /// instance (guarded by _configBound); every call after the first is a silent no-op, which
-        /// is required since ConfigHolder.Bind() throws if the same key is bound twice.
+        /// Binds every (character, gimmick) and (character, requirement) "enabled"
+        /// Configurable&lt;bool&gt; (plus each gimmick's own extra settings, via
+        /// GimmickDef.BindSettings), and the mod-wide "which character is selected on this screen"
+        /// Configurable&lt;string&gt; -- pure config-holder bookkeeping, no UI construction.
+        /// Idempotent: the actual binding only ever runs once per instance (guarded by
+        /// _configBound); every call after the first is a silent no-op, which is required since
+        /// ConfigHolder.Bind() throws if the same key is bound twice.
         ///
         /// Called from two places, and BOTH matter:
         ///
@@ -321,10 +334,23 @@ namespace Primal.Gimmicks
             }
             _configBound = true;
 
-            // Mod-wide settings (currently just the slot-switch key) bind here too, for exactly
-            // the same reason everything else does -- see Gotcha #7: an unbound Configurable is
-            // skipped by Remix's own config-load pass, so its saved value never survives a restart.
+            // Mod-wide settings (the slot-switch key, and now the selected-character combo box)
+            // bind here too, for exactly the same reason everything else does -- see Gotcha #7: an
+            // unbound Configurable is skipped by Remix's own config-load pass, so its saved value
+            // never survives a restart.
             PrimalSettings.Bind(this);
+
+            string defaultCharacterID = AllCharacters.Length > 0 ? AllCharacters[0].ID : "";
+            _selectedCharacterConfig = config.Bind(
+                "SelectedCharacter",
+                defaultCharacterID,
+                new ConfigurableInfo("Character currently shown on the Primal config screen."));
+            // Fires after _selectedCharacterConfig.Value already reflects the new selection (see
+            // Configurable<T>.Value's own setter) -- both when the player picks a new entry in the
+            // OpComboBox and, just as importantly, when Remix's own config.Reload() applies a
+            // persisted value from a previous session, so a reopened screen starts on whichever
+            // character was last selected without any extra wiring here.
+            _selectedCharacterConfig.OnChange += OnCharacterSelectionChanged;
 
             foreach (CharacterEntry character in AllCharacters)
             {
@@ -345,13 +371,12 @@ namespace Primal.Gimmicks
                     gimmick.BindSettings?.Invoke(this, character.ID);
                 }
 
-                // Added 2026-09-17: one Configurable<bool> per (character, requirement), bound
-                // through the exact same GimmickAssignments store as the loop above -- a
-                // requirement ID and a gimmick ID are both just strings to it (see
-                // GimmickAssignments' own header comment). Defaults to false (GimmickAssignments.
-                // GetDefault returns false for any key nothing has called SetDefault for) --
-                // unlike gimmicks, no requirement ships pre-enabled for any character; a player
-                // opts into each one explicitly via the Requirements tab.
+                // One Configurable<bool> per (character, requirement), bound through the exact
+                // same GimmickAssignments store as the loop above -- a requirement ID and a
+                // gimmick ID are both just strings to it (see GimmickAssignments' own header
+                // comment). Defaults to false (GimmickAssignments.GetDefault returns false for any
+                // key nothing has called SetDefault for) -- unlike gimmicks, no requirement ships
+                // pre-enabled for any character; a player opts into each one explicitly.
                 foreach (Requirement requirement in RequirementRegistry.All)
                 {
                     string key = character.ID + "_Requirement_" + requirement.ID;
@@ -451,19 +476,22 @@ namespace Primal.Gimmicks
             }
         }
 
-        private bool IsEnabledFor(string characterID, string gimmickID)
+        // Generic over any (characterID, ID) pair -- a gimmick ID and a requirement ID are both
+        // just strings to GimmickAssignments, so this one pair of helpers serves both columns of
+        // the Split view and both Add*Modal pickers.
+        private bool IsEnabledFor(string characterID, string id)
         {
-            return GimmickAssignments.IsEnabled(characterID, gimmickID);
+            return GimmickAssignments.IsEnabled(characterID, id);
         }
 
-        // Every assignment change goes through here (both AddGimmick and RemoveGimmick call it),
-        // so this is also the one place that writes the change to disk immediately -- see this
-        // method's own doc-comment reasoning below for why that's now done here rather than left
-        // to whatever Remix's own per-mod config screen chrome normally does on its own "SAVE"
-        // button.
-        private void SetEnabledFor(string characterID, string gimmickID, bool value)
+        // Every assignment change goes through here (both the Add*Modal pickers and the "x" remove
+        // buttons call it), so this is also the one place that writes the change to disk
+        // immediately -- see this method's own doc-comment reasoning below for why that's now done
+        // here rather than left to whatever Remix's own per-mod config screen chrome normally does
+        // on its own "SAVE" button.
+        private void SetEnabledFor(string characterID, string id, bool value)
         {
-            Configurable<bool> c = GimmickAssignments.GetConfigurable(characterID, gimmickID);
+            Configurable<bool> c = GimmickAssignments.GetConfigurable(characterID, id);
             if (c == null)
             {
                 return;
@@ -517,7 +545,7 @@ namespace Primal.Gimmicks
             }
             catch (Exception ex)
             {
-                Plugin.Log?.LogError($"ConfigHolder.Save() threw while persisting a gimmick assignment ({characterID}/{gimmickID} -> {value}) -- the change is still in effect this session, but may not survive a restart: {ex}");
+                Plugin.Log?.LogError($"ConfigHolder.Save() threw while persisting an assignment ({characterID}/{id} -> {value}) -- the change is still in effect this session, but may not survive a restart: {ex}");
             }
         }
 
@@ -531,8 +559,8 @@ namespace Primal.Gimmicks
         // than on every call.
         private static readonly MethodInfo ConfigSaveMethod = AccessTools.Method(typeof(ConfigHolder), "Save");
 
-        // Wipes and replaces only the detail area (below the permanent grid) -- the grid, title,
-        // and subtitle are never part of this list, so clicking a character in the grid never
+        // Wipes and replaces only the detail area (below the permanent title/character-select row)
+        // -- those permanent items are never part of this list, so switching detail views never
         // touches them; it only overwrites what's below.
         private void ShowDetail(List<UIelement> items)
         {
@@ -549,29 +577,42 @@ namespace Primal.Gimmicks
         {
             switch (_detailView)
             {
-                case DetailView.None:
-                    RenderNoSelection();
+                case DetailView.Split:
+                    RenderSplit();
                     break;
-                case DetailView.Gimmicks:
-                    RenderCharacterGimmicks();
-                    break;
-                case DetailView.Settings:
-                    RenderGimmickSettings();
+                case DetailView.GimmickSettings:
+                    RenderGimmickSettingsModal();
                     break;
                 case DetailView.AddGimmick:
-                    RenderAddGimmick();
+                    RenderAddGimmickModal();
+                    break;
+                case DetailView.AddRequirement:
+                    RenderAddRequirementModal();
                     break;
             }
         }
 
-        // Clicking a character in the (always-visible) grid always jumps straight to that
-        // character's gimmick table, overwriting whatever the detail area was previously showing
-        // -- including, deliberately, if it was mid-way through another character's settings or
-        // add-gimmick picker.
-        private void OpenCharacter(string characterID)
+        // Fired by the character-select combo box's own backing Configurable -- see Initialize()
+        // and EnsureConfigBound(). Always drops back to Split: mid-modal state (a specific
+        // gimmick's settings, an add picker) belonged to whichever character was previously
+        // selected and has no meaning for a newly-selected one.
+        private void OnCharacterSelectionChanged()
         {
-            _charID = characterID;
-            _detailView = DetailView.Gimmicks;
+            _charID = _selectedCharacterConfig.Value;
+
+            // EnsureConfigBound() (and this subscription) can run well before Initialize() ever
+            // does -- RainWorldHooks binds everything eagerly at RainWorld.OnModsInit, and Remix's
+            // own automatic config.Reload() pass (see EnsureConfigBound's own doc comment) can fire
+            // this OnChange the moment it applies a persisted value, long before the player has
+            // ever opened this mod's Remix page. _tab (and _detailItems) only exist once
+            // Initialize() has actually run at least once; _charID is still updated above so
+            // Initialize() picks up the right value when it eventually does run.
+            if (_tab == null)
+            {
+                return;
+            }
+
+            _detailView = DetailView.Split;
             RenderDetail();
         }
 
@@ -579,114 +620,173 @@ namespace Primal.Gimmicks
         {
             _charID = characterID;
             _gimmickID = gimmickID;
-            _detailView = DetailView.Settings;
+            _detailView = DetailView.GimmickSettings;
             RenderDetail();
         }
 
-        private void OpenAddGimmick(string characterID)
+        private void OpenAddGimmickPicker(string characterID)
         {
             _charID = characterID;
             _detailView = DetailView.AddGimmick;
             RenderDetail();
         }
 
+        private void OpenAddRequirementPicker(string characterID)
+        {
+            _charID = characterID;
+            _detailView = DetailView.AddRequirement;
+            RenderDetail();
+        }
+
+        // Every modal's own "< Back" button returns here.
+        private void CloseModal()
+        {
+            _detailView = DetailView.Split;
+            RenderDetail();
+        }
+
         private void RemoveGimmick(string characterID, string gimmickID)
         {
             SetEnabledFor(characterID, gimmickID, false);
-            // Stay on the same character's table -- just refresh it.
             RenderDetail();
         }
 
-        private void AddGimmick(string characterID, string gimmickID)
+        private void AssignGimmick(string characterID, string gimmickID)
         {
             SetEnabledFor(characterID, gimmickID, true);
             _charID = characterID;
-            _detailView = DetailView.Gimmicks;
+            _detailView = DetailView.Split;
             RenderDetail();
         }
 
-        // ---- the permanent character grid ---------------------------------------------------
-
-        // Takes the click callback and the button's own description text as parameters so the
-        // Requirements tab (added 2026-09-17) can build its own, independent copy of this same
-        // grid -- same layout, same roster, different destination -- rather than this method
-        // being hardwired to the Gimmicks tab's own OpenCharacter.
-        private List<UIelement> BuildCharacterGrid(Action<string> onClick, string descriptionPrefix)
+        private void RemoveRequirement(string characterID, string requirementID)
         {
-            var items = new List<UIelement>();
-
-            int col = 0;
-            int row = 0;
-            foreach (CharacterEntry character in AllCharacters)
-            {
-                float x = ContentLeft + col * GridSpacingX;
-                float y = GridStartY + row * GridSpacingY;
-                string capturedID = character.ID;
-
-                OpSimpleButton button = new OpSimpleButton(new Vector2(x, y), new Vector2(GridButtonW, GridButtonH), character.DisplayName)
-                {
-                    description = descriptionPrefix + character.DisplayName
-                };
-                button.OnClick += _ => onClick(capturedID);
-                items.Add(button);
-
-                col++;
-                if (col >= GridColumns)
-                {
-                    col = 0;
-                    row++;
-                }
-            }
-
-            return items;
+            SetEnabledFor(characterID, requirementID, false);
+            RenderDetail();
         }
 
-        // ---- detail sub-view: selected character's assigned gimmicks -------------------------
+        private void AssignRequirement(string characterID, string requirementID)
+        {
+            SetEnabledFor(characterID, requirementID, true);
+            _charID = characterID;
+            _detailView = DetailView.Split;
+            RenderDetail();
+        }
 
-        private void RenderCharacterGimmicks()
+        // A translucent bordered panel behind a modal's own content -- purely cosmetic, but what
+        // makes a modal actually read as a distinct window rather than just "the detail area
+        // changed" (see this class's own header comment for why it can't be a genuinely separate
+        // ProcessManager window).
+        private static void AddModalBackdrop(List<UIelement> items)
+        {
+            items.Add(new OpRect(
+                new Vector2(ContentLeft - 6f, ModalBottom - 6f),
+                new Vector2(ContentWidth + 12f, (ModalTop - ModalBottom) + 12f),
+                0.9f)
+            {
+                colorEdge = new Color(0.6f, 0.6f, 0.7f)
+            });
+        }
+
+        // ---- the Split view: selected character's gimmicks (left) and requirements (right) -----
+
+        private void RenderSplit()
         {
             if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
-                _charID = null;
-                _detailView = DetailView.None;
-                RenderNoSelection();
-                return;
+                // Shouldn't happen once the combo box has ever been bound (it always carries a
+                // valid selection), but guard the same way the rest of this file already does, in
+                // case a persisted SelectedCharacter value went stale (e.g. MSC/Watcher got
+                // disabled since it was saved).
+                _charID = AllCharacters.Length > 0 ? AllCharacters[0].ID : null;
+                if (_charID == null || !TryFindCharacter(_charID, out character))
+                {
+                    ShowDetail(new List<UIelement>());
+                    return;
+                }
             }
 
             var items = new List<UIelement>();
 
-            items.Add(new OpLabel(10f, DetailTopY, character.DisplayName + " -- assigned gimmicks:", true));
+            // ---- left column: gameplay-altering gimmicks ----
+            items.Add(new OpLabel(LeftColumnX, ColumnHeaderY, "GIMMICKS", true));
 
-            // The table (name button + "x" column) spans the full content width, with the "+"
-            // button occupying its own column immediately to the right of it -- rather than a
-            // narrow table with a big "+" bar below everything, which left most of the screen's
-            // width empty.
-            const float addColumnWidth = 90f;
-            const float gapTableToAdd = 10f;
-            const float tableAreaWidth = ContentWidth - addColumnWidth - gapTableToAdd;
-            const float xBtnW = 40f;
-            const float gapNameToX = 10f;
-            const float nameBtnW = tableAreaWidth - xBtnW - gapNameToX;
-            const float rowElementH = 32f;
-
-            float firstRowY = DetailTopY - 44f;
-            float rowY = firstRowY;
-            float lastRowY = rowY;
-            bool any = false;
-
+            var gimmickRows = new List<GimmickDef>();
             foreach (GimmickDef gimmick in GimmickRegistry.All)
             {
-                if (!IsEnabledFor(character.ID, gimmick.ID))
+                if (IsEnabledFor(character.ID, gimmick.ID))
                 {
-                    continue;
+                    gimmickRows.Add(gimmick);
                 }
-                any = true;
-                lastRowY = rowY;
+            }
+            float gimmickContentHeight = Mathf.Max(ColumnListViewportHeight, gimmickRows.Count * ColumnRowHeight);
+            OpScrollBox gimmickScroll = new OpScrollBox(
+                new Vector2(LeftColumnX, ColumnListViewportBottom),
+                new Vector2(ColumnWidth, ColumnListViewportHeight),
+                gimmickContentHeight,
+                false,  // horizontal
+                false,  // hasBack
+                true    // hasSlideBar
+            );
+            items.Add(gimmickScroll);
 
+            string capturedCharIDForGimmickAdd = character.ID;
+            OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Gimmick")
+            {
+                description = "Add a gameplay-altering gimmick to " + character.DisplayName
+            };
+            addGimmickButton.OnClick += _ => OpenAddGimmickPicker(capturedCharIDForGimmickAdd);
+            items.Add(addGimmickButton);
+
+            // ---- right column: run-completion requirements ----
+            items.Add(new OpLabel(RightColumnX, ColumnHeaderY, "REQUIREMENTS", true));
+
+            var requirementRows = new List<Requirement>();
+            foreach (Requirement requirement in RequirementRegistry.All)
+            {
+                if (IsEnabledFor(character.ID, requirement.ID))
+                {
+                    requirementRows.Add(requirement);
+                }
+            }
+            float requirementContentHeight = Mathf.Max(ColumnListViewportHeight, requirementRows.Count * ColumnRowHeight);
+            OpScrollBox requirementScroll = new OpScrollBox(
+                new Vector2(RightColumnX, ColumnListViewportBottom),
+                new Vector2(ColumnWidth, ColumnListViewportHeight),
+                requirementContentHeight,
+                false,  // horizontal
+                false,  // hasBack
+                true    // hasSlideBar
+            );
+            items.Add(requirementScroll);
+
+            string capturedCharIDForReqAdd = character.ID;
+            OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Requirement")
+            {
+                description = "Add a run-completion requirement to track for " + character.DisplayName
+            };
+            addRequirementButton.OnClick += _ => OpenAddRequirementPicker(capturedCharIDForReqAdd);
+            items.Add(addRequirementButton);
+
+            // Both scroll boxes must already be attached to the tab before their own AddItems is
+            // called (OpScrollBox.AddItems throws "must be added to an OpTab before items are
+            // added" otherwise, confirmed the hard way in-game pre-2026-09-17) -- commit everything
+            // built so far in one ShowDetail call, then fill each scroll box afterward.
+            ShowDetail(items);
+
+            // OpScrollBox.AddItems forwards every row straight to _tab.AddItems internally, not to
+            // the scroll box's own children as far as ShowDetail's teardown is concerned -- so
+            // every row from BOTH scroll boxes has to end up in _detailItems too, or the next
+            // ShowDetail teardown leaves them permanently attached and clickable (the exact bug
+            // this file's RenderGimmickSettings/RenderAddGimmick already had to fix once before).
+            var gimmickRowItems = new List<UIelement>();
+            float gimmickRowY = gimmickContentHeight - ColumnRowHeight;
+            foreach (GimmickDef gimmick in gimmickRows)
+            {
                 string capturedCharID = character.ID;
                 string capturedGimmickID = gimmick.ID;
 
-                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(ContentLeft, rowY), new Vector2(nameBtnW, rowElementH), gimmick.DisplayName)
+                OpSimpleButton nameButton = new OpSimpleButton(new Vector2(0f, gimmickRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), gimmick.DisplayName)
                 {
                     description = gimmick.Description
                 };
@@ -700,109 +800,101 @@ namespace Primal.Gimmicks
                     nameButton.colorEdge = homeColor.Value;
                 }
                 nameButton.OnClick += _ => OpenGimmickSettings(capturedCharID, capturedGimmickID);
-                items.Add(nameButton);
+                gimmickRowItems.Add(nameButton);
 
-                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ContentLeft + nameBtnW + gapNameToX, rowY), new Vector2(xBtnW, rowElementH), "x")
+                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, gimmickRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
                 {
                     description = "Remove " + gimmick.DisplayName + " from " + character.DisplayName
                 };
                 removeButton.OnClick += _ => RemoveGimmick(capturedCharID, capturedGimmickID);
-                items.Add(removeButton);
+                gimmickRowItems.Add(removeButton);
 
-                rowY -= RowHeight;
+                gimmickRowY -= ColumnRowHeight;
             }
-
-            if (!any)
+            if (gimmickRows.Count == 0)
             {
-                lastRowY = rowY;
-                items.Add(new OpLabel(ContentLeft, rowY, "No gimmicks assigned yet.", false));
+                gimmickRowItems.Add(new OpLabel(0f, gimmickContentHeight - ColumnRowHeight, "No gimmicks assigned yet.", false));
             }
+            gimmickScroll.AddItems(gimmickRowItems.ToArray());
+            _detailItems.AddRange(gimmickRowItems);
 
-            // The "+" button sits beside the table, spanning the same vertical range as the rows
-            // (or the placeholder line, if there are none yet) rather than below everything.
-            float addButtonX = ContentLeft + tableAreaWidth + gapTableToAdd;
-            float addButtonHeight = Mathf.Max(rowElementH, firstRowY - lastRowY + rowElementH);
-            string addCharID = character.ID;
-            OpSimpleButton addButton = new OpSimpleButton(new Vector2(addButtonX, lastRowY), new Vector2(addColumnWidth, addButtonHeight), "+")
+            var requirementRowItems = new List<UIelement>();
+            float requirementRowY = requirementContentHeight - ColumnRowHeight;
+            foreach (Requirement requirement in requirementRows)
             {
-                description = "Add a gimmick to " + character.DisplayName
-            };
-            addButton.OnClick += _ => OpenAddGimmick(addCharID);
-            items.Add(addButton);
+                string capturedCharID = character.ID;
+                string capturedRequirementID = requirement.ID;
 
-            ShowDetail(items);
+                // No settings to drill into yet (see this class's own header comment) -- just a
+                // plain label, not a button, so there's nothing clickable that would silently do
+                // nothing.
+                requirementRowItems.Add(new OpLabel(0f, requirementRowY + 4f, requirement.DisplayName, false));
+
+                OpSimpleButton removeButton = new OpSimpleButton(new Vector2(ColumnNameButtonW + ColumnRowGap, requirementRowY), new Vector2(ColumnRemoveButtonW, ColumnRowHeight - 4f), "x")
+                {
+                    description = "Stop tracking " + requirement.DisplayName + " for " + character.DisplayName
+                };
+                removeButton.OnClick += _ => RemoveRequirement(capturedCharID, capturedRequirementID);
+                requirementRowItems.Add(removeButton);
+
+                requirementRowY -= ColumnRowHeight;
+            }
+            if (requirementRows.Count == 0)
+            {
+                requirementRowItems.Add(new OpLabel(0f, requirementContentHeight - ColumnRowHeight, "No requirements tracked yet.", false));
+            }
+            requirementScroll.AddItems(requirementRowItems.ToArray());
+            _detailItems.AddRange(requirementRowItems);
         }
 
-        // ---- detail sub-view: one gimmick's settings for the selected character ---------------
+        // ---- modal: one gimmick's settings for the selected character --------------------------
 
-        // Fixed on-screen viewport for the settings scroll box below -- same footprint the
-        // settings content used to be placed at directly (DetailTopY - 84f down to a small bottom
-        // margin), now the fixed *viewport* a scrollable content area sits inside instead.
-        private const float SettingsViewportTop = DetailTopY - 84f;
-        private const float SettingsViewportBottom = 10f;
-        private const float SettingsViewportHeight = SettingsViewportTop - SettingsViewportBottom;
-        // A little narrower than the full content width (unlike AddGimmickListWidth below, which
-        // is narrow because its buttons are a single column by design) to leave clearance at the
-        // right edge for the scroll box's own slide bar, since settings content -- Chains'
-        // two-column banlist grid especially -- otherwise uses close to the full content width.
-        private const float SettingsViewportWidth = ContentWidth - 40f;
-        private const float SettingsContentTopPadding = 20f;
-
-        private void RenderGimmickSettings()
+        private void RenderGimmickSettingsModal()
         {
             if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
-                _charID = null;
-                _detailView = DetailView.None;
-                RenderNoSelection();
+                CloseModal();
                 return;
             }
 
             GimmickDef gimmick = FindGimmick(_gimmickID);
             if (gimmick == null)
             {
-                _detailView = DetailView.Gimmicks;
-                RenderCharacterGimmicks();
+                CloseModal();
                 return;
             }
 
             var items = new List<UIelement>();
+            AddModalBackdrop(items);
 
-            string capturedCharID = character.ID;
-            OpSimpleButton back = new OpSimpleButton(new Vector2(10f, DetailTopY), new Vector2(180f, 30f), "< " + character.DisplayName);
-            back.OnClick += _ => OpenCharacter(capturedCharID);
+            OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+            back.OnClick += _ => CloseModal();
             items.Add(back);
 
-            items.Add(new OpLabel(10f, DetailTopY - 40f, gimmick.DisplayName + " settings -- " + character.DisplayName, true)
+            items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, gimmick.DisplayName + " settings -- " + character.DisplayName, true)
             {
                 description = gimmick.Description
             });
 
             if (!gimmick.HasSettings)
             {
-                items.Add(new OpLabel(20f, SettingsViewportTop, "This gimmick has no additional settings.", false));
+                items.Add(new OpLabel(ContentLeft + 10f, ModalListViewportTop, "This gimmick has no additional settings.", false));
                 ShowDetail(items);
                 return;
             }
 
-            // Wrapped in a scrollable OpScrollBox (added 2026-09-15) -- some gimmicks' settings
-            // (Chains, notably: a 12-checkbox banlist plus a preset picker and two toggles) lay
-            // out well past 400px tall, badly overflowing the ~241px actually available below the
-            // heading -- those rows used to render off the bottom of the Remix window with no way
-            // to reach them. Same OpScrollBox pattern already established for the add-gimmick
-            // picker below (RenderAddGimmick) -- see that method's own comment for the exact
-            // constructor arguments and the two-step-commit ordering OpScrollBox requires (it must
-            // already be attached to the OpTab before AddItems is called on it, confirmed the hard
-            // way in-game there). For a gimmick whose settings already fit (TimeLimit, NoSpears,
-            // OneSpear, ThreatPanic -- GimmickDef.SettingsContentHeight left at its default of 0),
+            // Wrapped in a scrollable OpScrollBox -- some gimmicks' settings (Chains, notably: a
+            // 12-checkbox banlist plus a preset picker and two toggles) lay out well past 400px
+            // tall. For a gimmick whose settings already fit (TimeLimit, NoSpears, OneSpear,
+            // ThreatPanic -- GimmickDef.SettingsContentHeight left at its default of 0),
             // Mathf.Max clamps the content size up to the viewport's own height, so this is a
             // no-op wrapper for them, not a visible behavior change.
-            float contentHeight = Mathf.Max(SettingsViewportHeight, gimmick.SettingsContentHeight);
-            float contentTopY = contentHeight - SettingsContentTopPadding;
+            float contentHeight = Mathf.Max(ModalListViewportHeight, gimmick.SettingsContentHeight);
+            float contentTopY = contentHeight - ModalContentTopPadding;
 
             OpScrollBox scrollBox = new OpScrollBox(
-                new Vector2(ContentLeft, SettingsViewportBottom),
-                new Vector2(SettingsViewportWidth, SettingsViewportHeight),
+                new Vector2(ContentLeft, ModalListViewportBottom),
+                new Vector2(ModalListViewportWidth, ModalListViewportHeight),
                 contentHeight,
                 false,  // horizontal
                 false,  // hasBack -- no visible frame, matches this screen's plain look elsewhere
@@ -812,55 +904,23 @@ namespace Primal.Gimmicks
 
             ShowDetail(items);
 
-            // scrollBox.AddItems forwards each element straight to _tab.AddItems internally (see
-            // OpScrollBox.AddItems in the decompiled source -- it calls tab.AddItems(uIelement) for
-            // every item), which is what makes the controls appear at all. But that means these
-            // elements become the OpTab's own direct children, not children of the scrollBox as far
-            // as ShowDetail's teardown is concerned -- and _detailItems (the list ShowDetail's next
-            // call passes to _tab.RemoveItems) only ever contained `scrollBox` itself, never these.
-            // OpTab._RemoveItem (decompiled) does NOT call Deactivate() on what it removes, only
-            // OpScrollBox.Deactivate() cascades into its own children -- so removing just the empty
-            // scrollBox object left every control it had ever held permanently attached to the tab,
-            // still drawn (their own myContainer was never detached from _container) and still
-            // clickable, silently overlapping whatever the next sub-view rendered in the same screen
-            // space. Confirmed live: after opening one gimmick's settings and navigating away, clicks
-            // meant for the new screen would sometimes silently land on and fire an old, invisible
-            // control's own captured (character, gimmick) closure instead. Tracking these in
-            // _detailItems too (same list already used for everything else in this file) is what
-            // makes the ordinary ShowDetail teardown actually reach them next time.
+            // See RenderSplit's own note on this: OpScrollBox.AddItems forwards every element
+            // straight to _tab.AddItems, so these controls must also be tracked in _detailItems, or
+            // the next ShowDetail teardown leaves them permanently attached and clickable.
             List<UIelement> settingsControls = gimmick.BuildSettingsUI(character.ID, contentTopY);
             scrollBox.AddItems(settingsControls.ToArray());
             _detailItems.AddRange(settingsControls);
         }
 
-        // ---- detail sub-view: add-a-gimmick picker for the selected character ------------------
+        // ---- modal: add-a-gimmick picker for the selected character ----------------------------
 
-        // Fixed on-screen viewport for the add-gimmick scroll box below -- from just under the
-        // "Add a gimmick to X:" heading down to a small bottom margin above the screen's edge.
-        private const float AddGimmickListTop = DetailTopY - 84f;
-        private const float AddGimmickListBottom = 10f;
-        private const float AddGimmickListHeight = AddGimmickListTop - AddGimmickListBottom;
-        private const float AddGimmickListWidth = 340f;
-        private const float AddGimmickButtonWidth = 300f;
-
-        private void RenderAddGimmick()
+        private void RenderAddGimmickModal()
         {
             if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
-                _charID = null;
-                _detailView = DetailView.None;
-                RenderNoSelection();
+                CloseModal();
                 return;
             }
-
-            var items = new List<UIelement>();
-
-            string capturedCharID = character.ID;
-            OpSimpleButton back = new OpSimpleButton(new Vector2(10f, DetailTopY), new Vector2(180f, 30f), "< " + character.DisplayName);
-            back.OnClick += _ => OpenCharacter(capturedCharID);
-            items.Add(back);
-
-            items.Add(new OpLabel(10f, DetailTopY - 40f, "Add a gimmick to " + character.DisplayName + ":", true));
 
             var candidates = new List<GimmickDef>();
             foreach (GimmickDef gimmick in GimmickRegistry.All)
@@ -871,66 +931,54 @@ namespace Primal.Gimmicks
                 }
             }
 
+            var items = new List<UIelement>();
+            AddModalBackdrop(items);
+
+            OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+            back.OnClick += _ => CloseModal();
+            items.Add(back);
+
+            items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, "Add a gimmick to " + character.DisplayName + ":", true));
+
             if (candidates.Count == 0)
             {
-                items.Add(new OpLabel(20f, AddGimmickListTop, "All gimmicks are already assigned to this character.", false));
+                items.Add(new OpLabel(ContentLeft + 10f, ModalListViewportTop, "All gimmicks are already assigned to this character.", false));
                 ShowDetail(items);
                 return;
             }
 
-            // Scrollable list (added 2026-09-13, request: "add a scrollwheel to the gimmick
-            // picking list, because you cant see all of them at this point"). With 12 gimmicks
-            // now registered, and this view only ever showing the ones NOT yet assigned to the
-            // selected character, a character with few/none assigned needs up to 12 rows --
-            // 12 * RowHeight (40) = 480, far more than the ~300px of screen actually available
-            // below the heading, so entries used to run off the bottom of the Remix window with
-            // no way to reach them.
-            //
-            // Uses the game's own Menu.Remix.MixedUI.OpScrollBox -- traced its real constructor
-            // and AddItems usage by disassembling the one place the base game itself uses it
-            // (OptionInterface.ErrorScreen, located by a raw IL token search for calls to
-            // OpScrollBox's constructor across the whole assembly). OpScrollBox lives in the same
-            // Menu.Remix.MixedUI namespace as OpTab/OpLabel/OpSimpleButton/Configurable<T> --
-            // Remix's own modder-facing UI API, already used directly (no reflection) everywhere
-            // else in this file -- so it's accessed directly here too, unlike the GOTCHA #1
-            // "publicized reference assembly" concern that applies to the game's own gameplay
-            // classes (Player, SlugcatStats, etc.).
-            //
-            // Constructor is (Vector2 pos, Vector2 size, float contentSize, bool horizontal,
-            // bool hasBack, bool hasSlideBar): pos/size are the box's fixed on-screen viewport
-            // (this detail area's own real estate), and contentSize is the full VIRTUAL height of
-            // everything added to it -- independent of, and here taller than, the viewport height,
-            // which is what makes it scrollable. Items are then added via the scroll box's OWN
-            // AddItems (not the OpTab's), positioned in coordinates local to that virtual content
-            // height rather than against DetailTopY -- same bottom-left-origin, Y-increases-upward
-            // convention as everywhere else in this file, just measured against contentSize.
-            float contentHeight = Mathf.Max(AddGimmickListHeight, candidates.Count * RowHeight);
+            // 4 columns, scrollable, row-major fill (row = i / 4, col = i % 4) -- matching
+            // CommunityChallengesDialog's own established row-major convention for a multi-column
+            // roster display. **Exact pixel fit for the longest gimmick display names
+            // ("Threat Slowdown") at 4-column width is unverified in-game as of this pass** -- same
+            // honest caveat this file's settings viewports already carry elsewhere.
+            int rows = Mathf.CeilToInt(candidates.Count / (float)PickerColumns);
+            float contentHeight = Mathf.Max(ModalListViewportHeight, rows * PickerRowHeight);
 
             OpScrollBox scrollBox = new OpScrollBox(
-                new Vector2(ContentLeft, AddGimmickListBottom),
-                new Vector2(AddGimmickListWidth, AddGimmickListHeight),
+                new Vector2(ContentLeft, ModalListViewportBottom),
+                new Vector2(ModalListViewportWidth, ModalListViewportHeight),
                 contentHeight,
                 false,  // horizontal
-                false,  // hasBack -- no visible frame, matches this screen's plain look elsewhere
+                false,  // hasBack
                 true    // hasSlideBar
             );
             items.Add(scrollBox);
 
-            // OpScrollBox.AddItems throws ("OpScrollBox must be added to an OpTab before items
-            // are added") if called before the scroll box itself has actually been added to the
-            // OpTab -- confirmed the hard way in-game (2026-09-13). Every other sub-view in this
-            // file builds its whole `items` list and commits it with one ShowDetail() call at the
-            // end, but the scroll box specifically needs that commit to happen FIRST, so
-            // ShowDetail(items) is called here -- attaching the still-empty scroll box to the tab
-            // -- and the scroll box's own row buttons are added to it afterward instead.
             ShowDetail(items);
 
             var scrollItems = new List<UIelement>();
-            float rowY = contentHeight - RowHeight;
-            foreach (GimmickDef gimmick in candidates)
+            string capturedCharID = character.ID;
+            for (int i = 0; i < candidates.Count; i++)
             {
+                GimmickDef gimmick = candidates[i];
+                int row = i / PickerColumns;
+                int col = i % PickerColumns;
+                float x = col * (PickerColumnWidth + PickerColumnGap);
+                float y = contentHeight - (row + 1) * PickerRowHeight + 4f;
+
                 string capturedGimmickID = gimmick.ID;
-                OpSimpleButton addButton = new OpSimpleButton(new Vector2(0f, rowY), new Vector2(AddGimmickButtonWidth, 32f), gimmick.DisplayName)
+                OpSimpleButton addButton = new OpSimpleButton(new Vector2(x, y), new Vector2(PickerColumnWidth, PickerRowHeight - 8f), gimmick.DisplayName)
                 {
                     description = gimmick.Description
                 };
@@ -939,121 +987,58 @@ namespace Primal.Gimmicks
                 {
                     addButton.colorEdge = homeColor.Value;
                 }
-                addButton.OnClick += _ => AddGimmick(capturedCharID, capturedGimmickID);
+                addButton.OnClick += _ => AssignGimmick(capturedCharID, capturedGimmickID);
                 scrollItems.Add(addButton);
-
-                rowY -= RowHeight;
             }
-            // See the identical note in RenderGimmickSettings: OpScrollBox.AddItems forwards every
-            // row straight to _tab.AddItems, so without also tracking them in _detailItems here,
-            // ShowDetail's next teardown (_tab.RemoveItems(_detailItems.ToArray()), which only knows
-            // about `scrollBox` itself) leaves every row permanently attached to the tab -- still
-            // drawn, still clickable, still wired to whichever (character, gimmick) pair it was
-            // originally built for.
+            // See RenderSplit's own note on this.
             scrollBox.AddItems(scrollItems.ToArray());
             _detailItems.AddRange(scrollItems);
         }
 
-        // ---- detail placeholder: nothing selected yet -----------------------------------------
+        // ---- modal: add-a-requirement picker for the selected character ------------------------
 
-        private void RenderNoSelection()
+        private void RenderAddRequirementModal()
         {
-            ShowDetail(new List<UIelement>
+            if (!TryFindCharacter(_charID, out CharacterEntry character))
             {
-                new OpLabel(ContentLeft, DetailTopY, "Select a character above to view or edit its gimmicks.", false)
-            });
-        }
-
-        // ---- the Requirements tab's own detail area -------------------------------------------
-
-        // 50 requirements, 5 columns of 10 rows, column-major -- the exact grid
-        // CommunityChallengesSettings.BuildUI used to lay out before this migration (see
-        // Requirement.cs's own header comment), just driven off RequirementRegistry.All instead
-        // of a Community-Challenges-specific roster, so ANY registered requirement (not just the
-        // curated 50 Community Challenges ones) shows up here automatically. **Exact pixel fit
-        // for the longest display names at 5-column width is unverified in-game as of this pass**
-        // -- same honest caveat the original grid carried.
-        private const int RequirementsRows = 10;
-        private const float RequirementsColumnWidth = 116f;
-        private const float RequirementsRowHeight = 32f;
-        private const float RequirementsCheckboxLabelGap = 20f;
-        // Scroll-box content coordinates are local to the box (bottom-left origin), not the
-        // screen's own ContentLeft -- see RenderAddGimmick's own comment on this. 20f matches the
-        // left margin CommunityChallengesSettings.BuildUI used to use for this exact grid.
-        private const float RequirementsGridLeft = 20f;
-
-        private void OpenRequirementsCharacter(string characterID)
-        {
-            _reqCharID = characterID;
-            _reqDetailView = RequirementsDetailView.List;
-            RenderRequirementsDetail();
-        }
-
-        private void RenderRequirementsDetail()
-        {
-            switch (_reqDetailView)
-            {
-                case RequirementsDetailView.None:
-                    RenderRequirementsNoSelection();
-                    break;
-                case RequirementsDetailView.List:
-                    RenderRequirementsList();
-                    break;
-            }
-        }
-
-        // Wipes and replaces only the Requirements tab's own detail area -- mirrors ShowDetail
-        // above, kept as a separate method (rather than parameterizing ShowDetail by tab) since
-        // the two tabs' own _detailItems/_reqDetailItems lists must never be conflated: an item
-        // removed from the wrong tab's tracked list would leak the same way Gotcha-class bugs
-        // already documented elsewhere in this file (RenderGimmickSettings/RenderAddGimmick) did
-        // for OpScrollBox contents.
-        private void ShowRequirementsDetail(List<UIelement> items)
-        {
-            if (_reqDetailItems.Count > 0)
-            {
-                _reqTab.RemoveItems(_reqDetailItems.ToArray());
-                _reqDetailItems.Clear();
-            }
-            _reqDetailItems.AddRange(items);
-            _reqTab.AddItems(_reqDetailItems.ToArray());
-        }
-
-        private void RenderRequirementsNoSelection()
-        {
-            ShowRequirementsDetail(new List<UIelement>
-            {
-                new OpLabel(ContentLeft, DetailTopY, "Select a character above to view or edit its requirements.", false)
-            });
-        }
-
-        private void RenderRequirementsList()
-        {
-            if (!TryFindCharacter(_reqCharID, out CharacterEntry character))
-            {
-                _reqCharID = null;
-                _reqDetailView = RequirementsDetailView.None;
-                RenderRequirementsNoSelection();
+                CloseModal();
                 return;
             }
 
-            var items = new List<UIelement>();
-            items.Add(new OpLabel(10f, DetailTopY, character.DisplayName + " -- requirements to track:", true)
+            var candidates = new List<Requirement>();
+            foreach (Requirement requirement in RequirementRegistry.All)
             {
-                description = "Enable whichever run-completion conditions this character should track. Each one is tracked independently by its own global mechanism -- see PrimalOptions.cs and Requirement.cs."
-            });
+                if (!IsEnabledFor(character.ID, requirement.ID))
+                {
+                    candidates.Add(requirement);
+                }
+            }
 
-            // Same OpScrollBox wrapping RenderGimmickSettings uses, and for the same reason: 50
-            // requirements at 10 rows tall (RequirementsRows * RequirementsRowHeight = 320px) is
-            // taller than the ~241px actually available below the heading.
-            int rowCount = RequirementsRows;
-            float gridHeight = rowCount * RequirementsRowHeight;
-            float contentHeight = Mathf.Max(SettingsViewportHeight, gridHeight + SettingsContentTopPadding);
-            float contentTopY = contentHeight - SettingsContentTopPadding;
+            var items = new List<UIelement>();
+            AddModalBackdrop(items);
+
+            OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+            back.OnClick += _ => CloseModal();
+            items.Add(back);
+
+            items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, "Add a requirement to " + character.DisplayName + ":", true));
+
+            if (candidates.Count == 0)
+            {
+                items.Add(new OpLabel(ContentLeft + 10f, ModalListViewportTop, "All requirements are already tracked for this character.", false));
+                ShowDetail(items);
+                return;
+            }
+
+            // Same 4-column, scrollable, row-major grid as RenderAddGimmickModal -- driven off
+            // RequirementRegistry.All, so any registered requirement (not just the curated 50
+            // Community Challenges ones) is pickable here.
+            int rows = Mathf.CeilToInt(candidates.Count / (float)PickerColumns);
+            float contentHeight = Mathf.Max(ModalListViewportHeight, rows * PickerRowHeight);
 
             OpScrollBox scrollBox = new OpScrollBox(
-                new Vector2(ContentLeft, SettingsViewportBottom),
-                new Vector2(SettingsViewportWidth, SettingsViewportHeight),
+                new Vector2(ContentLeft, ModalListViewportBottom),
+                new Vector2(ModalListViewportWidth, ModalListViewportHeight),
                 contentHeight,
                 false,  // horizontal
                 false,  // hasBack
@@ -1061,46 +1046,26 @@ namespace Primal.Gimmicks
             );
             items.Add(scrollBox);
 
-            ShowRequirementsDetail(items);
+            ShowDetail(items);
 
-            // See the identical note in RenderGimmickSettings/RenderAddGimmick: OpScrollBox.AddItems
-            // forwards every row straight to _tab.AddItems (here, _reqTab), so these controls must
-            // also be tracked in _reqDetailItems, or the next ShowRequirementsDetail teardown
-            // leaves them permanently attached and clickable.
-            List<UIelement> requirementControls = BuildRequirementsUI(character.ID, contentTopY);
-            scrollBox.AddItems(requirementControls.ToArray());
-            _reqDetailItems.AddRange(requirementControls);
-        }
-
-        private List<UIelement> BuildRequirementsUI(string characterID, float topY)
-        {
-            var items = new List<UIelement>();
-
-            Requirement[] all = RequirementRegistry.All;
-            for (int i = 0; i < all.Length; i++)
+            var scrollItems = new List<UIelement>();
+            string capturedCharID = character.ID;
+            for (int i = 0; i < candidates.Count; i++)
             {
-                Requirement requirement = all[i];
-                Configurable<bool> configurable = GimmickAssignments.GetConfigurable(characterID, requirement.ID);
-                if (configurable == null)
-                {
-                    continue;
-                }
+                Requirement requirement = candidates[i];
+                int row = i / PickerColumns;
+                int col = i % PickerColumns;
+                float x = col * (PickerColumnWidth + PickerColumnGap);
+                float y = contentHeight - (row + 1) * PickerRowHeight + 4f;
 
-                int column = i / RequirementsRows;
-                int row = i % RequirementsRows;
-                float x = ColumnX(column);
-                float y = topY - row * RequirementsRowHeight;
-
-                items.Add(new OpCheckBox(configurable, x, y));
-                items.Add(new OpLabel(x + RequirementsCheckboxLabelGap, y + 4f, requirement.DisplayName, false));
+                string capturedRequirementID = requirement.ID;
+                OpSimpleButton addButton = new OpSimpleButton(new Vector2(x, y), new Vector2(PickerColumnWidth, PickerRowHeight - 8f), requirement.DisplayName);
+                addButton.OnClick += _ => AssignRequirement(capturedCharID, capturedRequirementID);
+                scrollItems.Add(addButton);
             }
-
-            return items;
-        }
-
-        private static float ColumnX(int column)
-        {
-            return RequirementsGridLeft + column * RequirementsColumnWidth;
+            // See RenderSplit's own note on this.
+            scrollBox.AddItems(scrollItems.ToArray());
+            _detailItems.AddRange(scrollItems);
         }
     }
 }

@@ -5615,6 +5615,87 @@ line file's worth of renames, a new ~320-line file, a full rewrite of the old gi
 whole Requirements/Requirement.cs/CommunityChallengesGimmick.cs/PrimalOptions.cs set particular
 scrutiny on the next real build.
 
+## 2026-09-17 (later still): Remix menu redesign -- character combo box, split gimmicks/requirements view, in-tab "modals"
+
+Requested directly: replace the character-button grid with a select control to save space, split
+the screen vertically (gimmicks left, requirements right), and turn the "add" flow into a
+window/modal holding a 4-column scrollable picker. Confirmed three design points before
+implementing: (1) the split collapses the Gimmicks/Requirements tabs into one tab -- the user
+believed only the Gimmicks tab currently existed anyway; (2) clicking an assigned gimmick's name
+now opens its settings in its own modal, rather than taking over half the split view; (3) clicking
+a picker entry assigns it and closes the modal immediately (add one at a time).
+
+**Character grid -> OpComboBox.** The old 5x2 button grid (`BuildCharacterGrid`, ~95px tall) is
+gone, replaced by one `Menu.Remix.MixedUI.OpComboBox` bound to a new mod-wide
+`Configurable<string>` ("SelectedCharacter") -- which also means the screen now remembers which
+character was last selected across restarts, for free, through the same Remix-config mechanism
+every other setting on this screen already uses. `OpComboBox`'s 4-arg constructor
+(`Configurable<string>, Vector2, float, List<ListItem>`) was used specifically because it doesn't
+require the Configurable to carry a `ConfigAcceptableList<string>` (that's only needed by the other
+constructor overload that builds its own `List<ListItem>` from `config.info.acceptable`) --
+`ListItem(id, displayName, index)` lets the combo box show "Gourmand" while storing
+`MoreSlugcatsEnums.SlugcatStatsName.Gourmand.value` and preserves the roster's own declared order
+(each entry's `value` field is set to its index, so `ListItem.Comparer`'s stable sort reproduces
+that order instead of falling back to alphabetical). One subtlety caught before it shipped:
+`Configurable<string>.OnChange` can fire before `Initialize()` has ever run (Remix's own automatic
+`config.Reload()` pass, same one `EnsureConfigBound`'s own doc comment already traces, can apply a
+persisted "last selected character" value at `RainWorld.PostModsInit` time, long before the player
+opens this mod's Remix page) -- `OnCharacterSelectionChanged` updates `_charID` unconditionally but
+guards the actual `RenderDetail()` call behind `_tab != null`, so it's a no-op until the tab
+actually exists; `Initialize()` reads `_selectedCharacterConfig.Value` directly afterward regardless.
+
+**Two tabs -> one tab, vertically split.** `_tab`/`_reqTab` and their fully-duplicated
+detail-item/detail-view state collapsed into a single `_tab`/`_detailItems`/`DetailView`. The
+`Split` view (the normal, no-modal state) renders both columns from the SAME selected character in
+one pass: a `GIMMICKS` header + scrollable assigned-list + "+ Add Gimmick" button on the left
+(`LeftColumnX`), the same shape for `REQUIREMENTS` on the right (`RightColumnX`) -- each column is
+`(ContentWidth - ColumnGap) / 2` wide. A gimmick's row is a clickable name button (opens its
+settings) plus an "x" remove button, matching the pre-redesign table exactly; a requirement's row
+is a plain, non-clickable label plus the same "x" -- there's no requirement-settings screen to open
+yet (the user confirmed no per-requirement settings are needed right now), and a button that opens
+nothing would just be a dead click target. Building two OpScrollBoxes in one pass repeats the same
+two-step commit order every scroll box on this screen has needed since 2026-09-15 (attach the
+still-empty scroll box to the tab via ONE `ShowDetail` call first, THEN call each scroll box's own
+`AddItems` and mirror those rows into `_detailItems` -- `OpScrollBox.AddItems` forwards straight to
+`_tab.AddItems`, not to the scroll box's own children, so skipping the mirroring step leaks
+permanently-attached, still-clickable rows into the next view, the exact bug already fixed once for
+the old single-scroll-box Settings/AddGimmick sub-views).
+
+**"Modal" windows, and what that actually means in Remix's own UI toolkit.** The three non-Split
+detail views (`GimmickSettings`, `AddGimmick`, `AddRequirement`) render as full-width overlays with
+a bordered backdrop (`AddModalBackdrop`, a semi-transparent `OpRect` sized to the whole detail
+area) and a "< Back" button, replacing the split content entirely rather than sitting alongside it
+-- structurally this is still the exact same `ShowDetail` swap the old Settings/AddGimmick
+sub-views already did, just visually dressed up to read as a distinct window. **A genuinely
+separate window (a real `Menu.Dialog` side-process, the mechanism
+CommunityChallengesDialog/KillListDialog already use elsewhere in this mod) was deliberately ruled
+out**: every Remix modder-facing control this screen and every existing gimmick's own settings UI
+is built from (OpCheckBox, OpScrollBox, OpComboBox, ChainsSettings' banlist grid, ...) only exists
+inside an OpTab/ConfigContainer -- none of it can be hosted inside a `Menu.Dialog`, which only
+understands plain `Menu.MenuObject`-derived controls (`Menu.SimpleButton`, `Menu.MenuLabel`, the
+vocabulary CommunityChallengesDialog is written in). Rebuilding every existing gimmick's settings
+screen in that vocabulary just to get a true floating window would have been a far larger rewrite
+than this pass asked for, so the in-tab-overlay approach was chosen instead and is called out
+explicitly here and in PrimalOptions.cs's own header comment so a future pass doesn't mistake this
+for an oversight.
+
+**The add-picker modal** (`RenderAddGimmickModal`/`RenderAddRequirementModal`, structurally
+identical to each other -- not shared through a generic helper, since this codebase already
+avoids `ValueTuple`-shaped generic plumbing on principle, see GimmickAssignments.cs's own header
+comment on that) lists every NOT-currently-assigned/enabled entry in a 4-column, scrollable,
+row-major grid (`PickerColumns = 4`); clicking one assigns it and calls `CloseModal()`-equivalent
+logic (`AssignGimmick`/`AssignRequirement`) that also switches back to Split immediately, matching
+the "assign and close" behavior confirmed before implementing. Gimmick buttons keep their existing
+home-character border coloring (`GetHomeCharacterColor`); requirements have no such concept, so
+their picker buttons are plain.
+
+**Not yet built or tested** -- no .NET toolchain in this container. This is a full rewrite of
+PrimalOptions.cs's layout math (every constant from the old grid/tab/settings-viewport era was
+replaced), so give it particular scrutiny on the next real build -- especially OpComboBox's own
+runtime behavior (this is the first time this mod has used that specific Remix control) and
+whether four-column picker buttons fit the longest gimmick/requirement display names
+("Threat Slowdown", "Enlightenment") without clipping.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

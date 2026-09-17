@@ -120,7 +120,7 @@ namespace Primal.Gimmicks
             ChainsSettings.BuildUI,
             // ChainsSettings.BuildUI lays out an escape-timer row, two toggles, a preset picker,
             // and a 6-row/2-column, 12-checkbox banlist grid -- well over 400px tall, badly
-            // overflowing the plain ~241px settings viewport (see PrimalOptions.RenderGimmickSettings).
+            // overflowing the plain settings viewport (see PrimalOptions.RenderGimmickSettingsModal).
             // 480 gives it room to scroll instead of clipping/being unreachable.
             settingsContentHeight: 480f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer

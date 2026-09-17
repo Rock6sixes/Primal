@@ -59,7 +59,7 @@ namespace Primal.Gimmicks
         /// display name. Must be unique across every registered Requirement.</summary>
         public abstract string ID { get; }
 
-        /// <summary>The human-readable name shown in the Requirements tab and the Community
+        /// <summary>The human-readable name shown in the Remix config screen's requirements column and the Community
         /// Challenges summary dialog. Defaults to ID -- override only when the two genuinely need
         /// to differ (e.g. UTurnRequirement's ID "UTurn" vs. the community's own "U-Turn"
         /// spelling, which isn't valid in a bare identifier-derived config key).</summary>

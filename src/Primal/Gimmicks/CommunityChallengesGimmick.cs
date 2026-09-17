@@ -21,8 +21,9 @@ namespace Primal.Gimmicks
     ///    same event independently, for whichever IDs it cares about.
     ///
     /// There is no "Community Challenges" gimmick to assign anymore -- a character's own
-    /// Requirements-tab selections (see PrimalOptions.cs) decide both whether each individual
-    /// challenge is tracked at all AND whether the CHALLENGES button appears on their cycle-end
+    /// requirement selections (the requirements column on PrimalOptions.cs's Remix config screen)
+    /// decide both whether each individual challenge is tracked at all AND whether the CHALLENGES
+    /// button appears on their cycle-end
     /// screen (CommunityChallengesRoster.IsAnyEnabledFor). This is the whole point of the
     /// migration: "set up the requirements needed to complete the run... everything else should be
     /// performantly and neatly automatically handled" -- there is no separate gimmick step left to
@@ -262,7 +263,7 @@ namespace Primal.Gimmicks
     /// <summary>
     /// The cycle-end challenge-progress popup. Plain text list (no icons -- unlike KillListDialog,
     /// there's no vanilla sprite per challenge to reuse), built ONLY from challenges currently
-    /// enabled in this character's own Requirements-tab selections
+    /// enabled in this character's own requirement selections
     /// (CommunityChallengesRoster.EnabledFor), each shown in one of three styles per explicit
     /// request:
     ///  - Completed since the button's own last screen-build check
