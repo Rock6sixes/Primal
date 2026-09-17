@@ -5831,6 +5831,32 @@ everything else in this doc. All four rely on real vanilla mechanics (WinState's
 tracker, SaveState.wearingCloak, RainWorldGame.clock) confirmed by reading the decompiled source
 directly rather than guessed at, but none of the four has been exercised in a live game.
 
+## 2026-09-17 (same day, later): InvHighestPointRequirement corrected -- highest SCREEN, not just the room
+
+User correction: "reaching the highest point in LC_highestpoint room" actually meant the highest
+camera SCREEN within that room, not merely entering the room at all. A Rain World room can span
+multiple screens (`Room.cameraPositions`, one `Vector2` per screen -- its own bottom-left
+world-space corner, each a fixed 1366x768) -- reused `Room.CameraViewingPoint(Vector2)`, vanilla's
+own "which screen index contains this point" helper (confirmed via decompilation, already used
+internally for exactly this kind of point-to-screen resolution), rather than reimplementing the
+box-containment math by hand. "Highest" is whichever screen(s) have the largest
+`cameraPositions[i].y` (room-space Y increases upward, confirmed by that same method's own
+containment test), compared with `>=` rather than a single tracked index so a top row spanning more
+than one screen still counts reaching any of them.
+
+Also switched detection from "check once at room entry" (the original implementation) to "check
+every tick while genuinely inside this one room" -- a Postfix on `Player.Update(bool)`, the same
+hook TimeLimitGimmick/ChainsGimmick already patch, gated immediately on the room name before any
+other work. Reaching the literal top screen is unlikely to be the very first thing that happens on
+arrival, so an entry-only check would have missed the realistic "arrive low, climb up" case.
+Detection now lives in a static `CheckPlayer(Player)` method with its own `RequirementID` const
+(the same static-method-needs-a-const shape `TriplopiaRequirement`/`OutlawRequirement` already
+use), called from a new top-level `InvHighestPointUpdateHook` Harmony patch class; `Register()` is
+correspondingly a no-op. The item-carrying checks (slugpup + mask in the two hand grasps, cloak via
+`SaveState.wearingCloak`) are unchanged from the original pass.
+
+Still unbuilt/untested -- no .NET toolchain in this container.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

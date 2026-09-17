@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
 using MoreSlugcats;
+using UnityEngine;
 
 namespace Primal.Gimmicks
 {
@@ -3454,12 +3455,35 @@ namespace Primal.Gimmicks
         }
     }
 
-    /// <summary>"Reach the highest point in LC_highestpoint room while holding a slugpup, a mask
-    /// and a cloak." LC_highestpoint is a real, single, dedicated room -- confirmed via
-    /// decompiling GhostWorldPresence.cs, where it's the "Metropolis" (region acronym LC) entry in
-    /// the per-region ghost/echo encounter table -- so simply entering it IS reaching that named
-    /// location, the same "arrived in room X" shape VisitorRequirement/FishtankRequirement above
-    /// already use, with no need for any further in-room position math.
+    /// <summary>"Reach the highest SCREEN in the [LC_highestpoint] room while holding a slugpup, a
+    /// mask and a cloak" -- changed 2026-09-17 (same day, later) from the original "just enter the
+    /// room" reading, per explicit correction. LC_highestpoint is a real, single, dedicated room --
+    /// confirmed via decompiling GhostWorldPresence.cs, where it's the "Metropolis" (region acronym
+    /// LC) entry in the per-region ghost/echo encounter table.
+    ///
+    /// A Rain World room can span multiple camera "screens" (Room.cameraPositions, one Vector2 per
+    /// screen -- its own bottom-left world-space corner, each screen a fixed 1366x768) -- so a
+    /// single room isn't necessarily one screen, and "the highest screen" means whichever of those
+    /// rectangles sits topmost, not merely "somewhere in the room." Confirmed via decompiling
+    /// Room.CameraViewingPoint(Vector2), vanilla's own "which screen index contains this point"
+    /// helper (used for exactly this kind of point-to-screen resolution elsewhere in Room.cs) --
+    /// reused directly rather than reimplementing the same box-containment check. "Highest" is
+    /// whichever screen(s) have the largest cameraPositions[i].y (Rain World room-space Y increases
+    /// upward, confirmed by that same method's own `p.y > cameraPositions[i].y &amp;&amp; p.y &lt;
+    /// cameraPositions[i].y + 768f` containment test) -- compared with &gt;= rather than requiring
+    /// a single unique topmost index, so a room whose top row happens to be more than one screen
+    /// wide still counts reaching any of them.
+    ///
+    /// Checked every tick while genuinely inside this one specific room (a Postfix on
+    /// Player.Update(bool), the same hook TimeLimitGimmick/ChainsGimmick already patch, gated
+    /// immediately on the room name before anything else) rather than only at the moment of room
+    /// entry -- reaching the top screen is very unlikely to be the very first thing that happens on
+    /// arrival, so an entry-only check (this class's own original implementation) would have missed
+    /// the realistic case of arriving low in the room and climbing up afterward. Detection lives in
+    /// a static CheckPlayer method (with its own RequirementID const, the same
+    /// static-method-needs-a-const-not-an-instance-property shape TriplopiaRequirement/
+    /// OutlawRequirement above already established) so the top-level Harmony patch below can call
+    /// it without an instance; Register() is correspondingly a no-op.
     ///
     /// All three carried items are simultaneously possible under vanilla's own rules, confirmed by
     /// decompilation: a slugpup (CreatureTemplate.Type.SlugNPC) and a mask (VultureMask, a
@@ -3470,31 +3494,86 @@ namespace Primal.Gimmicks
     /// for all three at once.</summary>
     internal sealed class InvHighestPointRequirement : Requirement
     {
-        public override string ID => "InvHighestPoint";
-        public override string DisplayName => "Inv -- Highest Point Triple Carry";
+        // A plain const, not just the ID property, because CheckPlayer below is static (no `this`
+        // to read the instance property from) -- see this class's own doc comment.
+        internal const string RequirementID = "InvHighestPoint";
+        public override string ID => RequirementID;
+        public override string DisplayName => "Inv -- Highest Screen Triple Carry";
 
-        private const string TargetRoom = "LC_highestpoint";
+        internal const string TargetRoom = "LC_highestpoint";
 
         public override void Register()
         {
-            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            // Nothing to subscribe to here -- detection happens every tick in
+            // InvHighestPointUpdateHook's Postfix, below, which calls straight into CheckPlayer.
+        }
+
+        internal static void CheckPlayer(Player player)
+        {
+            // GimmickAssignments.IsEnabledForAnyCharacter first, before even reading the player's
+            // own room name -- see that method's own doc comment for why this one dictionary
+            // lookup has to run before any other per-tick work, the same discipline every other
+            // requirement's own TryGetEnabledCharacter already applies.
+            if (!GimmickAssignments.IsEnabledForAnyCharacter(RequirementID))
             {
-                if (roomName != TargetRoom
-                    || !TryGetEnabledCharacter(player, out string characterID)
-                    || characterID != MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value)
-                {
-                    return;
-                }
+                return;
+            }
 
-                bool holdingSlugpup = SurvivorCreatureTracking.FindCarried(player,
-                    creature => !creature.dead && creature.creatureTemplate?.type == CreatureTemplate.Type.SlugNPC) != null;
-                if (!holdingSlugpup || !IsCarryingMask(player) || !IsWearingCloak(player))
-                {
-                    return;
-                }
+            Room room = player?.room;
+            if (room?.abstractRoom?.name != TargetRoom)
+            {
+                return;
+            }
 
-                ReportCompletion(player, characterID, isLive: true);
-            };
+            if (!GimmickGate.IsActiveFor(player, RequirementID, out string characterID)
+                || characterID != MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value)
+            {
+                return;
+            }
+
+            if (!IsInHighestScreen(player, room))
+            {
+                return;
+            }
+
+            bool holdingSlugpup = SurvivorCreatureTracking.FindCarried(player,
+                creature => !creature.dead && creature.creatureTemplate?.type == CreatureTemplate.Type.SlugNPC) != null;
+            if (!holdingSlugpup || !IsCarryingMask(player) || !IsWearingCloak(player))
+            {
+                return;
+            }
+
+            RequirementCompletion.Report(player, characterID, RequirementID, isLive: true);
+        }
+
+        // True if the screen currently showing the player is one of the room's own topmost
+        // screens (room-space Y increases upward -- see this class's own doc comment). ">="
+        // rather than a single tracked max-index so a multi-screen-wide top row counts reaching
+        // any of its screens, not just whichever happened to be first in the array.
+        private static bool IsInHighestScreen(Player player, Room room)
+        {
+            Vector2[] cameraPositions = room.cameraPositions;
+            if (cameraPositions == null || cameraPositions.Length == 0)
+            {
+                return false;
+            }
+
+            int viewedFrom = room.CameraViewingPoint(player.mainBodyChunk.pos);
+            if (viewedFrom < 0)
+            {
+                return false;
+            }
+
+            float topmostY = cameraPositions[0].y;
+            for (int i = 1; i < cameraPositions.Length; i++)
+            {
+                if (cameraPositions[i].y > topmostY)
+                {
+                    topmostY = cameraPositions[i].y;
+                }
+            }
+
+            return cameraPositions[viewedFrom].y >= topmostY;
         }
 
         private static bool IsCarryingMask(Player player)
@@ -3517,6 +3596,20 @@ namespace Primal.Gimmicks
         private static bool IsWearingCloak(Player player)
         {
             return GimmickGate.GameFor(player)?.GetStorySession?.saveState?.wearingCloak ?? false;
+        }
+    }
+
+    /// <summary>See InvHighestPointRequirement's own doc comment for why this exists as a
+    /// top-level Player.Update patch instead of a SurvivorEvents subscription -- same
+    /// TimeLimitGimmick/ChainsGimmick precedent for patching Player.Update(bool) directly, and the
+    /// same "top-level, not nested" convention every other [HarmonyPatch] class in this codebase
+    /// already follows (see PrimalKillTracker.cs's own header comment on that rule).</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.Update), new System.Type[] { typeof(bool) })]
+    internal static class InvHighestPointUpdateHook
+    {
+        private static void Postfix(Player __instance)
+        {
+            InvHighestPointRequirement.CheckPlayer(__instance);
         }
     }
 }
