@@ -3467,4 +3467,127 @@ namespace Primal.Gimmicks
             };
         }
     }
+
+    /// <summary>Added 2026-09-17, per the user's own room IDs and design clarification: "Starting
+    /// from southmost Sky Islands shelter, activate a Vulture Grub and travel to the top of
+    /// Communication Arrays without letting the laser fade or turn red. Die to a Vulture in the
+    /// last room." Southmost shelter: SI_S03. Top of Communications Array: SI_A07. Per the user's
+    /// own explicit answers to two design questions: (1) the signal does NOT need to succeed (green
+    /// is not required, only red is disqualifying); (2) the grub MUST be thrown while still inside
+    /// SI_S03 -- leaving that shelter without ever having thrown one there cancels the whole
+    /// attempt outright, it doesn't just fail to arm it.
+    ///
+    /// Arms the same way JourneyTracker does (hibernating in the start shelter arms the next
+    /// cycle), then tracks exactly one specific VultureGrub instance -- whichever one
+    /// SurvivorVultureSignal.OnGrubThrown reports thrown while the player is still in SI_S03 (the
+    /// most recent one, if more than one is thrown before leaving). Only THAT grub's own
+    /// OnSignalFailed matters -- an unrelated grub failing somewhere else in the world must not
+    /// disqualify an attempt it has nothing to do with, checked by reference equality against the
+    /// tracked instance. Leaving SI_S03 (any room-entry event away from it) without a tracked grub
+    /// yet cancels the attempt immediately, matching the user's own "cancelled," not "still open,"
+    /// framing. Completes on Player death in SI_A07 to a Vulture or KingVulture (MirosVulture, a
+    /// DLC-exclusive variant, is skipped -- every one of these challenges requires MSC/DLC content
+    /// disabled per the CSV's own header note, so it can never actually appear here), with the
+    /// tracked grub's signal never having failed.</summary>
+    internal sealed class BroadcastTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Broadcast");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string StartShelter = "SI_S03";
+        private const string TopRoom = "SI_A07";
+
+        private sealed class AttemptState
+        {
+            public VultureGrub TrackedGrub;
+            public bool Disqualified;
+        }
+
+        private static readonly Dictionary<string, AttemptState> _attempts = new Dictionary<string, AttemptState>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string shelter = SurvivorShelterContents.ShelterRoomFor(player)?.name;
+                if (shelter == StartShelter)
+                {
+                    _attempts[characterID] = new AttemptState();
+                }
+                else
+                {
+                    _attempts.Remove(characterID);
+                }
+            };
+
+            SurvivorVultureSignal.OnGrubThrown += (player, grub) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !_attempts.TryGetValue(characterID, out AttemptState state)
+                    || player.room?.abstractRoom?.name != StartShelter)
+                {
+                    return;
+                }
+
+                state.TrackedGrub = grub;
+            };
+
+            SurvivorVultureSignal.OnSignalFailed += (grub) =>
+            {
+                foreach (AttemptState state in _attempts.Values)
+                {
+                    if (state.TrackedGrub == grub)
+                    {
+                        state.Disqualified = true;
+                    }
+                }
+            };
+
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !_attempts.TryGetValue(characterID, out AttemptState state)
+                    || roomName == StartShelter)
+                {
+                    return;
+                }
+
+                if (state.TrackedGrub == null)
+                {
+                    // Left the starting shelter without ever throwing a grub there -- cancelled
+                    // outright, per the user's own framing.
+                    _attempts.Remove(characterID);
+                }
+            };
+
+            SurvivorEvents.OnPlayerDeath += (player, eventCharacterID, killerType, inDen, inShelter) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !_attempts.TryGetValue(characterID, out AttemptState state))
+                {
+                    return;
+                }
+
+                bool killedByVulture = killerType == CreatureTemplate.Type.Vulture.value
+                    || killerType == CreatureTemplate.Type.KingVulture.value;
+
+                if (!state.Disqualified && state.TrackedGrub != null
+                    && player.room?.abstractRoom?.name == TopRoom && killedByVulture)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+                _attempts.Remove(characterID);
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _attempts.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
 }

@@ -57,6 +57,46 @@ namespace Primal.Gimmicks
         }
 
         internal static void ClearFailureReported(VultureGrub grub) => _failureReported.Remove(grub);
+
+        /// <summary>Added 2026-09-17 for Broadcast's own "activate a Vulture Grub" step. Fires the
+        /// instant a player throws a VultureGrub they were holding -- Player.ThrowObject(int
+        /// grasp, bool eu) is confirmed via decompilation to be the one call site that invokes
+        /// VultureGrub.InitiateSignalCountDown() (the method that starts the yellow-laser
+        /// countdown), so this is the real "thrown" moment, not an approximation off release/drop
+        /// in general (which wouldn't distinguish a deliberate throw from simply letting go).</summary>
+        public static event System.Action<Player, VultureGrub> OnGrubThrown;
+
+        internal static bool HasGrubThrownSubscribers => OnGrubThrown != null;
+
+        internal static void RaiseGrubThrown(Player player, VultureGrub grub) => OnGrubThrown?.Invoke(player, grub);
+    }
+
+    /// <summary>A Prefix, not a Postfix -- by the time ThrowObject returns, the object has already
+    /// left the grasp being thrown from, so this reads base.grasps[grasp] (the same field the real
+    /// method itself reads first) before that happens.</summary>
+    [HarmonyPatch(typeof(Player), nameof(Player.ThrowObject))]
+    internal static class SurvivorVultureGrubThrownHook
+    {
+        private static void Prefix(Player __instance, int grasp)
+        {
+            if (!SurvivorVultureSignal.HasGrubThrownSubscribers || __instance?.grasps == null
+                || grasp < 0 || grasp >= __instance.grasps.Length)
+            {
+                return;
+            }
+
+            if (!(__instance.grasps[grasp]?.grabbed is VultureGrub grub))
+            {
+                return;
+            }
+
+            if (!GimmickGate.TryGetCharacter(__instance, out _))
+            {
+                return;
+            }
+
+            SurvivorVultureSignal.RaiseGrubThrown(__instance, grub);
+        }
     }
 
     [HarmonyPatch(typeof(VultureGrub), nameof(VultureGrub.AttemptCallVulture))]

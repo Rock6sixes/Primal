@@ -1148,3 +1148,20 @@ genuinely underspecified. Still unbuilt/untested in this container.
 
 **49 of 50 now implemented -- only Broadcast left**, pending those 2 room IDs. Still
 unbuilt/untested in this container.
+
+## Status update, 2026-09-17 (later still): Broadcast implemented -- all 50 of 50 done
+
+User supplied the last 2 room IDs (southmost Sky Islands shelter `SI_S03`, top of Communications
+Array `SI_A07`) plus two design answers that shaped the tracker: the signal does NOT need to
+succeed (only a failure/red laser disqualifies), and the grub MUST be thrown while still inside the
+starting shelter, or the attempt is cancelled outright.
+
+Needed one more piece of plumbing: `SurvivorVultureSignal.OnGrubThrown`, a Prefix on
+`Player.ThrowObject` (the confirmed sole call site of `VultureGrub.InitiateSignalCountDown()`).
+`BroadcastTracker` tracks exactly one specific grub instance (the one thrown in the shelter, by
+reference) so an unrelated grub failing elsewhere never disqualifies an attempt it has nothing to do
+with, and cancels the attempt outright if the shelter is left before any grub is thrown.
+
+**All 50 of 50 community challenges now have a tracker registered.** Nothing this whole session has
+been built or tested in-game (no .NET toolchain in this container) -- the real next step for this
+branch is a build on the user's own machine, not more source-level work.

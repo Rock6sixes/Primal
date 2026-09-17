@@ -560,6 +560,7 @@ namespace Primal.Gimmicks
             new FishtankTracker(),
             new VeganTracker(),
             new SaintTracker(),
+            new BroadcastTracker(),
         };
 
         private static bool _registered;

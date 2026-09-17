@@ -5375,7 +5375,57 @@ restriction plus a shared completion gate) and touches the newest shared mechani
 (`SurvivorMoonDelivery`), so it deserves the most scrutiny of this batch once a real build is
 possible.
 
-## History — why the architecture is what it is now (don't re-litigate these)
+## 2026-09-17 (later still): Broadcast implemented — all 50 of 50 community challenges now tracked
+
+The user supplied the last 2 room IDs (southmost Sky Islands shelter `SI_S03`, top of Communications
+Array `SI_A07`) and answered two design questions that materially changed the tracker's shape from
+what was proposed:
+
+1. **The signal does NOT need to succeed** — only an actual failure (red) is disqualifying. Whether
+   any grub ever successfully summons a vulture is irrelevant to completion.
+2. **The grub must be thrown while still inside the starting shelter (SI_S03).** Leaving that room
+   without ever having thrown one there **cancels the attempt outright** (removed from tracking, not
+   just left permanently unable to complete) — the user's own words, "the attempt is cancelled."
+
+This needed one more piece of new plumbing on top of the `SurvivorVultureSignal` mechanism built
+last round: **`SurvivorVultureSignal.OnGrubThrown`**, a Prefix on `Player.ThrowObject(int grasp,
+bool eu)` (confirmed via decompiling `Player.cs` to be the exact, only call site of
+`VultureGrub.InitiateSignalCountDown()` — the method that starts the yellow-laser countdown — so
+this is the real "thrown" moment, not an approximation off release/drop in general). A Prefix, not a
+Postfix, since by the time `ThrowObject` returns the object has already left the grasp being read.
+
+`BroadcastTracker` itself: arms the same way `JourneyTracker` does (hibernating in `SI_S03` arms the
+next cycle), then tracks exactly ONE specific `VultureGrub` instance — whichever one
+`OnGrubThrown` reports thrown while the player is still physically in `SI_S03` (the most recent one,
+if more than one is thrown before leaving). Only THAT grub's own `OnSignalFailed` matters, checked
+by reference equality against the tracked instance — an unrelated grub failing somewhere else in the
+world has nothing to do with this specific attempt and must not disqualify it. Leaving `SI_S03`
+without a tracked grub yet cancels the attempt immediately (removes it from the dictionary entirely,
+per the user's own "cancelled" framing). Completes on `Player` death in `SI_A07` to a Vulture or
+KingVulture (MirosVulture, a DLC-exclusive variant, is skipped outright — every one of these
+challenges requires MSC/DLC content disabled per the CSV's own header note, so it can never actually
+appear in a qualifying run), with the tracked grub's signal never having failed.
+
+No race condition between this tracker's own `OnPlayerDeath` handler (which reports completion AND
+removes the attempt) and the separate `OnCycleFailed` cleanup handler (which would otherwise also
+try to remove it): confirmed via decompiling `RainWorldGame.cs` that `OnPlayerDeath` is raised from
+a Postfix on `Player.Die()`, while `OnCycleFailed` is raised from a Postfix on the LATER
+`RainWorldGame.GameOver()` — `Player.Die()` always runs first, so completion is always checked
+before the cycle-failure cleanup could remove the attempt out from under it.
+
+**All 50 of 50 community challenges now have a tracker registered.** None of this session's 10 new
+trackers (Elder, Heist, Triplopia, Outlaw, Journey, Visitor, Fishtank, Vegan, Saint, Broadcast) or
+the 4 new shared mechanisms (`SurvivorTollState.OnOutpostTick`, `PrimalKillTracker.OnKillCredited`,
+`SurvivorMoonDelivery`, `SurvivorVultureSignal`) have been built or tested in-game — no `.NET`
+toolchain in this container this whole session. **The very next thing to do with this branch is get
+it through a real `dotnet build`** (on the user's own Windows machine, per the "sessions now run
+directly on the user's own machine" section near the top of this doc) before trusting any of it
+further — this is 10 brand-new trackers plus 4 new shared mechanisms, none compiled even once, and
+several (`OutlawTracker`'s `Menu.StoryGameStatisticsScreen` family, `SaintTracker`'s two-path
+design, `BroadcastTracker`'s per-instance grub tracking) are genuinely the most structurally complex
+code in this whole community-challenges effort. Treat "should work per source-level review" as
+exactly that, not as "confirmed" — this doc's own Gotcha #5 is a standing reminder of how far a
+plausible-looking, never-built change can drift from actually working.
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
    vanilla roster), toggled via a Tab key at runtime, with session-identity forced to match the
