@@ -6419,6 +6419,19 @@ broken, results.
 
 **Not yet seen in-game** -- compiled clean and redeployed.
 
+## 2026-09-17 (same day, later still): padding mechanism confirmed correct in-game; 16f dialed back to 8f
+
+User confirmed, with screenshots, that padding the row (child) within an unmoved scroll box
+(container) -- the previous round's fix -- actually works: no more misaligned dead-space gap, and no
+more hover overflow. Only complaint: 16f is "too much" now that it's applied correctly.
+`ColumnSidePadding`/`PickerSidePadding` both dialed back to 8f. Worth noting for anyone reading the
+history here: the EARLIER "8f wasn't enough" result (the round before this one) was measured while
+the padding was still being applied to the wrong element entirely (the container, not the row) --
+that test never actually exercised what 8f alone does once padding is on the right thing, so
+reverting to 8f now isn't repeating a known-bad value, it's the first fair test of it.
+
+Not yet seen in-game -- compiled clean and redeployed.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

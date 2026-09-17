@@ -261,12 +261,12 @@ namespace Primal.Gimmicks
         // matching the character grid's own alignment above it -- the reported hover-overflow was
         // specifically about gimmick/requirement ROWS, not the Add button itself.
         //
-        // 16f (not the 8f first tried) -- BumpBehaviour.AddSize's own ramp-up curve (sizeBump
-        // approaching 1 PLUS a transient extraSizeBump-driven sine bump that can push the combined
-        // value above 1 mid-animation, not just a flat +1) makes the worst case larger than a first
-        // read of the formula suggests, so this stays deliberately generous rather than computed to
-        // an exact minimum.
-        private const float ColumnSidePadding = 16f;
+        // 8f, back down from a 16f that fixed the overflow (confirmed in-game) but was reported as
+        // too much once it was actually padding the right thing -- the earlier "8f wasn't enough"
+        // result was measured before the container-vs-child bug above was fixed, so it was never a
+        // fair test of 8f's own magnitude; now that a row is genuinely padded within an unmoved
+        // scroll box, 8f gets another try.
+        private const float ColumnSidePadding = 8f;
 
         // 2026-09-17 (UI redesign round 3): "+ Add Gimmick"/"+ Add Requirement" moved to the TOP of
         // each column (per direct request, so they're reachable without scrolling down first), and
@@ -318,17 +318,15 @@ namespace Primal.Gimmicks
         private const float ModalContentTopPadding = 20f;
 
         // Added the same day icons were removed, per direct request for more left/right padding and
-        // to fix hover bump-highlight poking past a picker row's own edge -- same reasoning as
-        // ColumnSidePadding above, including that constant's own note on why 8f wasn't enough (this
-        // is 16f too) and why an attempt that shrank/repositioned a CONTAINER (rather than padding a
-        // child within an unmoved one) was wrong -- reported back with screenshots as still
-        // overflowing, just against a relocated, harder-to-see boundary, with a visible misaligned
-        // gap where the container used to line up with everything else. The category tabs below
-        // stay at the modal's own full, unmoved (ContentLeft, ModalListViewportWidth) extent, same
-        // as "< Back"/the title row above them -- the reported hover-overflow was specifically about
-        // grid ROWS (e.g. "Ornaments" landing under the slide bar), not the tabs themselves, so only
-        // the grid's row content (PickerContentWidth, the `x =` column math below) gets this inset.
-        private const float PickerSidePadding = 16f;
+        // to fix hover bump-highlight poking past a picker row's own edge -- same reasoning, and
+        // same 16f-back-down-to-8f history, as ColumnSidePadding above (including why an attempt
+        // that shrank/repositioned a CONTAINER, rather than padding a child within an unmoved one,
+        // was wrong). The category tabs below stay at the modal's own full, unmoved (ContentLeft,
+        // ModalListViewportWidth) extent, same as "< Back"/the title row above them -- the reported
+        // hover-overflow was specifically about grid ROWS (e.g. "Ornaments" landing under the slide
+        // bar), not the tabs themselves, so only the grid's row content (PickerContentWidth, the
+        // `x =` column math below) gets this inset.
+        private const float PickerSidePadding = 8f;
 
         // 2026-09-17 (UI redesign round 4, per direct request -- reported with a screenshot showing
         // the Add Requirement picker's own slide bar drawn directly on top of its 4th column):
