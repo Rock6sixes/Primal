@@ -5,6 +5,36 @@ using HarmonyLib;
 namespace Primal.Gimmicks
 {
     /// <summary>
+    /// Region acronyms (World.name), confirmed via decompiling Menu/RegionSelectMenu.cs the same
+    /// way DescensionTracker.Regions below already established. Added 2026-09-17 after several
+    /// trackers turned out to have independently redeclared their own private copy of the same
+    /// string under different local names -- Five Pebbles ("SS") alone was separately declared as
+    /// "FivePebbles" four times (Pilgrimage, Chef, Martyr, and a "SS_" prefix variant in Saint),
+    /// Subterranean ("SB") three times -- with no shared source of truth to stop one of those from
+    /// silently drifting from the others. Each tracker keeps its own local `private const string
+    /// FivePebbles = RegionCodes.FivePebbles;`-style alias rather than referencing RegionCodes
+    /// directly at every use site -- a `const` initialized from another `const` is still a real
+    /// compile-time constant, so this costs nothing at runtime, and it means fixing this
+    /// duplication needed exactly one line changed per tracker, not a rename throughout each
+    /// tracker's whole body.
+    /// </summary>
+    internal static class RegionCodes
+    {
+        public const string Outskirts = "SU";
+        public const string DrainageSystem = "DS";
+        public const string IndustrialComplex = "HI";
+        public const string ChimneyCanopy = "CC";
+        public const string SkyIslands = "SI";
+        public const string GarbageWastes = "GW";
+        public const string ShadedCitadel = "SH";
+        public const string Shoreline = "SL";
+        public const string OuterExpanse = "LF";
+        public const string TheExterior = "UW";
+        public const string Subterranean = "SB";
+        public const string FivePebbles = "SS";
+    }
+
+    /// <summary>
     /// Concrete ChallengeTracker implementations, one class per community challenge, registered in
     /// ChallengeTrackerRegistry.All at the bottom of this file. First three picked without
     /// deliberating over which were "most" easy (per explicit request) -- each one just happened
@@ -36,12 +66,14 @@ namespace Primal.Gimmicks
 
         /// <summary>The 12 vanilla (MSC/Watcher disabled) regions -- confirmed via decompiling
         /// Menu/RegionSelectMenu.cs, whose own `new string[12]` of display names lines up 1:1,
-        /// index for index, with its own `startRooms` array's region-acronym prefixes (SU, DS, HI,
-        /// CC, SI, GW, SH, SL, LF, UW, SB, SS) -- the same 12-region roster the community itself
-        /// means by "all regions" for a vanilla-only challenge like this one.</summary>
+        /// index for index, with its own `startRooms` array's region-acronym prefixes -- the same
+        /// 12-region roster the community itself means by "all regions" for a vanilla-only
+        /// challenge like this one.</summary>
         private static readonly string[] Regions =
         {
-            "SU", "DS", "HI", "CC", "SI", "GW", "SH", "SL", "LF", "UW", "SB", "SS",
+            RegionCodes.Outskirts, RegionCodes.DrainageSystem, RegionCodes.IndustrialComplex, RegionCodes.ChimneyCanopy,
+            RegionCodes.SkyIslands, RegionCodes.GarbageWastes, RegionCodes.ShadedCitadel, RegionCodes.Shoreline,
+            RegionCodes.OuterExpanse, RegionCodes.TheExterior, RegionCodes.Subterranean, RegionCodes.FivePebbles,
         };
 
         public override void Register()
@@ -271,7 +303,7 @@ namespace Primal.Gimmicks
 
         // Industrial Complex's region acronym -- same roster DescensionTracker.Regions already
         // confirmed via decompiling Menu/RegionSelectMenu.cs.
-        private const string IndustrialComplex = "HI";
+        private const string IndustrialComplex = RegionCodes.IndustrialComplex;
 
         public override void Register()
         {
@@ -459,20 +491,7 @@ namespace Primal.Gimmicks
                 }
             };
 
-            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _eatenThisCycle.Remove(eventCharacterID);
-                }
-            };
-            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _eatenThisCycle.Remove(eventCharacterID);
-                }
-            };
+            SurvivorEvents.ResetOnCycleBoundary(characterID => _eatenThisCycle.Remove(characterID));
         }
     }
 
@@ -527,20 +546,7 @@ namespace Primal.Gimmicks
                 }
             };
 
-            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _regionsThisCycle.Remove(eventCharacterID);
-                }
-            };
-            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _regionsThisCycle.Remove(eventCharacterID);
-                }
-            };
+            SurvivorEvents.ResetOnCycleBoundary(characterID => _regionsThisCycle.Remove(characterID));
         }
     }
 
@@ -741,30 +747,9 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                bool hasRedLizard = false;
-                bool hasRedCentipede = false;
-                bool hasSpitterSpider = false;
-                foreach (AbstractWorldEntity entity in room.entities)
-                {
-                    if (!(entity is AbstractCreature creature) || creature.state.dead)
-                    {
-                        continue;
-                    }
-
-                    CreatureTemplate.Type type = creature.creatureTemplate?.type;
-                    if (type == CreatureTemplate.Type.RedLizard)
-                    {
-                        hasRedLizard = true;
-                    }
-                    else if (type == CreatureTemplate.Type.RedCentipede)
-                    {
-                        hasRedCentipede = true;
-                    }
-                    else if (type == CreatureTemplate.Type.SpitterSpider)
-                    {
-                        hasSpitterSpider = true;
-                    }
-                }
+                bool hasRedLizard = SurvivorCreatureTracking.LiveCreaturesInRoom(room, CreatureTemplate.Type.RedLizard).Count > 0;
+                bool hasRedCentipede = SurvivorCreatureTracking.LiveCreaturesInRoom(room, CreatureTemplate.Type.RedCentipede).Count > 0;
+                bool hasSpitterSpider = SurvivorCreatureTracking.LiveCreaturesInRoom(room, CreatureTemplate.Type.SpitterSpider).Count > 0;
 
                 if (hasRedLizard && hasRedCentipede && hasSpitterSpider)
                 {
@@ -813,10 +798,10 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Pilgrimage");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string Outskirts = "SU";
-        private const string ShadedCitadel = "SH";
-        private const string TheExterior = "UW";
-        private const string FivePebbles = "SS";
+        private const string Outskirts = RegionCodes.Outskirts;
+        private const string ShadedCitadel = RegionCodes.ShadedCitadel;
+        private const string TheExterior = RegionCodes.TheExterior;
+        private const string FivePebbles = RegionCodes.FivePebbles;
 
         // In-memory only, per characterID -- which of {SH, UW} this character has passed through
         // so far THIS carry attempt, while continuously carrying the tracked Cyan Lizard alive.
@@ -841,7 +826,8 @@ namespace Primal.Gimmicks
                     {
                         return;
                     }
-                    AbstractCreature carried = FindCarriedLizardOfType(player, CreatureTemplate.Type.CyanLizard);
+                    AbstractCreature carried = SurvivorCreatureTracking.FindCarried(
+                        player, c => c.abstractCreature?.creatureTemplate?.type == CreatureTemplate.Type.CyanLizard);
                     if (carried == null)
                     {
                         return;
@@ -857,7 +843,7 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                AbstractCreature tracked = FirstTracked(trackerKey);
+                AbstractCreature tracked = SurvivorCreatureTracking.FirstTracked(trackerKey);
                 if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
                 {
                     Abandon(trackerKey, characterID);
@@ -891,32 +877,6 @@ namespace Primal.Gimmicks
             };
         }
 
-        private static AbstractCreature FindCarriedLizardOfType(Player player, CreatureTemplate.Type type)
-        {
-            Creature.Grasp[] grasps = player?.grasps;
-            if (grasps == null)
-            {
-                return null;
-            }
-            foreach (Creature.Grasp grasp in grasps)
-            {
-                if (grasp?.grabbed is Lizard lizard && lizard.abstractCreature?.creatureTemplate?.type == type)
-                {
-                    return lizard.abstractCreature;
-                }
-            }
-            return null;
-        }
-
-        private static AbstractCreature FirstTracked(string trackerKey)
-        {
-            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
-            {
-                return creature;
-            }
-            return null;
-        }
-
         private static void Abandon(string trackerKey, string characterID)
         {
             SurvivorCreatureTracking.ClearTracker(trackerKey);
@@ -941,8 +901,8 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Chef");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string Subterranean = "SB";
-        private const string FivePebbles = "SS";
+        private const string Subterranean = RegionCodes.Subterranean;
+        private const string FivePebbles = RegionCodes.FivePebbles;
 
         private static readonly Dictionary<int, string> _instanceToCharacter = new Dictionary<int, string>();
         private static readonly Dictionary<string, int> _awaitingEatInstance = new Dictionary<string, int>();
@@ -966,7 +926,8 @@ namespace Primal.Gimmicks
                     {
                         return;
                     }
-                    AbstractCreature carried = FindCarriedAlbinoJetfish(player);
+                    AbstractCreature carried = SurvivorCreatureTracking.FindCarried(
+                        player, c => c is JetFish fish && SurvivorCreatureVariant.IsAlbinoJetfish(fish) == true);
                     if (carried == null)
                     {
                         return;
@@ -982,7 +943,7 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                AbstractCreature tracked = FirstTracked(trackerKey);
+                AbstractCreature tracked = SurvivorCreatureTracking.FirstTracked(trackerKey);
                 if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
                 {
                     Abandon(trackerKey);
@@ -1036,32 +997,6 @@ namespace Primal.Gimmicks
             };
         }
 
-        private static AbstractCreature FindCarriedAlbinoJetfish(Player player)
-        {
-            Creature.Grasp[] grasps = player?.grasps;
-            if (grasps == null)
-            {
-                return null;
-            }
-            foreach (Creature.Grasp grasp in grasps)
-            {
-                if (grasp?.grabbed is JetFish fish && SurvivorCreatureVariant.IsAlbinoJetfish(fish) == true)
-                {
-                    return fish.abstractCreature;
-                }
-            }
-            return null;
-        }
-
-        private static AbstractCreature FirstTracked(string trackerKey)
-        {
-            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
-            {
-                return creature;
-            }
-            return null;
-        }
-
         private static void Abandon(string trackerKey)
         {
             foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
@@ -1092,7 +1027,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Offering");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string Subterranean = "SB";
+        private const string Subterranean = RegionCodes.Subterranean;
 
         private static readonly Dictionary<int, AbstractCreature> _instanceToPlayerAbstract = new Dictionary<int, AbstractCreature>();
 
@@ -1111,7 +1046,8 @@ namespace Primal.Gimmicks
 
                 if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
                 {
-                    AbstractCreature carried = FindCarriedTargetMouse(player);
+                    AbstractCreature carried = SurvivorCreatureTracking.FindCarried(
+                        player, c => c is LanternMouse mouse && SurvivorCreatureVariant.IsPurpleOrGreenLanternMouse(mouse) == true);
                     if (carried == null)
                     {
                         return;
@@ -1127,7 +1063,7 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                AbstractCreature tracked = FirstTracked(trackerKey);
+                AbstractCreature tracked = SurvivorCreatureTracking.FirstTracked(trackerKey);
                 if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
                 {
                     Abandon(trackerKey);
@@ -1172,32 +1108,6 @@ namespace Primal.Gimmicks
                     Abandon(TrackerKeyFor(eventCharacterID));
                 }
             };
-        }
-
-        private static AbstractCreature FindCarriedTargetMouse(Player player)
-        {
-            Creature.Grasp[] grasps = player?.grasps;
-            if (grasps == null)
-            {
-                return null;
-            }
-            foreach (Creature.Grasp grasp in grasps)
-            {
-                if (grasp?.grabbed is LanternMouse mouse && SurvivorCreatureVariant.IsPurpleOrGreenLanternMouse(mouse) == true)
-                {
-                    return mouse.abstractCreature;
-                }
-            }
-            return null;
-        }
-
-        private static AbstractCreature FirstTracked(string trackerKey)
-        {
-            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
-            {
-                return creature;
-            }
-            return null;
         }
 
         private static void Abandon(string trackerKey)
@@ -1256,20 +1166,7 @@ namespace Primal.Gimmicks
                 }
             };
 
-            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _pinnedThisCycle.Remove(eventCharacterID);
-                }
-            };
-            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _pinnedThisCycle.Remove(eventCharacterID);
-                }
-            };
+            SurvivorEvents.ResetOnCycleBoundary(characterID => _pinnedThisCycle.Remove(characterID));
         }
     }
 
@@ -1421,7 +1318,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Martyr");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string FivePebbles = "SS";
+        private const string FivePebbles = RegionCodes.FivePebbles;
         private static readonly string[] RotlessMemoryConfluxRooms = { "SS_LAB7", "SS_A01" };
 
         private sealed class AttemptState
@@ -1503,7 +1400,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Guardian");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string Subterranean = "SB";
+        private const string Subterranean = RegionCodes.Subterranean;
         private const string GuardiansRoom = "SB_D03";
 
         private static readonly HashSet<string> _starvedThisAttempt = new HashSet<string>();
@@ -1523,7 +1420,11 @@ namespace Primal.Gimmicks
 
                 if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
                 {
-                    if (!TryFindBothCarried(player, out AbstractCreature worm, out AbstractCreature snail))
+                    AbstractCreature worm = SurvivorCreatureTracking.FindCarried(
+                        player, c => !c.dead && c.abstractCreature?.creatureTemplate?.type == CreatureTemplate.Type.TubeWorm);
+                    AbstractCreature snail = SurvivorCreatureTracking.FindCarried(
+                        player, c => !c.dead && c.abstractCreature?.creatureTemplate?.type == CreatureTemplate.Type.Snail);
+                    if (worm == null || snail == null)
                     {
                         return;
                     }
@@ -1557,35 +1458,6 @@ namespace Primal.Gimmicks
                     Abandon(TrackerKeyFor(eventCharacterID), eventCharacterID);
                 }
             };
-        }
-
-        private static bool TryFindBothCarried(Player player, out AbstractCreature worm, out AbstractCreature snail)
-        {
-            worm = null;
-            snail = null;
-            Creature.Grasp[] grasps = player?.grasps;
-            if (grasps == null)
-            {
-                return false;
-            }
-
-            foreach (Creature.Grasp grasp in grasps)
-            {
-                if (!(grasp?.grabbed is Creature creature) || creature.dead)
-                {
-                    continue;
-                }
-                CreatureTemplate.Type type = creature.abstractCreature?.creatureTemplate?.type;
-                if (type == CreatureTemplate.Type.TubeWorm)
-                {
-                    worm = creature.abstractCreature;
-                }
-                else if (type == CreatureTemplate.Type.Snail)
-                {
-                    snail = creature.abstractCreature;
-                }
-            }
-            return worm != null && snail != null;
         }
 
         private static bool StillCarryingBoth(Player player, string trackerKey)
@@ -1820,7 +1692,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Chieftain");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string Shoreline = "SL";
+        private const string Shoreline = RegionCodes.Shoreline;
         private const string MoonRoom = "SL_AI";
         private const int RequiredScavengers = 2;
 
@@ -1843,7 +1715,8 @@ namespace Primal.Gimmicks
                     {
                         return;
                     }
-                    List<AbstractCreature> scavengers = FindNearbyLiveScavengers(player);
+                    List<AbstractCreature> scavengers = SurvivorCreatureTracking.LiveCreaturesInRoom(
+                        player.abstractCreature?.Room, CreatureTemplate.Type.Scavenger);
                     if (scavengers.Count < RequiredScavengers)
                     {
                         return;
@@ -1896,25 +1769,6 @@ namespace Primal.Gimmicks
                 }
             };
         }
-
-        private static List<AbstractCreature> FindNearbyLiveScavengers(Player player)
-        {
-            var result = new List<AbstractCreature>();
-            AbstractRoom room = player.abstractCreature?.Room;
-            if (room?.entities == null)
-            {
-                return result;
-            }
-            foreach (AbstractWorldEntity entity in room.entities)
-            {
-                if (entity is AbstractCreature creature && !creature.state.dead
-                    && creature.creatureTemplate?.type == CreatureTemplate.Type.Scavenger)
-                {
-                    result.Add(creature);
-                }
-            }
-            return result;
-        }
     }
 
     /// <summary>Added 2026-09-16. "Travel to the Garbage Wastes Stronghold after passing three
@@ -1932,7 +1786,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Criminal");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string GarbageWastes = "GW";
+        private const string GarbageWastes = RegionCodes.GarbageWastes;
         private const int RequiredUnpaidTolls = 3;
 
         private sealed class AttemptState
@@ -2055,20 +1909,7 @@ namespace Primal.Gimmicks
                 }
             };
 
-            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _gatesThisCycle.Remove(eventCharacterID);
-                }
-            };
-            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    _gatesThisCycle.Remove(eventCharacterID);
-                }
-            };
+            SurvivorEvents.ResetOnCycleBoundary(characterID => _gatesThisCycle.Remove(characterID));
         }
     }
 
@@ -2278,7 +2119,11 @@ namespace Primal.Gimmicks
                     {
                         return;
                     }
-                    AbstractCreature squidcada = FindCarriedSquidcada(player);
+                    AbstractCreature squidcada = SurvivorCreatureTracking.FindCarried(player, c =>
+                    {
+                        CreatureTemplate.Type type = c.abstractCreature?.creatureTemplate?.type;
+                        return type == CreatureTemplate.Type.CicadaA || type == CreatureTemplate.Type.CicadaB;
+                    });
                     if (squidcada == null)
                     {
                         return;
@@ -2293,7 +2138,7 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                AbstractCreature tracked = FirstTracked(trackerKey);
+                AbstractCreature tracked = SurvivorCreatureTracking.FirstTracked(trackerKey);
                 if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
                 {
                     SurvivorCreatureTracking.ClearTracker(trackerKey);
@@ -2307,51 +2152,7 @@ namespace Primal.Gimmicks
                 }
             };
 
-            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
-                }
-            };
-            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
-            {
-                if (eventCharacterID != null)
-                {
-                    SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
-                }
-            };
-        }
-
-        private static AbstractCreature FindCarriedSquidcada(Player player)
-        {
-            Creature.Grasp[] grasps = player?.grasps;
-            if (grasps == null)
-            {
-                return null;
-            }
-            foreach (Creature.Grasp grasp in grasps)
-            {
-                if (!(grasp?.grabbed is Creature creature))
-                {
-                    continue;
-                }
-                CreatureTemplate.Type type = creature.abstractCreature?.creatureTemplate?.type;
-                if (type == CreatureTemplate.Type.CicadaA || type == CreatureTemplate.Type.CicadaB)
-                {
-                    return creature.abstractCreature;
-                }
-            }
-            return null;
-        }
-
-        private static AbstractCreature FirstTracked(string trackerKey)
-        {
-            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
-            {
-                return creature;
-            }
-            return null;
+            SurvivorEvents.ResetOnCycleBoundary(characterID => SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(characterID)));
         }
     }
 
@@ -2386,7 +2187,8 @@ namespace Primal.Gimmicks
 
                 if (SurvivorCreatureTracking.TrackedCount(trackerKey) == 0)
                 {
-                    AbstractCreature baby = FindCarriedBabyCentipede(player);
+                    AbstractCreature baby = SurvivorCreatureTracking.FindCarried(
+                        player, c => c.abstractCreature?.creatureTemplate?.type == CreatureTemplate.Type.SmallCentipede);
                     if (baby == null)
                     {
                         return;
@@ -2401,7 +2203,7 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                AbstractCreature tracked = FirstTracked(trackerKey);
+                AbstractCreature tracked = SurvivorCreatureTracking.FirstTracked(trackerKey);
                 if (tracked == null || !SurvivorCreatureTracking.IsBeingCarriedBy(player, tracked))
                 {
                     SurvivorCreatureTracking.ClearTracker(trackerKey);
@@ -2421,7 +2223,7 @@ namespace Primal.Gimmicks
                 if (SurvivorShelterContents.ShelterRoomFor(player)?.name == TargetShelter
                     && SurvivorCreatureTracking.AllTrackedAlive(trackerKey))
                 {
-                    AbstractCreature tracked = FirstTracked(trackerKey);
+                    AbstractCreature tracked = SurvivorCreatureTracking.FirstTracked(trackerKey);
                     if (tracked != null)
                     {
                         foreach (AbstractWorldEntity entity in SurvivorShelterContents.EntitiesInShelter(player))
@@ -2449,33 +2251,6 @@ namespace Primal.Gimmicks
                     SurvivorCreatureTracking.ClearTracker(TrackerKeyFor(eventCharacterID));
                 }
             };
-        }
-
-        private static AbstractCreature FindCarriedBabyCentipede(Player player)
-        {
-            Creature.Grasp[] grasps = player?.grasps;
-            if (grasps == null)
-            {
-                return null;
-            }
-            foreach (Creature.Grasp grasp in grasps)
-            {
-                if (grasp?.grabbed is Creature creature
-                    && creature.abstractCreature?.creatureTemplate?.type == CreatureTemplate.Type.SmallCentipede)
-                {
-                    return creature.abstractCreature;
-                }
-            }
-            return null;
-        }
-
-        private static AbstractCreature FirstTracked(string trackerKey)
-        {
-            foreach (AbstractCreature creature in SurvivorCreatureTracking.TrackedCreatures(trackerKey))
-            {
-                return creature;
-            }
-            return null;
         }
     }
 
@@ -2859,12 +2634,12 @@ namespace Primal.Gimmicks
     /// Detected via its own Postfix on Creature.Die (TriplopiaPoleMimicDeathHook, below) rather
     /// than reusing PrimalKillTracker's own per-type/per-instance records (those answer "was type X
     /// / instance N killed", not "which den did it belong to", which this challenge specifically
-    /// needs) -- the killer-attribution logic (Creature.killTag, falling back to
-    /// PrimalKillTracker.TryGetRecentHandler) is duplicated from SurvivorTollRosterDeathHook's own
-    /// copy of the same pattern rather than depending on execution order against
-    /// PrimalKillDieHook's own independent Postfix on the same method. Own ConditionalWeakTable
-    /// guards against Creature.Die's own documented "can run more than once per instance"
-    /// behavior double-counting a single death.
+    /// needs) -- killer attribution goes through the shared PrimalKillTracker.ResolveKiller
+    /// (pulled up 2026-09-17 once this was independently duplicated a third time here, alongside
+    /// PrimalKillDieHook and SurvivorTollRosterDeathHook) rather than depending on execution order
+    /// against either of those other independent Postfixes on the same method. Own
+    /// ConditionalWeakTable guards against Creature.Die's own documented "can run more than once
+    /// per instance" behavior double-counting a single death.
     ///
     /// **Known simplification, flagged explicitly:** does not verify "survive the starve cycle" (no
     /// malnourishment/forced-cycle check) and does not require the original triple-spawn/starve
@@ -2876,7 +2651,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Triplopia");
         public override ChallengeEntry Challenge => _entry;
 
-        internal const string ChimneyCanopy = "CC";
+        internal const string ChimneyCanopy = RegionCodes.ChimneyCanopy;
         private const int RequiredPoleMimicKills = 3;
 
         // Per "characterID|denKey" -- distinct PoleMimic instances (EntityID.number) killed from
@@ -2937,15 +2712,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            AbstractCreature killer = PrimalKillTracker.KillTagField?.GetValue(mimic) as AbstractCreature;
-            if (killer == null)
-            {
-                int? tick = abstractMimic.world?.game?.clock;
-                if (tick.HasValue)
-                {
-                    PrimalKillTracker.TryGetRecentHandler(mimic, tick.Value, out killer);
-                }
-            }
+            AbstractCreature killer = PrimalKillTracker.ResolveKiller(mimic);
 
             if (!(killer?.realizedCreature is Player player))
             {
@@ -3203,22 +2970,7 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                List<AbstractWorldEntity> entities = room.abstractRoom?.entities;
-                if (entities == null)
-                {
-                    return;
-                }
-
-                int liveHazers = 0;
-                foreach (AbstractWorldEntity entity in entities)
-                {
-                    if (entity is AbstractCreature creature && !creature.state.dead
-                        && creature.creatureTemplate?.type == CreatureTemplate.Type.Hazer)
-                    {
-                        liveHazers++;
-                    }
-                }
-
+                int liveHazers = SurvivorCreatureTracking.LiveCreaturesInRoom(room.abstractRoom, CreatureTemplate.Type.Hazer).Count;
                 if (liveHazers >= RequiredHazers)
                 {
                     ReportCompletion(player, characterID, isLive: true);
@@ -3336,7 +3088,7 @@ namespace Primal.Gimmicks
         private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Saint");
         public override ChallengeEntry Challenge => _entry;
 
-        private const string FivePebblesShelterPrefix = "SS_";
+        private const string FivePebblesShelterPrefix = RegionCodes.FivePebbles + "_";
         private static readonly string Hunter = SlugcatStats.Name.Red.value;
 
         private sealed class ProgressState

@@ -5455,6 +5455,74 @@ rather than a custom state machine, after an earlier custom-state-machine attemp
 file). When in doubt, prefer the smaller patch that rides on an existing vanilla system over a
 larger one that reimplements it.
 
+## 2026-09-17 (later still): review pass -- 5 more mechanics pulled up into shared code
+
+Requested directly: "look back at all of the shared mechanics and trackers and see what can be
+abstracted out," citing the Kill List -> PrimalKillTracker extraction as the model. Read all 50
+`ChallengeTracker` implementations plus every `Survivor*.cs` shared-mechanism file in full to find
+duplication that had crept in across ~15 individual challenge-implementation passes (most of it
+added independently, one challenge at a time, with no cross-checking against sibling trackers).
+Found and pulled up five real, verbatim-or-near-verbatim duplicates -- deliberately did NOT force
+an abstraction onto things that only LOOK similar (e.g. the various "armed at shelter X, disarmed
+by Y" trackers -- Journey, Criminal, Broadcast, Devotee -- all differ enough in their actual arm/
+disarm conditions that a shared abstraction would hurt more than it helps; left alone, matching
+this project's own standing "don't force premature generalization" discipline):
+
+1. **`PrimalKillTracker.ResolveKiller(Creature)`** -- the "check Creature.killTag first, fall back
+   to TryGetRecentHandler" resolution was independently duplicated verbatim in three separate
+   `Creature.Die` Postfixes: `PrimalKillDieHook` (this class's own original),
+   `SurvivorTollRosterDeathHook` (Manslaughter's "no kill credit" check), and
+   `TriplopiaPoleMimicDeathHook` (Triplopia's same-den kill tracking, added just this session).
+   Three independent copies of the same 8-line block was the exact "second instance is a
+   coincidence, third instance is a pattern" trigger -- pulled up, all three call sites now read
+   `PrimalKillTracker.ResolveKiller(creature)`.
+2. **`SurvivorCreatureTracking.FindCarried(Player, Func<Creature, bool>)`** -- a grasp-array scan
+   for a Creature matching some predicate, independently reimplemented in SIX places:
+   `PilgrimageTracker.FindCarriedLizardOfType`, `ChefTracker.FindCarriedAlbinoJetfish`,
+   `OfferingTracker.FindCarriedTargetMouse`, `SymbioteTracker.FindCarriedSquidcada`,
+   `ChargedTracker.FindCarriedBabyCentipede`, and half of `GuardianTracker.TryFindBothCarried`.
+   Each converted call preserves its own exact original match condition (including
+   `GuardianTracker`'s own `!creature.dead` check, which several of the others never had --
+   deliberately NOT added to the others, since that would silently change their behavior, not just
+   refactor it).
+3. **`SurvivorCreatureTracking.FirstTracked(string)`** -- "the first (only, in 4 of 5 cases)
+   creature tracked under this key" was redeclared as an identical private static helper in FIVE
+   trackers (Pilgrimage, Chef, Offering, Symbiote, Charged).
+4. **`SurvivorCreatureTracking.LiveCreaturesInRoom(AbstractRoom, CreatureTemplate.Type)`** -- "every
+   live creature of type X in this room," independently reimplemented in
+   `ChieftainTracker.FindNearbyLiveScavengers` and inline in `FishtankTracker`/`SafariTracker`
+   (Safari's own single-pass 3-flag scan became three calls to the shared helper -- three room
+   scans instead of one, an intentionally-accepted trade for clarity given how small a room's own
+   entity list actually is).
+5. **`SurvivorEvents.ResetOnCycleBoundary(Action<string>)`** -- the exact pair "subscribe to
+   OnSuccessfulHibernation AND OnCycleFailed, each just discarding this character's own per-cycle
+   state" was independently repeated in Visions, Mycologist, Nomad, Ornaments (a raw dictionary
+   entry each time) and Symbiote (a `SurvivorCreatureTracking.ClearTracker` call each time).
+   Composes the two real events so a caller states its own reset action once. **Not** applied to
+   trackers where the hibernation side does more than reset (Usurper, Safari, Charged all do real
+   completion-checking in their own hibernation handler, not a pure discard) -- those were
+   correctly left alone.
+
+**A sixth cleanup, `RegionCodes`** (a new small static class of named region-acronym constants,
+`RegionCodes.FivePebbles = "SS"` etc.) replaced ~13 independently-declared private `const string`
+region codes across 9 trackers -- Five Pebbles ("SS") alone had been separately typed out as
+"FivePebbles" four times, Subterranean ("SB") three times, with no shared source of truth to catch
+one of them silently drifting from the others (a typo in just one copy would have been a real,
+easy-to-miss bug). Each tracker keeps its own local `private const string FivePebbles =
+RegionCodes.FivePebbles;`-style alias rather than being rewired to reference `RegionCodes` at every
+use site -- a `const` initialized from another `const` is still a real compile-time constant, so
+this cost one line changed per tracker, not a rename throughout each tracker's whole body.
+
+**Net effect:** `ChallengeTrackers.cs` shrank from 3593 to 3345 lines despite the new `RegionCodes`
+class and expanded doc comments -- the diff itself is -359/+218 for that file alone. Zero intended
+behavior change anywhere in this pass: every extraction preserves each original call site's exact
+condition, and this was checked by re-reading every changed call site against what it replaced, not
+assumed from the extraction being "obviously equivalent." Still, **this whole pass is itself
+unbuilt and untested**, the same standing caveat as everything else in this doc -- a refactor across
+15+ files with no compiler available is exactly the kind of change most likely to have a small typo
+slip through unnoticed, so give this one particular scrutiny on the next real build, not just the
+newest trackers.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

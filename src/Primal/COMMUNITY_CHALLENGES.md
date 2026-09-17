@@ -1165,3 +1165,24 @@ with, and cancels the attempt outright if the shelter is left before any grub is
 **All 50 of 50 community challenges now have a tracker registered.** Nothing this whole session has
 been built or tested in-game (no .NET toolchain in this container) -- the real next step for this
 branch is a build on the user's own machine, not more source-level work.
+
+## Status update, 2026-09-17 (later still): review pass -- 5 mechanics pulled into shared code
+
+Requested directly, citing the Kill List -> PrimalKillTracker extraction as the model: reviewed all
+50 trackers plus every shared `Survivor*.cs` mechanism file for duplication. Pulled up five real
+duplicates (not forced abstractions -- see AI_CONTEXT.md's own fuller write-up for what was
+deliberately left alone):
+
+1. `PrimalKillTracker.ResolveKiller(Creature)` -- the killTag/TryGetRecentHandler resolution was
+   independently duplicated in 3 separate `Creature.Die` Postfixes.
+2. `SurvivorCreatureTracking.FindCarried(Player, predicate)` -- a grasp-scan helper reimplemented 6
+   times across Pilgrimage/Chef/Offering/Symbiote/Charged/Guardian.
+3. `SurvivorCreatureTracking.FirstTracked(string)` -- redeclared identically in 5 trackers.
+4. `SurvivorCreatureTracking.LiveCreaturesInRoom(room, type)` -- reimplemented in
+   Chieftain/Fishtank/Safari.
+5. `SurvivorEvents.ResetOnCycleBoundary(Action<string>)` -- the hibernation+cyclefailed reset pair,
+   repeated in Visions/Mycologist/Nomad/Ornaments/Symbiote.
+
+Plus a `RegionCodes` constants class replacing ~13 independently-typed region-code literals across
+9 trackers. `ChallengeTrackers.cs` shrank from 3593 to 3345 lines. Zero intended behavior change --
+every extraction preserves its call sites' exact original conditions. Still unbuilt/untested.

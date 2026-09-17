@@ -132,6 +132,31 @@ namespace Primal.Gimmicks
             return false;
         }
 
+        /// <summary>Added 2026-09-17, pulled up after this exact resolution (KillTagField first,
+        /// falling back to TryGetRecentHandler) turned out to be independently duplicated
+        /// verbatim in three separate Creature.Die Postfixes -- PrimalKillDieHook (this file),
+        /// SurvivorTollRosterDeathHook (Manslaughter's "no kill credit" check), and
+        /// TriplopiaPoleMimicDeathHook (Triplopia's same-den kill tracking). Same shared-mechanism
+        /// reasoning as everything else already pulled into this class: "who gets credit for this
+        /// death" is one question every consumer answers identically, so it belongs here once, not
+        /// re-derived per caller. Null if neither vanilla's own killTag nor this class's own
+        /// proximity-based handler attribution can name anyone.</summary>
+        public static AbstractCreature ResolveKiller(Creature creature)
+        {
+            AbstractCreature killer = KillTagField?.GetValue(creature) as AbstractCreature;
+            if (killer != null)
+            {
+                return killer;
+            }
+
+            int? tick = creature?.abstractCreature?.world?.game?.clock;
+            if (tick.HasValue && TryGetRecentHandler(creature, tick.Value, out AbstractCreature handler))
+            {
+                return handler;
+            }
+            return null;
+        }
+
         private static string Marker(string characterID, string creatureID)
         {
             return PrimalSaveMarkers.Marker(SaveMarkerKey, characterID, creatureID);
@@ -313,15 +338,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            AbstractCreature killer = PrimalKillTracker.KillTagField?.GetValue(__instance) as AbstractCreature;
-            if (killer == null)
-            {
-                int? tick = __instance.abstractCreature?.world?.game?.clock;
-                if (tick.HasValue && PrimalKillTracker.TryGetRecentHandler(__instance, tick.Value, out AbstractCreature handler))
-                {
-                    killer = handler;
-                }
-            }
+            AbstractCreature killer = PrimalKillTracker.ResolveKiller(__instance);
 
             Player player = killer?.realizedCreature as Player;
             if (!GimmickGate.TryGetCharacter(player, out string characterID))
