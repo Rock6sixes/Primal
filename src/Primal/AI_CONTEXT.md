@@ -6432,6 +6432,24 @@ reverting to 8f now isn't repeating a known-bad value, it's the first fair test 
 
 Not yet seen in-game -- compiled clean and redeployed.
 
+## 2026-09-17 (same day, later still): Change Mode narrowed, character grid buttons enlarged
+
+Requested directly, after confirming the padding fix looked right in-game: "reduce width of change
+mode and increase the size of character buttons." `ChangeModeButtonWidth` 140f -> 100f;
+`CharGridButtonHeight` 32f -> 40f. `CharGridButtonWidth` needed no direct edit -- it's already
+derived from the leftover space next to the Change Mode button (`CharGridAreaWidth = 
+ChangeModeButtonX - ContentLeft - 20f`), so narrowing that button alone widens every grid button too
+(roughly 74px -> 82px). `ChangeModeButtonHeight` was a separate literal (72f) that happened to equal
+the grid's old total height (`32*2 + 8`) -- turned into a real derived constant
+(`CharGridButtonHeight * 2f + CharGridRowGap`) instead of a second literal that could drift out of
+sync the next time either value changes, since keeping the two in visual lockstep is the whole point
+of `ChangeModeButtonY = CharGridBottomY` right below it. Moved the CharGrid* constants block above
+the title-row block since `ChangeModeButtonHeight` now references `CharGridButtonHeight` (C#
+resolves const-to-const references across the whole class regardless of textual order, so this
+reordering is purely for readability, not required for it to compile).
+
+Not yet seen in-game -- compiled clean and redeployed.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

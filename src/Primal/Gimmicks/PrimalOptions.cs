@@ -194,6 +194,24 @@ namespace Primal.Gimmicks
         private const float ContentLeft = 18f;
         private const float ContentWidth = 564f;
 
+        // ---- the character button grid: dedicated, colored, per-character buttons replacing the
+        // 2026-09-17 OpComboBox (round 3, per direct request -- the combo box's own live-update bug
+        // is fixed, see AI_CONTEXT.md, but a grid was still preferred). Sized to fit entirely
+        // alongside the Change Mode button, in the same vertical span the title row itself used to
+        // share with the (now-removed) slot-switch-key row -- five columns, two rows, comfortably
+        // covering the current 10-entry roster (3 base + 6 MSC + 1 Watcher) with room to spare if a
+        // future character is ever added as an 11th entry (it just starts a 3rd row).
+        // CharGridButtonHeight bumped 32f -> 40f and ChangeModeButtonWidth shrunk 140f -> 100f the
+        // same day, per direct request ("reduce width of change mode and increase the size of
+        // character buttons") -- shrinking ChangeModeButtonWidth alone already widens every grid
+        // button too, since CharGridButtonWidth is derived from the leftover space next to it.
+        private const int CharGridColumns = 5;
+        private const float CharGridButtonHeight = 40f;
+        private const float CharGridRowGap = 8f;
+        private const float CharGridColGap = 8f;
+        private const float CharGridTopY = TitleY - 44f;
+        private const float CharGridBottomY = CharGridTopY - (CharGridButtonHeight + CharGridRowGap);
+
         // ---- title row: "Primal" / mode indicator (left) + the single "Change Mode" button (right) ----
         // 2026-09-17 (UI redesign round 2, per direct request): the old two stacked buttons
         // (Change Mode, then a separate slot-switch-key rebinder below it) are now ONE button
@@ -203,23 +221,13 @@ namespace Primal.Gimmicks
         // two lines ("Change\nMode") to visually fill the taller button -- FLabel (the underlying
         // Futile label every Op* text element renders through) honors literal newlines, but this is
         // the first place in this codebase that relies on that, so give it a look on the next build.
-        private const float ChangeModeButtonWidth = 140f;
-        private const float ChangeModeButtonHeight = 72f;
+        private const float ChangeModeButtonWidth = 100f;
+        // Kept in exact lockstep with the grid's own total height (two rows plus the gap between
+        // them) rather than a separate literal, so widening/heightening the grid can't silently
+        // throw this button's own height out of sync with it again.
+        private const float ChangeModeButtonHeight = CharGridButtonHeight * 2f + CharGridRowGap;
         private const float ChangeModeButtonX = ContentLeft + ContentWidth - ChangeModeButtonWidth;
 
-        // ---- the character button grid: dedicated, colored, per-character buttons replacing the
-        // 2026-09-17 OpComboBox (round 3, per direct request -- the combo box's own live-update bug
-        // is fixed, see AI_CONTEXT.md, but a grid was still preferred). Sized to fit entirely
-        // alongside the Change Mode button, in the same vertical span the title row itself used to
-        // share with the (now-removed) slot-switch-key row -- five columns, two rows, comfortably
-        // covering the current 10-entry roster (3 base + 6 MSC + 1 Watcher) with room to spare if a
-        // future character is ever added as an 11th entry (it just starts a 3rd row).
-        private const int CharGridColumns = 5;
-        private const float CharGridButtonHeight = 32f;
-        private const float CharGridRowGap = 8f;
-        private const float CharGridColGap = 8f;
-        private const float CharGridTopY = TitleY - 44f;
-        private const float CharGridBottomY = CharGridTopY - (CharGridButtonHeight + CharGridRowGap);
         // Leaves a gap before the Change Mode button starts.
         private const float CharGridAreaWidth = ChangeModeButtonX - ContentLeft - 20f;
         private const float CharGridButtonWidth = (CharGridAreaWidth - (CharGridColumns - 1) * CharGridColGap) / CharGridColumns;
