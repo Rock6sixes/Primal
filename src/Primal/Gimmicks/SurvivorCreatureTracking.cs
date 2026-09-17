@@ -183,6 +183,74 @@ namespace Primal.Gimmicks
             return false;
         }
 
+        /// <summary>Added 2026-09-17, pulled up after this exact loop (or a one-line variant of
+        /// it) turned out to be independently reimplemented in six separate trackers --
+        /// PilgrimageTracker.FindCarriedLizardOfType, ChefTracker.FindCarriedAlbinoJetfish,
+        /// OfferingTracker.FindCarriedTargetMouse, SymbioteTracker.FindCarriedSquidcada,
+        /// ChargedTracker.FindCarriedBabyCentipede, and half of GuardianTracker.TryFindBothCarried
+        /// -- each just a grasp-array scan for a Creature matching some predicate, differing only
+        /// in which predicate. Takes a predicate over the REALIZED Creature (not the abstract one)
+        /// since every existing caller's own match condition needs the realized object -- a
+        /// concrete subtype check, a variant-identification helper call, or both -- and hands back
+        /// the AbstractCreature, matching what every caller actually goes on to track via
+        /// Touch/TrackedCreatures. Doesn't itself filter on `!creature.dead` -- callers that need
+        /// that (GuardianTracker does, several others don't) include it in their own predicate,
+        /// preserving each one's exact prior behavior rather than silently changing it here.</summary>
+        public static AbstractCreature FindCarried(Player player, System.Func<Creature, bool> predicate)
+        {
+            Creature.Grasp[] grasps = player?.grasps;
+            if (grasps == null)
+            {
+                return null;
+            }
+            foreach (Creature.Grasp grasp in grasps)
+            {
+                if (grasp?.grabbed is Creature creature && predicate(creature))
+                {
+                    return creature.abstractCreature;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>Added 2026-09-17, pulled up after this exact one-liner turned out to be
+        /// independently redeclared as a private static helper in five separate trackers
+        /// (Pilgrimage, Chef, Offering, Symbiote, Charged) -- each just "the first (and for four of
+        /// those five, the only) creature tracked under this key". Null if nothing is tracked under
+        /// `trackerKey` at all.</summary>
+        public static AbstractCreature FirstTracked(string trackerKey)
+        {
+            foreach (AbstractCreature creature in TrackedCreatures(trackerKey))
+            {
+                return creature;
+            }
+            return null;
+        }
+
+        /// <summary>Added 2026-09-17, pulled up after this exact room-entity scan (or a close
+        /// variant checking more than one type per pass) turned out to be independently
+        /// reimplemented in ChieftainTracker.FindNearbyLiveScavengers and inline in
+        /// FishtankTracker/SafariTracker -- "every live creature of type X currently in this
+        /// room," read off AbstractRoom.entities. Takes the ABSTRACT room (not a realized Room)
+        /// since that's what every existing caller already had in hand at its own call site
+        /// (either directly, or one property access away via Room.abstractRoom).</summary>
+        public static List<AbstractCreature> LiveCreaturesInRoom(AbstractRoom room, CreatureTemplate.Type type)
+        {
+            var result = new List<AbstractCreature>();
+            if (room?.entities == null)
+            {
+                return result;
+            }
+            foreach (AbstractWorldEntity entity in room.entities)
+            {
+                if (entity is AbstractCreature creature && !creature.state.dead && creature.creatureTemplate?.type == type)
+                {
+                    result.Add(creature);
+                }
+            }
+            return result;
+        }
+
         private static Watch GetOrCreateWatch(string trackerKey)
         {
             if (!_watches.TryGetValue(trackerKey, out Watch watch))

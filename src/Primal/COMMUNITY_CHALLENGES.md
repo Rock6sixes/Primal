@@ -1008,3 +1008,210 @@ buildable -- nothing vague, no re-investigation needed, just the missing input o
 **Still not built or tested in-game for any of the 40 implemented trackers** -- no .NET toolchain
 in this container across the whole session. All 40 should be treated as "should compile and behave
 correctly per source-level review," not as verified working.
+
+## Status update, 2026-09-17: Elder, Heist, Triplopia, Outlaw implemented; 44 of 50 now done
+
+Picked up on branch `claude/peaceful-babbage-tfadzw`. Re-reviewed all 10 remaining challenges from
+the list above rather than trusting the prior "Needs" column unchecked, and found two of them
+(#9 Elder, #6 Triplopia above) were mis-scoped, not just unresearched:
+
+- **Elder (#9 above) -- the "entirely new mechanic" it asked for doesn't exist, and doesn't need
+  to.** Re-reading the CSV's own verification requirement ("6 Scavengers **holding** the Masks at a
+  toll") shows "kit out" means a grasp, not an equip slot -- vanilla has no mask-wearing state for
+  an ordinary Scavenger at all (confirmed via decompiling `Scavenger.cs`/`ScavengerAI.cs`), only the
+  same held-item mechanic `ScavengerAI`'s own item-desirability table already scores `VultureMask`
+  for. Implemented as `ElderTracker`, off one new shared mechanism: `SurvivorTollState.
+  OnOutpostTick`, piggybacked onto the existing per-tick `ScavengerOutpost.Update` Postfix
+  (`SurvivorTollRosterObserveHook`) rather than a second Harmony patch on the same method. Checks,
+  every tick, whether 6+ distinct live Scavengers in an active outpost's own room are each
+  currently grasping a `VultureMask` -- a stateless snapshot, so "in one cycle" and "masks can be
+  gathered on any cycle" both fall out for free (a snapshot is inherently within one cycle, and only
+  the masks' CURRENT holders matter, never their history).
+- **Heist (#8 above) -- wired up with the flagged simplification already anticipated.** "The
+  lowest" GW toll still has no known room ID, so this accepts any GW toll (`GW_`-prefixed room),
+  same treatment as Criminal's own unresolved Stronghold room. Everything else reuses existing,
+  proven mechanisms: `SurvivorTollState.OnItemStolen` (built earlier, never actually consumed by any
+  tracker until now) filtered to a `DataPearl`, correlated by the stolen pearl's own specific
+  `EntityID.number` (not just "some pearl") against `SurvivorShelterContents.EntitiesInShelter` at
+  the next hibernation -- the same per-instance correlation Feast/Usurper already established.
+- **Triplopia (#? in the mechanism-gap list, "genuinely undetectable, leaning honor-system" per the
+  2026-09-16 write-up) -- a concrete signature existed all along, just not in the challenge's own
+  primary description.** The CSV's secondary verification line was overlooked in earlier passes:
+  "short clip of killing 3 Pole Plants spawned in the same den" -- a triple-spawned region shows up
+  as its own normally-unique objects (a den's one Pole Plant, `CreatureTemplate.Type.PoleMimic`)
+  existing 3 times simultaneously. `TriplopiaTracker` completes the instant 3+ live `PoleMimic`s are
+  seen at once in one Chimney Canopy room. Flagged simplification: doesn't check "survive the starve
+  cycle," doesn't require the sighting and a kill on separate cycles, doesn't require killing them
+  at all -- same class of trade-off as Nomad's "entered the gate room."
+- **Outlaw (#14 in the shared-mechanisms list, "research-only... `PrimalKillTracker`'s point table
+  alone likely won't reach realistic thresholds") -- the real formula, found.** Decompiling
+  `Menu/StoryGameStatisticsScreen.cs` (the CSV's own "Screenshot of final score screen" hint, taken
+  literally instead of treated as flavor text) turned up
+  `StoryGameStatisticsScreen.ScoreKeeper`: `sum(food×1 + survivedCycles×10 + deaths×-3 + quits×-3 +
+  (totalSeconds/60)×-1 + perKillCreatureValue)`, THEN multiplied by `(1 + fulfilled endgame
+  passages)` -- confirming "follow other standard scorerunning rules." Rather than re-deriving that
+  (the kill-value table alone is large), `OutlawTracker` reads vanilla's own already-computed
+  `ScoreKeeper.score` once the screen's own tally animation finishes (`allDone`). This needed two
+  small new pieces of GENERAL plumbing (not Outlaw-specific): `ChallengeCompletion.
+  ReportCompletionForSave` (persists straight off a `DeathPersistentSaveData` reference, no
+  Player/RainWorldGame needed -- this is the first tracker with no live Player to detect against at
+  all, since the story session is fully over by the time this screen exists) and two new reflected
+  accessors on `PrimalMenuAccess` (`IsScoreScreenDone`/`GetFinalScore`, same Gotcha #1 caution its
+  existing `saveState` accessor already uses). Detected via its own Harmony Postfix on
+  `StoryGameStatisticsScreen.Update`, not a `SurvivorEvents` subscription.
+
+**Broadcast and the true room-ID-dependent 4 (Journey/Visitor/Vegan/Fishtank) -- re-searched, still
+blocked, confirmed rather than assumed.** Broadcast: repeated the same exhaustive keyword sweep
+("laser," "beam," "signal," "array," "relay," "transmission," "antenna," "communication") fresh this
+session across the whole decompiled tree -- still nothing beyond menu/scene-illustration code:
+whatever drives the Communications Array laser mechanic isn't present in `reference/GameSource/` at
+all, which this repo has no level-geometry data for regardless. Journey/Visitor/Vegan/Fishtank: all
+four need a specific room ID or community map (a shelter, the tutorial's exact spawn room, a Hazer
+den map) that was never going to be findable by searching C# source -- every room ID this mod's
+trackers already rely on (Devotee's `SB_E05`, Martyr's `SS_LAB7`/`SS_A01`, Nomad's 4 gate rooms,
+Chieftain's `SL_AI`) came from the user directly, not from a search pass. Saint is unchanged --
+still genuinely underspecified, not a research gap.
+
+**44 of 50 challenges now have a tracker registered. Still not built or tested in-game** -- no .NET
+toolchain in this container this session either. `OutlawTracker` is the one to treat with the most
+suspicion of the 4 -- it's the first tracker touching `Menu.StoryGameStatisticsScreen`/
+`KarmaLadderScreen.ScoreKeeper`, a class family this mod has never compiled against before, versus
+Elder/Heist/Triplopia which all reuse already-proven mechanisms.
+
+## Status update, 2026-09-17 (same day, later): user feedback on the 4 above -- Heist and Triplopia corrected
+
+Elder and Outlaw confirmed correct as implemented. Two real corrections:
+
+- **Heist:** the user supplied the exact room ID directly -- the lowest GW toll is `GW_C11`. Swapped
+  the "any `GW_`-prefixed toll" simplification for that exact room; no more simplification note
+  needed for this one. **New standing instruction from the user: when a challenge's own CSV text
+  names a specific room this repo can't identify on its own, ask for the room ID rather than
+  defaulting to a same-region simplification.**
+- **Triplopia:** the completion condition itself was wrong, not just simplified -- the user wants
+  the actual KILL of 3 same-den Pole Plants to be the trigger, not merely observing 3 alive at once.
+  Rewritten around a new Postfix on `Creature.Die` (`TriplopiaPoleMimicDeathHook`) scoped to
+  `PoleMimic` in Chimney Canopy, using the same killer-attribution trace
+  `SurvivorTollRosterDeathHook` already established, keyed per-den via
+  `(room name, AbstractCreature.pos.abstractNode)` so 3 triple-spawned copies of one den's occupant
+  share a key while unrelated PoleMimics elsewhere don't.
+
+Still 44 of 50, still unbuilt/untested in this container.
+
+## Status update, 2026-09-17 (later still): Journey, Visitor, Fishtank implemented -- 47 of 50 now done
+
+User supplied the exact room IDs the "Final status" table said were unreachable from source alone:
+
+- **Journey:** highest Five Pebbles shelter `SS_S04`, Depths entry `SB_E05` (already known). Closest
+  analog turned out to be DevoteeTracker's HomeShelter/DepthsReached shape, not UTurnTracker as
+  guessed earlier -- no round trip, no time limit, just "started this cycle at X, reach Y before it
+  ends."
+- **Visitor:** spawn room `SU_C04` (the user's own tip, plus a request to dig up more about it) led
+  straight to vanilla's own tutorial-room list: `OverseerAbstractAI.DefineTutorialRooms`'s vanilla
+  branch is exactly `SU_C04, SU_A41, SU_A42, SU_A43, SU_A44, SU_A22` -- the whole "left the tutorial
+  area" boundary Visitor needed, for free, off one room ID. Also closes most of Vegan's own
+  remaining gap (same tutorial geometry) -- Vegan still needs the 7 fruit positions + gap room on
+  top of it.
+- **Fishtank:** the user simplified "unique spawn locations" to "distinct Hazer instances,"
+  explicitly confirming 2 Hazers grabbed from the same room still count as 2 of the 7. Implemented
+  as a plain snapshot check (does the current room have water and 7+ live Hazers), the same shape
+  Safari/Elder already use.
+
+**47 of 50 now implemented.** Only Vegan, Broadcast, and Saint remain -- Vegan needs 2 more concrete
+facts (fruit positions + gap room), Broadcast still has zero technical foothold, Saint is still
+genuinely underspecified. Still unbuilt/untested in this container.
+
+## Status update, 2026-09-17 (later still): Vegan and Saint implemented, Broadcast's mechanism found -- 49 of 50
+
+- **Vegan:** blue fruit (`DangleFruit`) spawns in `SU_A44`/`SU_C04`, gap room `SU_A43`, fruit can be
+  eaten anywhere (not gated to those rooms). Checked as a running eaten-count against 7 at arrival
+  in `SU_A22` (right after the gap), per the user's own suggested checkpoint. Reaching that room
+  short of 7 permanently disqualifies the attempt.
+- **Saint:** two paths, one shared core. Hunter reads vanilla's own already-tracked save flags
+  (`miscWorldSaveData.pebblesSeenGreenNeuron` / `.moonRevived`) at hibernation. Every other
+  character (Survivor included) has no such bookkeeping, so those two objectives are tracked
+  manually instead -- a hibernation in an `SS_` shelter, and a new live event
+  (`SurvivorMoonDelivery`, off `SLOracleBehavior.ConvertingSSSwarmer()`) for the neuron delivery.
+  Both paths share one restriction (0 kills via a new `PrimalKillTracker.OnKillCredited` event, 0
+  live-prey-eaten via `edible is Creature && !creature.dead` -- confirmed against vanilla's own
+  Hazer/Centipede/SmallNeedleWorm eating code that this line is real, not approximated) and one
+  completion gate (both objectives + ascension, all while never violating the restriction). "No
+  karma caching," "no echo-negated kills," "no Guardian Skip" left unimplemented per the user's own
+  instruction -- no observable state backs any of them.
+- **Broadcast:** the user's own trace of the Vulture Grub signal mechanic (yellow laser + timer,
+  green if open sky is found, red otherwise) led straight to the real code in `VultureGrub.cs`:
+  `AttemptCallVulture()` sets `vultureCalled` on success, and a per-tick check in `Act()` sets
+  `callingMode = -1` on failure. New shared mechanism built (`SurvivorVultureSignal`,
+  `OnSignalSucceeded`/`OnSignalFailed`), generic to any grub anywhere. `BroadcastTracker` itself
+  still isn't written -- needs 2 room IDs (the southmost Sky Islands starting shelter, and the top
+  of Communications Array where the death-to-Vulture must happen) before it can be wired up the
+  same way `JourneyTracker` is.
+
+**49 of 50 now implemented -- only Broadcast left**, pending those 2 room IDs. Still
+unbuilt/untested in this container.
+
+## Status update, 2026-09-17 (later still): Broadcast implemented -- all 50 of 50 done
+
+User supplied the last 2 room IDs (southmost Sky Islands shelter `SI_S03`, top of Communications
+Array `SI_A07`) plus two design answers that shaped the tracker: the signal does NOT need to
+succeed (only a failure/red laser disqualifies), and the grub MUST be thrown while still inside the
+starting shelter, or the attempt is cancelled outright.
+
+Needed one more piece of plumbing: `SurvivorVultureSignal.OnGrubThrown`, a Prefix on
+`Player.ThrowObject` (the confirmed sole call site of `VultureGrub.InitiateSignalCountDown()`).
+`BroadcastTracker` tracks exactly one specific grub instance (the one thrown in the shelter, by
+reference) so an unrelated grub failing elsewhere never disqualifies an attempt it has nothing to do
+with, and cancels the attempt outright if the shelter is left before any grub is thrown.
+
+**All 50 of 50 community challenges now have a tracker registered.** Nothing this whole session has
+been built or tested in-game (no .NET toolchain in this container) -- the real next step for this
+branch is a build on the user's own machine, not more source-level work.
+
+## Status update, 2026-09-17 (later still): review pass -- 5 mechanics pulled into shared code
+
+Requested directly, citing the Kill List -> PrimalKillTracker extraction as the model: reviewed all
+50 trackers plus every shared `Survivor*.cs` mechanism file for duplication. Pulled up five real
+duplicates (not forced abstractions -- see AI_CONTEXT.md's own fuller write-up for what was
+deliberately left alone):
+
+1. `PrimalKillTracker.ResolveKiller(Creature)` -- the killTag/TryGetRecentHandler resolution was
+   independently duplicated in 3 separate `Creature.Die` Postfixes.
+2. `SurvivorCreatureTracking.FindCarried(Player, predicate)` -- a grasp-scan helper reimplemented 6
+   times across Pilgrimage/Chef/Offering/Symbiote/Charged/Guardian.
+3. `SurvivorCreatureTracking.FirstTracked(string)` -- redeclared identically in 5 trackers.
+4. `SurvivorCreatureTracking.LiveCreaturesInRoom(room, type)` -- reimplemented in
+   Chieftain/Fishtank/Safari.
+5. `SurvivorEvents.ResetOnCycleBoundary(Action<string>)` -- the hibernation+cyclefailed reset pair,
+   repeated in Visions/Mycologist/Nomad/Ornaments/Symbiote.
+
+Plus a `RegionCodes` constants class replacing ~13 independently-typed region-code literals across
+9 trackers. `ChallengeTrackers.cs` shrank from 3593 to 3345 lines. Zero intended behavior change --
+every extraction preserves its call sites' exact original conditions. Still unbuilt/untested.
+
+## Status update, 2026-09-17 (later still): Community Challenges is no longer its own gimmick -- generalized into a "Requirements" architecture
+
+Following a design discussion about future gimmicks needing their own success-state conditions
+(MasterSpear's own story%, "every shelter visited," etc.), the 50 `ChallengeTracker`s and their
+completion/persistence machinery were pulled out of this gimmick entirely and generalized into a
+gimmick-agnostic layer: `Requirement`/`RequirementRegistry`/`RequirementCompletion`
+(`Requirement.cs`, new), with `ChallengeTrackers.cs` renamed `Requirements.cs` and every one of its
+50 classes mechanically renamed (`XTracker : ChallengeTracker` -> `XRequirement : Requirement`).
+Each of the 50 requirements is now enabled directly per character (no more "assign the
+CommunityChallenges gimmick AND check this specific challenge in its settings" -- just one
+Requirements-tab checkbox per requirement per character), through the exact same
+`GimmickAssignments`/`GimmickGate` machinery gimmick assignment already used. See AI_CONTEXT.md's
+"the Requirements architecture" entry (same date) for the full trace, including the O(1)
+`GimmickAssignments.IsEnabledForAnyCharacter` perf gate added alongside this.
+
+This file's own 50-challenge roster survives as `CommunityChallengesRoster` in
+`CommunityChallengesGimmick.cs` -- now a pure CONSUMER of the Requirements layer: it just curates
+which 50 Requirement IDs count as "a community challenge," reads `RequirementCompletion`'s already-
+persisted state for them to build the cycle-end summary dialog, and subscribes to
+`RequirementCompletion.OnSatisfied` (filtered to its own curated IDs) for the live popup. There is
+no "Community Challenges" gimmick to assign anymore -- the cycle-end CHALLENGES button now appears
+whenever a character has at least one of the 50 curated requirements enabled directly, rather than
+based on any gimmick assignment. Remix now has a second, independent "Requirements" tab
+(PrimalOptions.cs) alongside the existing "Gimmicks" tab, matching the intended UX: assign
+gameplay-altering gimmicks on one tab, pick which run-completion conditions to track on the other.
+
+Still unbuilt/untested -- no .NET toolchain in this container, and this pass touches essentially
+every file this project's Community Challenges work has ever produced.

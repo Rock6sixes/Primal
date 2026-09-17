@@ -5138,7 +5138,294 @@ toolchain was available in this container for this entire session. Treat all 40 
 and behave correctly per source-level review, verified against `reference/GameSource/*.cs`," not as
 confirmed-working.
 
-## History — why the architecture is what it is now (don't re-litigate these)
+## 2026-09-17: 4 more of the 10 remaining challenges implemented — 44 of 50 now tracked
+
+Picked up directly from "Final status before merge to main" above, on branch
+`claude/peaceful-babbage-tfadzw` (46 commits ahead of `main` as of session start — the
+`survivor-gimmick` merge described above hadn't actually reached `origin/main` yet; `main` was
+still just its initial commit). Reviewed all 10 remaining challenges again from scratch rather than
+trusting last session's own conclusions unchecked, and found two of the earlier "blocked" verdicts
+were wrong, not just incomplete:
+
+- **Elder — implemented.** The earlier doc entry said this "needs a wholly new mechanism: detecting
+  a Scavenger's *equipped* mask item." Re-reading the CSV's own evidence requirement ("a
+  screenshot/short clip of 6 Scavengers **holding** the Masks at a toll") shows this was never about
+  equipping anything — vanilla has no mask-wearing slot for an ordinary Scavenger at all, only a
+  grasp, the same thing `ScavengerAI`'s own item-desirability table already scores `VultureMask`
+  for. New shared mechanism added for this: `SurvivorTollState.OnOutpostTick`, a per-tick event
+  piggybacked onto `SurvivorTollRosterObserveHook`'s existing Postfix on `ScavengerOutpost.Update`
+  (no second Harmony patch needed on the same method). `ElderTracker` (`ChallengeTrackers.cs`)
+  checks every tick whether 6+ distinct live Scavengers in an active outpost's own room
+  (`Room.updateList`) are each currently grasping a `VultureMask`. Stateless — a plain snapshot
+  check needs no cycle-scoping, since any single tick is inherently within one cycle.
+- **Heist — implemented, with a flagged simplification.** "The **lowest** Garbage Wastes Scavenger
+  Toll" still has no known room ID (same gap `CriminalTracker`'s own "Stronghold" already accepted a
+  simplification for) — this accepts ANY Garbage Wastes toll instead, same treatment. Everything
+  else is real: `SurvivorTollState.OnItemStolen` (already-existing mechanism, previously unused by
+  any tracker) filtered to a `DataPearl` stolen from a `GW_`-prefixed room, correlated by the exact
+  stolen pearl's own `EntityID.number` (not just "some pearl") against
+  `SurvivorShelterContents.EntitiesInShelter` at the next `OnSuccessfulHibernation` — the same
+  specific-instance correlation `FeastTracker`/`UsurperTracker` already established.
+- **Triplopia — implemented, with a flagged simplification.** The earlier doc entry said this was
+  "likely a signature-less emergent bug" needing "a concrete observable side effect to key on, or a
+  decision to leave it untracked." The CSV's own secondary evidence line supplies exactly that
+  signature: "short clip of killing **3 Pole Plants spawned in the same den**." A triple-spawned
+  region manifests as its own normally-unique objects (like a den's one Pole Plant,
+  `CreatureTemplate.Type.PoleMimic`) existing 3 times at once. `TriplopiaTracker` completes the
+  instant 3+ live `PoleMimic`s are seen simultaneously in one Chimney Canopy (`CC`) room. Flagged
+  gap: doesn't check "survive the starve cycle" (no malnourishment/forced-cycle state), and doesn't
+  require actually killing them or that the sighting/kill happen on separate cycles the way the
+  CSV's own two-part verification implies — same class of trade-off as Nomad's "entered the gate
+  room" standing in for "crossed the middle line."
+- **Outlaw — implemented.** The earlier doc entry said the real Hunter-run scoring formula had been
+  searched for exhaustively with no result, and might live in an undecompiled DLC assembly. It
+  doesn't — decompiling `Menu/StoryGameStatisticsScreen.cs` (the CSV's own "Screenshot of final
+  score screen" hint, taken literally) turned up the whole thing:
+  `StoryGameStatisticsScreen.ScoreKeeper` computes `sum(food×1 + survivedCycles×10 + deaths×-3 +
+  quits×-3 + (totalSeconds/60)×-1 + perKillCreatureValue)` (creature values from vanilla's own
+  `GetNonSandboxKillscore`/`killScores` table) then **multiplies the whole thing by (1 + however
+  many endgame passages are already fulfilled)** — confirming the CSV's own "follow other standard
+  scorerunning rules" hint. Rather than re-deriving that formula (the kill-value table alone is
+  large), `OutlawTracker` reads vanilla's own already-computed answer straight off
+  `ScoreKeeper.score` once the screen's own animation finishes (`StoryGameStatisticsScreen.
+  allDone`), the same "ride vanilla's own tested machinery" preference used throughout this mod.
+  This is the **first ChallengeTracker with no live Player** to detect against — by the time this
+  screen exists the story session is fully over — which needed two small new pieces of shared
+  plumbing rather than anything Outlaw-specific: `ChallengeCompletion.ReportCompletionForSave`
+  (persists a completion straight from a `DeathPersistentSaveData` reference, no `Player`/
+  `RainWorldGame` needed, and never fires the live popup since there's no HUD on this screen to show
+  it on) and three new reflected accessors on `PrimalMenuAccess`
+  (`IsScoreScreenDone`/`GetFinalScore`, alongside the existing `GetSaveState`/`GetCharacterID` which
+  already covered this exact screen family via its `KarmaLadderScreen` base class) — reflected
+  rather than direct field access on the same Gotcha #1 reasoning `PrimalMenuAccess`'s own header
+  comment already gives for `saveState`, even though nothing here has actually been caught broken
+  yet, since this is genuinely new territory for the mod. Detected via its own Harmony Postfix on
+  `StoryGameStatisticsScreen.Update` (`OutlawScoreScreenHook`) rather than a `SurvivorEvents`
+  subscription, since there's no gameplay-side event this challenge's own detection point could
+  hang off.
+
+**2026-09-17, same day, user feedback on the 4 above — two corrections applied, two confirmed
+as-is:**
+- **Elder — confirmed correct as implemented** (Scavengers just hold masks, no equip mechanic).
+- **Heist — the user supplied the exact room ID: the lowest Garbage Wastes Scavenger Toll is
+  `GW_C11`.** `HeistTracker` now checks that exact room instead of "any `GW_`-prefixed toll" — no
+  simplification needed anymore. **Going forward: when a challenge's own CSV text names a specific
+  room ("the lowest," "the highest," "the northeast," etc.) and this repo has no way to determine
+  which real room that is, ask the user for the room ID directly rather than defaulting to a
+  same-region simplification** — this is exactly the kind of fact only the user's own in-game
+  knowledge can supply, the same way every other room ID this mod relies on (Devotee's `SB_E05`,
+  Martyr's `SS_LAB7`/`SS_A01`, Nomad's 4 gate rooms, Chieftain's `SL_AI`) was originally obtained.
+- **Triplopia — the completion condition was wrong, not just simplified.** The user confirmed the
+  triple-spawn/den-identification approach but corrected what actually completes it: not "3 live
+  PoleMimics observed together" (my original implementation), but **killing** 3 PoleMimics that all
+  come from the same den. Rewritten: `TriplopiaPoleMimicDeathHook`, a new Postfix on `Creature.Die`
+  scoped to `PoleMimic` in Chimney Canopy, resolves killer attribution the same way
+  `SurvivorTollRosterDeathHook` already does (`Creature.killTag` falling back to
+  `PrimalKillTracker.TryGetRecentHandler` — duplicated rather than depended-on-in-order against
+  `PrimalKillDieHook`'s own independent Postfix on the same method), keys each kill by
+  `(characterID, roomName + abstractNode)` — `abstractNode` is the specific den node a creature's
+  `WorldCoordinate` resolves to, so 3 triple-spawned copies of one den's occupant all share the same
+  key while 3 incidental unrelated PoleMimics would not — and completes once a den's own kill count
+  reaches 3.
+- **Outlaw — confirmed correct as implemented** ("on game end, track to see if it succeeded" is
+  exactly what `OutlawScoreScreenHook` does).
+
+**Broadcast and the other 6 — re-checked, genuinely still blocked, not just untried again:**
+- **Broadcast** — repeated the same broad keyword search ("laser," "beam," "signal," "array,"
+  "relay," "transmission," "antenna," "Communication," "Sky Island") across the whole decompiled
+  source fresh this session; still zero hits beyond menu/scene-illustration code. Confirmed, not
+  just repeated: whatever implements the Communications Array laser-tower mechanic isn't present
+  anywhere in `reference/GameSource/` at all (it may be encoded in room/level data this repo simply
+  doesn't have, not missed source scanning). Still needs the user's own knowledge of the real
+  class/field names, if any exist as identifiable C# state at all rather than being purely
+  level-geometry-driven.
+- **Journey, Visitor, Vegan, Fishtank** — all four need exact room IDs or community map data (a
+  specific shelter, the tutorial's exact spawn room/fruit positions, a Hazer den map) that simply
+  isn't derivable from decompiled C# source — this repo has no level/room geometry files at all,
+  only compiled behavior. Every room ID this mod's own trackers already rely on elsewhere (Devotee's
+  `SB_E05`, Martyr's `SS_LAB7`/`SS_A01`, Nomad's four gate rooms, Chieftain's `SL_AI`) was supplied
+  by the user directly, not found by searching source — these four are waiting on the same kind of
+  input, not a deeper search pass.
+- **Saint** — unchanged from the prior write-up: genuinely underspecified (the exclusion clauses
+  describe technique legality, not observable state), not a research gap.
+
+**None of these 4 new trackers have been built or tested in-game** — same standing caveat as the
+other 40 (no `.NET` toolchain in this container this session either). `OutlawTracker` in particular
+touches an entirely new class family (`Menu.StoryGameStatisticsScreen`/`KarmaLadderScreen.
+ScoreKeeper`) this mod has never compiled against before, so treat it with a bit more suspicion than
+the other three (which all reuse already-proven mechanisms) until it's actually been through a
+build.
+
+## 2026-09-17 (later): Journey, Visitor, Fishtank implemented off user-supplied room IDs — 47 of 50
+
+The user supplied the exact room IDs this doc's own "Broadcast and the other 6" section above said
+were unreachable from source alone, plus one clarification each on the actual completion shape:
+
+- **Journey — "Reach the Depths from the highest shelter in Five Pebbles in one cycle."** Highest
+  shelter: `SS_S04`. Depths entry: `SB_E05` (already established by DevoteeTracker). **Correction to
+  this doc's own earlier guess:** the "Final status" section above said this would be "mechanically
+  identical to UTurnTracker" — it isn't. UTurnTracker is a round-trip-within-a-time-limit shape
+  (`SurvivorCheckpointRun`); Journey is one-way with no time limit, so it's actually much closer to
+  DevoteeTracker's own HomeShelter/DepthsReached shape: hibernating at `SS_S04` arms the *next*
+  cycle's watch for `SB_E05`, and hibernating anywhere else disarms it. Persists across cycles
+  ("on any cycle" — no per-cycle reset needed).
+- **Visitor — "After leaving the tutorial area, re-enter and return to the platform you first spawn
+  on before the rain starts, on any cycle."** The user identified the spawn room (`SU_C04`) and
+  asked for more on it — decompiling turned up the whole picture in one pass: `SU_C04` is vanilla's
+  own canonical story-mode starting den for every character except Hunter (`LF_H01`) and MSC's
+  Sofanthiel (`SH_E01`) (`SaveState.GetStoryDenPosition`'s own fallback case), and it hosts a
+  dedicated startup script (`RoomSpecificScript.SU_C04StartUp`, tracking `pushRight`/`stoodUp`) that
+  IS the literal "out of control, moving out of the top-left corner" intro sequence the user
+  described. Even better, vanilla defines the WHOLE tutorial area's own room list directly —
+  `OverseerAbstractAI.DefineTutorialRooms`'s vanilla (non-MMF) branch: `SU_C04, SU_A41, SU_A42,
+  SU_A43, SU_A44, SU_A22` (the MMF-only 2 extra gate rooms are skipped, since MSC/MMF must be
+  disabled for every one of these challenges per the CSV's own header note) — exactly the "left the
+  tutorial area" boundary this challenge needed, found by chasing the user's one room ID rather than
+  needing a second question. "Left the tutorial area" = entered any room outside that 6-room list
+  (Outskirts as a whole is much bigger than just these 6, so this is a real boundary, not "left SU
+  entirely"). This closes most of Vegan's own remaining gap too (same tutorial-area geometry) — see
+  Outstanding items below for what Vegan still needs on top of it (the 7 fruit positions + gap
+  room).
+- **Fishtank — "Bring 7 Hazers from unique spawn locations to the same body of water, alive."** The
+  user resolved the original blocker (a Hazer den map) with a simplification instead: distinct
+  Hazer INSTANCES stand in for "unique spawn locations," explicitly including grabbing 2 Hazers from
+  the SAME room and bringing both — that still counts as 2 of the 7, no per-origin-room dedup at
+  all. Checked as a plain snapshot (the same "N creatures alive together in one room" shape
+  Safari/Elder already established) on every room arrival: does the player's current room have
+  water (`Room.water`, a plain public field) and contain 7+ live Hazers
+  (`CreatureTemplate.Type.Hazer`)? Doesn't require one single trip — Hazers accumulating in one
+  water room across several separate carries until 7 are alive there together satisfies this exactly
+  as well as one trip with all 7 in hand.
+
+**Takeaway reinforcing the user's own new standing instruction from the Heist correction earlier:**
+all three of these went from "blocked, needs a map/room ID no source-search could ever find" to
+"fully implemented" the moment the exact room ID was asked for directly — confirming again that
+these room-ID gaps are a one-question fix, not a research problem. **47 of 50 challenges now have a
+tracker registered.** Remaining 3: Vegan (needs the 7 fruit positions + the charge-hop gap room,
+now that the tutorial geometry itself is known), Broadcast (still zero technical foothold at all,
+independent of room IDs), Saint (still genuinely underspecified by its own rules). None of today's
+7 new trackers (Elder/Heist/Triplopia/Outlaw/Journey/Visitor/Fishtank) have been built or tested
+in-game — no `.NET` toolchain in this container this session either.
+
+## 2026-09-17 (later still): Vegan and Saint implemented, Broadcast's real mechanism found — 49 of 50
+
+- **Vegan — implemented.** The user supplied both remaining facts: blue fruit (`DangleFruit` —
+  vanilla has no separate "blue" variant, it's just that object's own default color) spawns in
+  `SU_A44`/`SU_C04`, the charge-hop gap is `SU_A43`, and per the user's own clarification, fruit can
+  only be GRABBED in those rooms but EATEN anywhere. `VeganTracker` doesn't gate eating by room at
+  all — it just runs a count, then checks that count against 7 at arrival in `SU_A22` (the room
+  right after the gap jump, already known from `VisitorTracker`'s tutorial-room list above), per the
+  user's own suggested checkpoint. Reaching `SU_A22` with fewer than 7 permanently disqualifies that
+  attempt (matching "before crossing... for the first time" — a later re-crossing can't retroactively
+  count).
+- **Saint — implemented, two paths sharing one restriction/completion core.** The user clarified
+  this challenge's own real design: it's built around **Hunter**, whose 3 objectives (visit Five
+  Pebbles and sleep, deliver the starting green neuron to the Looks-to-the-Moon iterator, ascend)
+  already have vanilla's own save-slot-tracked state behind them — so Hunter's own path reads that
+  directly rather than re-detecting it live: `SaveState.miscWorldSaveData.pebblesSeenGreenNeuron`
+  (confirmed via decompiling `OracleBehavior.cs` — set specifically when Hunter, carrying the green
+  neuron, reaches the Five Pebbles oracle) and `.moonRevived` (confirmed via
+  `SLOracleWakeUpProcedure.cs` — set when a neuron delivery wakes Moon), both read at every
+  hibernation. Every other character (Survivor included) has no such built-in bookkeeping for these
+  specific objectives, so the user asked for manual live tracking instead: "visited Pebbles and
+  slept" is a hibernation in an `SS_`-prefixed shelter; "delivered a neuron to Moon" needed a brand
+  new shared mechanism, **`SurvivorMoonDelivery`** (new file) — a Postfix on
+  `SLOracleBehavior.ConvertingSSSwarmer()` (the same method `EnlightenmentTracker`'s own doc comment
+  already traced as "Moon accepting a neuron," but that tracker reads the resulting counter
+  passively — Saint needed the LIVE moment instead, since the counter is a lifetime save-file total
+  that could already be primed by deliveries from long before this specific attempt began). Both
+  paths share the "without killing anything, or eating live prey" restriction, permanently
+  disqualifying on either: a new `PrimalKillTracker.OnKillCredited` event (any credited kill, fired
+  right alongside that class's existing per-type/per-instance recording) and
+  `SurvivorEvents.OnObjectEaten` filtered to `edible is Creature && !creature.dead` — confirmed via
+  decompiling `Hazer.BitByPlayer`/`SmallNeedleWorm.BitByPlayer`/`Centipede.BitByPlayer` that vanilla
+  itself draws exactly this line: creatures eaten via a `Die()` call before `ObjectEaten` (Centipede,
+  SmallNeedleWorm) are "killed then eaten," while ones with no `Die()` in that path (Hazer) are
+  eaten genuinely alive — `!creature.dead` at the `ObjectEaten` moment is a real, not approximated,
+  signal for this distinction. **Left unimplemented per the user's own explicit instruction:** "no
+  karma caching," "no echo-negated kills," and "no Guardian Skip" are all technique-legality clauses
+  with no corresponding observable state.
+- **Broadcast — the real mechanism found, tracker itself still blocked on 2 room IDs.** The user
+  described exactly how a Vulture Grub's signal works (yellow laser + timer, green + vulture if open
+  sky is found, red otherwise), and decompiling `VultureGrub.cs` against that description confirmed
+  it precisely: `AttemptCallVulture()` sets `vultureCalled = true` only on the branch that actually
+  finds a creature and a valid sky path (the "green" case); the "red" failure case is set inline in
+  `Act()`'s per-tick update (`callingMode = -1` once the countdown expires with no vulture ever
+  called), not its own method. New shared mechanism built: **`SurvivorVultureSignal`** (new file) —
+  `OnSignalSucceeded` (a Postfix on `AttemptCallVulture` checking `vultureCalled`) and
+  `OnSignalFailed` (a Postfix on `Update(bool)`, guarded by a per-instance `ConditionalWeakTable` so
+  the continuously-true `callingMode == -1` state only fires once per attempt, cleared by a third
+  Postfix on `InitiateSignal()` — the method that starts a fresh attempt). This mechanism is generic
+  (any grub, anywhere), matching this mod's usual "build the shared primitive broad, let each
+  tracker narrow it" pattern. **`BroadcastTracker` itself is not written yet** — still needs: the
+  exact room ID of "the southmost Sky Islands shelter" (the starting point) and the exact room ID of
+  the top of Communications Array (where the death-to-Vulture must happen). Once supplied, wiring
+  the tracker itself should be small: arm on hibernation at the start shelter (same shape as
+  `JourneyTracker`), disqualify on `SurvivorVultureSignal.OnSignalFailed`, and complete on
+  `SurvivorEvents.OnPlayerDeath` in the target room with a Vulture/KingVulture/MirosVulture as the
+  killer, while `OnSignalSucceeded` has fired and not since failed.
+
+**49 of 50 challenges now have a tracker registered** (only Broadcast remains, pending the 2 room
+IDs above). None of today's 9 new/changed trackers (Journey/Visitor/Fishtank from the previous
+section, plus Vegan/Saint here, plus the `PrimalKillTracker`/`SurvivorMoonDelivery`/
+`SurvivorVultureSignal` shared-mechanism additions) have been built or tested in-game — no `.NET`
+toolchain in this container this session either. `SaintTracker` in particular is the most
+structurally complex tracker in the whole file (two independent detection paths plus a shared
+restriction plus a shared completion gate) and touches the newest shared mechanism
+(`SurvivorMoonDelivery`), so it deserves the most scrutiny of this batch once a real build is
+possible.
+
+## 2026-09-17 (later still): Broadcast implemented — all 50 of 50 community challenges now tracked
+
+The user supplied the last 2 room IDs (southmost Sky Islands shelter `SI_S03`, top of Communications
+Array `SI_A07`) and answered two design questions that materially changed the tracker's shape from
+what was proposed:
+
+1. **The signal does NOT need to succeed** — only an actual failure (red) is disqualifying. Whether
+   any grub ever successfully summons a vulture is irrelevant to completion.
+2. **The grub must be thrown while still inside the starting shelter (SI_S03).** Leaving that room
+   without ever having thrown one there **cancels the attempt outright** (removed from tracking, not
+   just left permanently unable to complete) — the user's own words, "the attempt is cancelled."
+
+This needed one more piece of new plumbing on top of the `SurvivorVultureSignal` mechanism built
+last round: **`SurvivorVultureSignal.OnGrubThrown`**, a Prefix on `Player.ThrowObject(int grasp,
+bool eu)` (confirmed via decompiling `Player.cs` to be the exact, only call site of
+`VultureGrub.InitiateSignalCountDown()` — the method that starts the yellow-laser countdown — so
+this is the real "thrown" moment, not an approximation off release/drop in general). A Prefix, not a
+Postfix, since by the time `ThrowObject` returns the object has already left the grasp being read.
+
+`BroadcastTracker` itself: arms the same way `JourneyTracker` does (hibernating in `SI_S03` arms the
+next cycle), then tracks exactly ONE specific `VultureGrub` instance — whichever one
+`OnGrubThrown` reports thrown while the player is still physically in `SI_S03` (the most recent one,
+if more than one is thrown before leaving). Only THAT grub's own `OnSignalFailed` matters, checked
+by reference equality against the tracked instance — an unrelated grub failing somewhere else in the
+world has nothing to do with this specific attempt and must not disqualify it. Leaving `SI_S03`
+without a tracked grub yet cancels the attempt immediately (removes it from the dictionary entirely,
+per the user's own "cancelled" framing). Completes on `Player` death in `SI_A07` to a Vulture or
+KingVulture (MirosVulture, a DLC-exclusive variant, is skipped outright — every one of these
+challenges requires MSC/DLC content disabled per the CSV's own header note, so it can never actually
+appear in a qualifying run), with the tracked grub's signal never having failed.
+
+No race condition between this tracker's own `OnPlayerDeath` handler (which reports completion AND
+removes the attempt) and the separate `OnCycleFailed` cleanup handler (which would otherwise also
+try to remove it): confirmed via decompiling `RainWorldGame.cs` that `OnPlayerDeath` is raised from
+a Postfix on `Player.Die()`, while `OnCycleFailed` is raised from a Postfix on the LATER
+`RainWorldGame.GameOver()` — `Player.Die()` always runs first, so completion is always checked
+before the cycle-failure cleanup could remove the attempt out from under it.
+
+**All 50 of 50 community challenges now have a tracker registered.** None of this session's 10 new
+trackers (Elder, Heist, Triplopia, Outlaw, Journey, Visitor, Fishtank, Vegan, Saint, Broadcast) or
+the 4 new shared mechanisms (`SurvivorTollState.OnOutpostTick`, `PrimalKillTracker.OnKillCredited`,
+`SurvivorMoonDelivery`, `SurvivorVultureSignal`) have been built or tested in-game — no `.NET`
+toolchain in this container this whole session. **The very next thing to do with this branch is get
+it through a real `dotnet build`** (on the user's own Windows machine, per the "sessions now run
+directly on the user's own machine" section near the top of this doc) before trusting any of it
+further — this is 10 brand-new trackers plus 4 new shared mechanisms, none compiled even once, and
+several (`OutlawTracker`'s `Menu.StoryGameStatisticsScreen` family, `SaintTracker`'s two-path
+design, `BroadcastTracker`'s per-instance grub tracking) are genuinely the most structurally complex
+code in this whole community-challenges effort. Treat "should work per source-level review" as
+exactly that, not as "confirmed" — this doc's own Gotcha #5 is a standing reminder of how far a
+plausible-looking, never-built change can drift from actually working.
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
    vanilla roster), toggled via a Tab key at runtime, with session-identity forced to match the
@@ -5167,6 +5454,537 @@ reimplementing it (see also: the Options-menu button reusing vanilla's actual sl
 rather than a custom state machine, after an earlier custom-state-machine attempt corrupted a save
 file). When in doubt, prefer the smaller patch that rides on an existing vanilla system over a
 larger one that reimplements it.
+
+## 2026-09-17 (later still): review pass -- 5 more mechanics pulled up into shared code
+
+Requested directly: "look back at all of the shared mechanics and trackers and see what can be
+abstracted out," citing the Kill List -> PrimalKillTracker extraction as the model. Read all 50
+`ChallengeTracker` implementations plus every `Survivor*.cs` shared-mechanism file in full to find
+duplication that had crept in across ~15 individual challenge-implementation passes (most of it
+added independently, one challenge at a time, with no cross-checking against sibling trackers).
+Found and pulled up five real, verbatim-or-near-verbatim duplicates -- deliberately did NOT force
+an abstraction onto things that only LOOK similar (e.g. the various "armed at shelter X, disarmed
+by Y" trackers -- Journey, Criminal, Broadcast, Devotee -- all differ enough in their actual arm/
+disarm conditions that a shared abstraction would hurt more than it helps; left alone, matching
+this project's own standing "don't force premature generalization" discipline):
+
+1. **`PrimalKillTracker.ResolveKiller(Creature)`** -- the "check Creature.killTag first, fall back
+   to TryGetRecentHandler" resolution was independently duplicated verbatim in three separate
+   `Creature.Die` Postfixes: `PrimalKillDieHook` (this class's own original),
+   `SurvivorTollRosterDeathHook` (Manslaughter's "no kill credit" check), and
+   `TriplopiaPoleMimicDeathHook` (Triplopia's same-den kill tracking, added just this session).
+   Three independent copies of the same 8-line block was the exact "second instance is a
+   coincidence, third instance is a pattern" trigger -- pulled up, all three call sites now read
+   `PrimalKillTracker.ResolveKiller(creature)`.
+2. **`SurvivorCreatureTracking.FindCarried(Player, Func<Creature, bool>)`** -- a grasp-array scan
+   for a Creature matching some predicate, independently reimplemented in SIX places:
+   `PilgrimageTracker.FindCarriedLizardOfType`, `ChefTracker.FindCarriedAlbinoJetfish`,
+   `OfferingTracker.FindCarriedTargetMouse`, `SymbioteTracker.FindCarriedSquidcada`,
+   `ChargedTracker.FindCarriedBabyCentipede`, and half of `GuardianTracker.TryFindBothCarried`.
+   Each converted call preserves its own exact original match condition (including
+   `GuardianTracker`'s own `!creature.dead` check, which several of the others never had --
+   deliberately NOT added to the others, since that would silently change their behavior, not just
+   refactor it).
+3. **`SurvivorCreatureTracking.FirstTracked(string)`** -- "the first (only, in 4 of 5 cases)
+   creature tracked under this key" was redeclared as an identical private static helper in FIVE
+   trackers (Pilgrimage, Chef, Offering, Symbiote, Charged).
+4. **`SurvivorCreatureTracking.LiveCreaturesInRoom(AbstractRoom, CreatureTemplate.Type)`** -- "every
+   live creature of type X in this room," independently reimplemented in
+   `ChieftainTracker.FindNearbyLiveScavengers` and inline in `FishtankTracker`/`SafariTracker`
+   (Safari's own single-pass 3-flag scan became three calls to the shared helper -- three room
+   scans instead of one, an intentionally-accepted trade for clarity given how small a room's own
+   entity list actually is).
+5. **`SurvivorEvents.ResetOnCycleBoundary(Action<string>)`** -- the exact pair "subscribe to
+   OnSuccessfulHibernation AND OnCycleFailed, each just discarding this character's own per-cycle
+   state" was independently repeated in Visions, Mycologist, Nomad, Ornaments (a raw dictionary
+   entry each time) and Symbiote (a `SurvivorCreatureTracking.ClearTracker` call each time).
+   Composes the two real events so a caller states its own reset action once. **Not** applied to
+   trackers where the hibernation side does more than reset (Usurper, Safari, Charged all do real
+   completion-checking in their own hibernation handler, not a pure discard) -- those were
+   correctly left alone.
+
+**A sixth cleanup, `RegionCodes`** (a new small static class of named region-acronym constants,
+`RegionCodes.FivePebbles = "SS"` etc.) replaced ~13 independently-declared private `const string`
+region codes across 9 trackers -- Five Pebbles ("SS") alone had been separately typed out as
+"FivePebbles" four times, Subterranean ("SB") three times, with no shared source of truth to catch
+one of them silently drifting from the others (a typo in just one copy would have been a real,
+easy-to-miss bug). Each tracker keeps its own local `private const string FivePebbles =
+RegionCodes.FivePebbles;`-style alias rather than being rewired to reference `RegionCodes` at every
+use site -- a `const` initialized from another `const` is still a real compile-time constant, so
+this cost one line changed per tracker, not a rename throughout each tracker's whole body.
+
+**Net effect:** `ChallengeTrackers.cs` shrank from 3593 to 3345 lines despite the new `RegionCodes`
+class and expanded doc comments -- the diff itself is -359/+218 for that file alone. Zero intended
+behavior change anywhere in this pass: every extraction preserves each original call site's exact
+condition, and this was checked by re-reading every changed call site against what it replaced, not
+assumed from the extraction being "obviously equivalent." Still, **this whole pass is itself
+unbuilt and untested**, the same standing caveat as everything else in this doc -- a refactor across
+15+ files with no compiler available is exactly the kind of change most likely to have a small typo
+slip through unnoticed, so give this one particular scrutiny on the next real build, not just the
+newest trackers.
+
+## 2026-09-17 (later still): the Requirements architecture -- ChallengeTracker generalized, gated by a performance check, and split into its own Remix tab
+
+Follow-on to the review pass immediately above, this time an architectural discussion rather than
+a mechanical dedup. The user asked directly for an opinion on making the tracking hooks global
+with gimmicks enabling only what they need (for performance, and because future gimmicks --
+MasterSpear needing story% completed, "every shelter visited," "run has to not have had a single
+death" -- will need their own success-state conditions that have nothing to do with Community
+Challenges). Talking it through surfaced the real distinction: it's not the *tracking mechanisms*
+that need per-gimmick gating (SurvivorEvents etc. are already global, cheap, always-on), it's
+*what counts as a satisfied condition for a character* that had been wrongly hardwired to one
+specific gimmick (Community Challenges) instead of being its own concept. Confirmed with two
+worked examples before implementing anything (Visitor: tracker is global, "the requirement is a
+separate piece of code... UI wise, you enable this setup by adding a requirement"; Kill List:
+tracker is global, gameplay is the Kill List button gimmick, "Chains Kill List" would be a
+separate requirement layered on top) -- both matched the design implemented below.
+
+**The perf gate, added first, standalone:** `GimmickAssignments` (previously just a
+`(characterID, gimmickID) -> Configurable<bool>` store) gained a live, incrementally-maintained
+`Dictionary<string, int> _enabledCount` and `IsEnabledForAnyCharacter(gimmickID)` -- an O(1) read
+of "does at least one character have this ID enabled at all," kept in sync by `SetDefault`/
+`Register` adjusting it on write and every live `Configurable.OnChange` toggle adjusting it again,
+rather than ever being recomputed by scanning. `ChallengeTracker.TryGetEnabledCharacter` (now
+`Requirement.TryGetEnabledCharacter`, see below) checks this FIRST -- one dictionary lookup shared
+by all 50 (now, any number of) trackers, instead of 50 independent `GimmickGate.IsActiveFor`
+resolutions running on every relevant vanilla event on a save where nobody uses any of them.
+
+**The architecture itself: `ChallengeTracker`/`ChallengeTrackerRegistry`/`ChallengeCompletion`
+generalized into `Requirement`/`RequirementRegistry`/`RequirementCompletion` (Requirement.cs,
+new), with `ChallengeTrackers.cs` renamed to `Requirements.cs` and every one of its 50 classes
+mechanically renamed (`XTracker : ChallengeTracker` -> `XRequirement : Requirement`, its
+`ChallengeEntry`/`Challenge` property pair collapsed into one `ID` property).** The key change
+isn't the rename, it's what a Requirement is gated by: previously a challenge needed BOTH the
+CommunityChallenges gimmick assigned to a character AND that specific challenge checked in that
+gimmick's own 50-checkbox settings sub-view -- two nested layers for one conceptual choice, that
+existed purely because Requirements were invented while building Community Challenges specifically.
+Now a Requirement is directly, individually enabled per character through the exact same
+`GimmickAssignments` (characterID, ID) -> Configurable<bool> store gimmick assignment already
+uses -- confirmed to be genuinely generic under the hood despite its name, and `GimmickGate.
+IsActiveFor`/`IsEnabledForCharacter` are equally generic over any ID string, so neither needed any
+new plumbing. `TriplopiaRequirement`/`OutlawRequirement` (the two trackers whose own detection
+methods are `static`, with no `this` to read an instance `ID` property from) each keep a
+`internal const string RequirementID = "..."` alongside the `ID` property, used directly inside
+their static methods. `RequirementCompletion` renamed its persistence key from
+`SurvivorChallengeCompleted` to `PrimalRequirementCompleted` -- a clean break, not a compat shim,
+since nothing has shipped and no real save data exists anywhere with the old key. `OnSatisfied` is
+a plain multicast event explicitly designed for multiple independent subscribers -- Community
+Challenges' own popup is one; a future MasterSpear gate reacting to its own prerequisite becoming
+true would be a second, entirely unrelated one, for a different ID.
+
+**Community Challenges is now a pure CONSUMER, not the owner (CommunityChallengesGimmick.cs,
+rewritten).** `ChallengeEntry`/`ChallengeCompletion`/`ChallengeNotification`/`ChallengeTracker`/
+`ChallengeTrackerRegistry` are gone from this file entirely (superseded by Requirement.cs). What's
+left: `CommunityChallengesRoster` (just the ordered 50-ID list, matching the community's own
+ranking, display names sourced from each `Requirement.DisplayName` rather than duplicated),
+`CommunityChallengesNotifications` (a thin `RequirementCompletion.OnSatisfied` subscriber, gated
+`isLive && CommunityChallengesRoster.Contains(requirementID)`, replacing the old inline
+`ChallengeCompletion.ReportCompletion` popup call), and the button/dialog pair, unchanged in
+spirit but repointed onto `RequirementCompletion`/`RequirementRegistry`/`GimmickAssignments`
+directly. **There is no "Community Challenges" gimmick to assign anymore** -- it's gone from
+`GimmickRegistry.All` entirely. The cycle-end CHALLENGES button's own gate changed from "is the
+CommunityChallenges gimmick assigned to this character" to `CommunityChallengesRoster.
+IsAnyEnabledFor(characterID)` -- does this character have at least one of the 50 curated
+Requirement IDs directly enabled. `CommunityChallengesNotifications.Init()` is wired into
+`RainWorldHooks.Postfix` alongside `RequirementRegistry.RegisterAll()`, the same explicit
+one-shot-call-site pattern this file's siblings already use for plain event subscriptions that
+aren't Harmony patches.
+
+**PrimalOptions.cs gained a second Remix tab, "Requirements," fully independent of the existing
+"Gimmicks" tab** -- matching the UX the user asked for directly: "open it up, set up the gameplay
+altering mechanics that they want, then... set up the requirements needed to complete the run...
+everything else should be performantly and neatly automatically handled for them." Structurally a
+second, parallel copy of the Gimmicks tab's own permanent-grid-plus-detail-area shape (own `OpTab`,
+own `_reqDetailItems`/`_reqDetailView`/`_reqCharID` state, deliberately NOT folded into the
+Gimmicks tab's own `DetailView` enum -- a requirement isn't a kind of gimmick), but with a single
+detail sub-view (a 5-column/10-row checkbox grid, one row per registered Requirement, wrapped in
+the same `OpScrollBox` pattern `RenderGimmickSettings` already uses) rather than three -- there's
+no per-requirement settings drill-in needed yet, though the structure leaves room for one later.
+`BuildCharacterGrid` was generalized to take a click callback and description prefix so both tabs
+share the exact same character-grid-building code without duplicating it. `EnsureConfigBound()`
+grew a second loop (per character, per `RequirementRegistry.All` entry) binding a
+`Configurable<bool>` and calling `GimmickAssignments.Register` for the pair -- unlike gimmicks,
+every requirement defaults to OFF for every character (nothing calls `GimmickAssignments.
+SetDefault` for a requirement ID), since these are meant to be explicitly opted into per run, not
+pre-enabled.
+
+**Not yet built or tested** -- no .NET toolchain in this container, same standing caveat as
+everything else in this doc. This is a genuinely large mechanical + structural change (a 3300+
+line file's worth of renames, a new ~320-line file, a full rewrite of the old gimmick file, and a
+~150-line addition to the options screen) with no compiler available to catch a typo -- give the
+whole Requirements/Requirement.cs/CommunityChallengesGimmick.cs/PrimalOptions.cs set particular
+scrutiny on the next real build.
+
+## 2026-09-17 (later still): Remix menu redesign -- character combo box, split gimmicks/requirements view, in-tab "modals"
+
+Requested directly: replace the character-button grid with a select control to save space, split
+the screen vertically (gimmicks left, requirements right), and turn the "add" flow into a
+window/modal holding a 4-column scrollable picker. Confirmed three design points before
+implementing: (1) the split collapses the Gimmicks/Requirements tabs into one tab -- the user
+believed only the Gimmicks tab currently existed anyway; (2) clicking an assigned gimmick's name
+now opens its settings in its own modal, rather than taking over half the split view; (3) clicking
+a picker entry assigns it and closes the modal immediately (add one at a time).
+
+**Character grid -> OpComboBox.** The old 5x2 button grid (`BuildCharacterGrid`, ~95px tall) is
+gone, replaced by one `Menu.Remix.MixedUI.OpComboBox` bound to a new mod-wide
+`Configurable<string>` ("SelectedCharacter") -- which also means the screen now remembers which
+character was last selected across restarts, for free, through the same Remix-config mechanism
+every other setting on this screen already uses. `OpComboBox`'s 4-arg constructor
+(`Configurable<string>, Vector2, float, List<ListItem>`) was used specifically because it doesn't
+require the Configurable to carry a `ConfigAcceptableList<string>` (that's only needed by the other
+constructor overload that builds its own `List<ListItem>` from `config.info.acceptable`) --
+`ListItem(id, displayName, index)` lets the combo box show "Gourmand" while storing
+`MoreSlugcatsEnums.SlugcatStatsName.Gourmand.value` and preserves the roster's own declared order
+(each entry's `value` field is set to its index, so `ListItem.Comparer`'s stable sort reproduces
+that order instead of falling back to alphabetical). One subtlety caught before it shipped:
+`Configurable<string>.OnChange` can fire before `Initialize()` has ever run (Remix's own automatic
+`config.Reload()` pass, same one `EnsureConfigBound`'s own doc comment already traces, can apply a
+persisted "last selected character" value at `RainWorld.PostModsInit` time, long before the player
+opens this mod's Remix page) -- `OnCharacterSelectionChanged` updates `_charID` unconditionally but
+guards the actual `RenderDetail()` call behind `_tab != null`, so it's a no-op until the tab
+actually exists; `Initialize()` reads `_selectedCharacterConfig.Value` directly afterward regardless.
+
+**Two tabs -> one tab, vertically split.** `_tab`/`_reqTab` and their fully-duplicated
+detail-item/detail-view state collapsed into a single `_tab`/`_detailItems`/`DetailView`. The
+`Split` view (the normal, no-modal state) renders both columns from the SAME selected character in
+one pass: a `GIMMICKS` header + scrollable assigned-list + "+ Add Gimmick" button on the left
+(`LeftColumnX`), the same shape for `REQUIREMENTS` on the right (`RightColumnX`) -- each column is
+`(ContentWidth - ColumnGap) / 2` wide. A gimmick's row is a clickable name button (opens its
+settings) plus an "x" remove button, matching the pre-redesign table exactly; a requirement's row
+is a plain, non-clickable label plus the same "x" -- there's no requirement-settings screen to open
+yet (the user confirmed no per-requirement settings are needed right now), and a button that opens
+nothing would just be a dead click target. Building two OpScrollBoxes in one pass repeats the same
+two-step commit order every scroll box on this screen has needed since 2026-09-15 (attach the
+still-empty scroll box to the tab via ONE `ShowDetail` call first, THEN call each scroll box's own
+`AddItems` and mirror those rows into `_detailItems` -- `OpScrollBox.AddItems` forwards straight to
+`_tab.AddItems`, not to the scroll box's own children, so skipping the mirroring step leaks
+permanently-attached, still-clickable rows into the next view, the exact bug already fixed once for
+the old single-scroll-box Settings/AddGimmick sub-views).
+
+**"Modal" windows, and what that actually means in Remix's own UI toolkit.** The three non-Split
+detail views (`GimmickSettings`, `AddGimmick`, `AddRequirement`) render as full-width overlays with
+a bordered backdrop (`AddModalBackdrop`, a semi-transparent `OpRect` sized to the whole detail
+area) and a "< Back" button, replacing the split content entirely rather than sitting alongside it
+-- structurally this is still the exact same `ShowDetail` swap the old Settings/AddGimmick
+sub-views already did, just visually dressed up to read as a distinct window. **A genuinely
+separate window (a real `Menu.Dialog` side-process, the mechanism
+CommunityChallengesDialog/KillListDialog already use elsewhere in this mod) was deliberately ruled
+out**: every Remix modder-facing control this screen and every existing gimmick's own settings UI
+is built from (OpCheckBox, OpScrollBox, OpComboBox, ChainsSettings' banlist grid, ...) only exists
+inside an OpTab/ConfigContainer -- none of it can be hosted inside a `Menu.Dialog`, which only
+understands plain `Menu.MenuObject`-derived controls (`Menu.SimpleButton`, `Menu.MenuLabel`, the
+vocabulary CommunityChallengesDialog is written in). Rebuilding every existing gimmick's settings
+screen in that vocabulary just to get a true floating window would have been a far larger rewrite
+than this pass asked for, so the in-tab-overlay approach was chosen instead and is called out
+explicitly here and in PrimalOptions.cs's own header comment so a future pass doesn't mistake this
+for an oversight.
+
+**The add-picker modal** (`RenderAddGimmickModal`/`RenderAddRequirementModal`, structurally
+identical to each other -- not shared through a generic helper, since this codebase already
+avoids `ValueTuple`-shaped generic plumbing on principle, see GimmickAssignments.cs's own header
+comment on that) lists every NOT-currently-assigned/enabled entry in a 4-column, scrollable,
+row-major grid (`PickerColumns = 4`); clicking one assigns it and calls `CloseModal()`-equivalent
+logic (`AssignGimmick`/`AssignRequirement`) that also switches back to Split immediately, matching
+the "assign and close" behavior confirmed before implementing. Gimmick buttons keep their existing
+home-character border coloring (`GetHomeCharacterColor`); requirements have no such concept, so
+their picker buttons are plain.
+
+**Not yet built or tested** -- no .NET toolchain in this container. This is a full rewrite of
+PrimalOptions.cs's layout math (every constant from the old grid/tab/settings-viewport era was
+replaced), so give it particular scrutiny on the next real build -- especially OpComboBox's own
+runtime behavior (this is the first time this mod has used that specific Remix control) and
+whether four-column picker buttons fit the longest gimmick/requirement display names
+("Threat Slowdown", "Enlightenment") without clipping.
+
+## 2026-09-17 (later still): a mode-selection gate -- Primal (read-only) vs. Custom (editable)
+
+Requested directly: gate the whole Remix screen behind a first-run choice between "Primal mode"
+(view-only) and "Custom mode" (exactly the existing editable screen), shown as a title/credits/
+description blurb followed by two rows (a button on the left, explanatory text to the right), with
+the choice persisted so it's skipped on every later visit, and a "Change Mode" button in the
+normal view's own top-right corner to revisit the choice. Confirmed before implementing: only two
+modes exist (the "3 choices" in the request was a typo), and Primal mode simply freezes whatever
+is currently configured against further edits rather than snapping to some separate curated preset
+-- there's no second config to design or maintain.
+
+**New top-level screen state, above (not instead of) everything the previous UI-redesign pass
+built.** `ScreenState` (`ModeSelect` / `Normal`) now sits above `DetailView` (`Split`/
+`GimmickSettings`/`AddGimmick`/`AddRequirement`, all unchanged) -- ModeSelect is a whole different
+screen (title/credits/description/two choice rows), Normal is everything that already existed
+(the permanent title/character-select row plus the Split view and its modals). Three separate
+tracked item lists now exist on the one `_tab` -- `_modeSelectItems`, `_permanentItems` (renamed
+from the anonymous local `permanentItems` Initialize() used to build inline), and the existing
+`_detailItems` -- because switching between ModeSelect and Normal has to tear down and rebuild the
+permanent row too, not just the detail area the way a plain Split<->modal switch within Normal
+already did. `ClearAllScreens()` removes whichever of the three is currently populated;
+`ShowModeSelect()`/`ShowNormal()` call it before rebuilding their own content.
+
+**Persistence, and the one real subtlety in wiring it up.** A new `Configurable<string>
+ScreenMode` ("" / "Primal" / "Custom") is bound in EnsureConfigBound exactly like every other
+setting on this screen. Initialize() reads it directly (not via an OnChange handler, unlike the
+character-select Configurable) since it only needs a one-time decision at startup: empty means
+show ModeSelect, anything else jumps straight to Normal. Selecting a mode calls the same
+"immediately, unconditionally call config.Save() via reflection" pattern SetEnabledFor's own long
+doc comment already traces in full (SetEnabledFor's own tail was pulled out into a new shared
+`SaveConfigNow(whatChanged)` helper rather than duplicating that AccessTools.Method Invoke/try-catch
+a second time). "Change Mode" deliberately does NOT touch the persisted value -- it just calls
+`ShowModeSelect()` to let the player look at the chooser again; only an actual click on one of the
+two mode buttons writes to `ScreenMode`. That's what makes "skip the mode question next time" mean
+what it should: reopening Remix later re-reads whatever was last actually chosen, regardless of
+whether the player visited-but-didn't-repick the chooser mid-session.
+
+**Enforcing read-only, and why it needs two separate mechanisms.** Primal mode isn't just a label
+-- every control that would change an assignment has to actually stop responding. Confirmed by
+reading OpSimpleButton/OpCheckBox/OpComboBox's own decompiled Update() methods: `greyedOut` isn't
+cosmetic dimming, it's Remix's own real interactivity gate (`if (greyedOut) { ...; return; }` skips
+the entire click-handling branch, so `OnClick` never fires at all). So: the Split view's own
+`+ Add`/`x` buttons get `greyedOut = IsReadOnly` set at construction; a gimmick's own settings
+sub-view is a different story, though -- ChainsSettings' banlist checkboxes and every other
+gimmick's own settings controls write straight to their own bound Configurable on interaction,
+never routing through this screen's own SetEnabledFor at all, so RenderGimmickSettingsModal
+post-processes whatever `GimmickDef.BuildSettingsUI` returns and sets `greyedOut = true` on every
+element that's a `UIfocusable` (OpLabel isn't one, and needs no such flag -- it was never
+interactive to begin with). On top of both of those, `SetEnabledFor` itself now also no-ops while
+`IsReadOnly` -- a second, UI-independent guarantee that holds even if some future control forgets
+to set `greyedOut`, and `RenderAddGimmickModal`/`RenderAddRequirementModal` bail straight back to
+Split if somehow reached while read-only (shouldn't be possible through the UI, since their own
+"+ Add" buttons are greyed out, but cheap defense-in-depth matching this file's own established
+style). The character-select combo box and "Change Mode" button are deliberately NEVER greyed --
+switching characters or navigating back to the mode chooser isn't "changing the configuration."
+
+**Layout.** The title row's top-right corner, previously the slot-switch key, is now the "Change
+Mode" button (plus a small "Mode: Primal (read-only)" / "Mode: Custom" indicator) -- the
+slot-switch key moved down to its own row (`SlotSwitchY`), and the character-select row shifted
+down to match (`CharSelectY`), which in turn shifts `DetailTopY` and everything derived from it
+down by the same amount; still comfortably tall enough for the Split view's two scrollable columns.
+The ModeSelect screen's own title/author/description/choice-row Y positions
+(`ModeAuthorY`/`ModeDescriptionY`/`ModeChoiceHeadingY`/`ModeChoiceRow1Y`/`ModeChoiceRow2Y`) are all
+derived from `TitleY` by simple constant arithmetic, verified by hand to leave a comfortable,
+non-overlapping gap between every element and stay well clear of both screen edges. The credits/
+description text itself is read live from `mod.name`/`mod.version`/`mod.authors`/`mod.description`
+(i.e. modinfo.json) via `OptionInterface`'s own inherited `mod` property, rather than a second,
+easy-to-drift hand-typed copy of the same text -- an `OpLabelLong` (not the plain single-line
+OpLabel used everywhere else on this screen) renders it with real word-wrap.
+
+**Not yet built or tested** -- no .NET toolchain in this container, and this is the first time this
+project has used a Configurable-driven boolean gate that greys out OTHER gimmicks' own
+independently-written settings UI after the fact, rather than each gimmick controlling its own
+interactivity -- worth particular scrutiny (does `UIfocusable.greyedOut` genuinely block every kind
+of control this mod's various gimmicks return, not just the button/checkbox cases confirmed by
+reading source) on the next real build.
+
+## 2026-09-17 (later still): four character-specific requirements (Artificer, Gourmand, Spearmaster, Inv)
+
+Requested directly, one per character: Artificer kills every Kill List species and ascends;
+Gourmand completes the vanilla "food quest" and saves the cycle; Spearmaster gets the story ending
+(not the void-sea one) in under an in-game hour; Inv reaches LC_highestpoint while holding a
+slugpup, a mask, and a cloak. Added as four new `Requirement` subclasses at the bottom of
+Requirements.cs, registered in `RequirementRegistry.All` alongside the 50 curated Community
+Challenges -- these were never part of that community list, so they get their own short doc-comment
+section explaining why each is gated to one specific character (`characterID == <SlugcatStatsName>
+.value` inside the detection code itself, the exact pattern `OutlawRequirement` already established
+for Hunter-only completion -- `TryGetEnabledCharacter` only confirms the requirement is enabled and
+the player is on a reserved slot, not which real character it resolved to). Nothing stops enabling
+one of these for the "wrong" character via the Add Requirement picker; it will simply never
+complete, the same pre-existing, accepted OutlawRequirement behavior.
+
+**ArtificerKillAscendRequirement.** "Ascend" is `standardVoidSea == true` on
+`SurvivorEvents.OnGameEnding` -- the same flag `AscensionRequirement` already reads, confirmed via
+`SlugpupGimmick.cs`'s own long trace of what that flag actually means (the separate void-sea/
+ascension ending vs. every "standard" one). "The specified list of creature types found under the
+Kill List gimmick" is `KillListRegistry.All`'s own 55-species roster (`CreatureKillListGimmick.cs`)
+-- checked via `PrimalKillTracker.IsKilled` for every entry, the same global, permanent, ever-on-
+this-save kill record Ranger/Spearfisher already read, deliberately independent of whether the Kill
+List GIMMICK itself is assigned (only its roster DATA is reused).
+
+**GourmandFoodQuestRequirement.** "The food quest" turned out to be vanilla's own real,
+already-implemented mechanic -- `WinState.GourFeastTracker` (`MoreSlugcatsEnums.EndgameID
+.Gourmand`), the checklist behind the "Gourmand Passage": one progress slot per required food/
+creature, `GoalFullfilled` true once every slot has been eaten at least once. Read straight off
+`DeathPersistentSaveData.winState` via the same `GetStorySession?.saveState?
+.deathPersistentSaveData` chain every other save-context reader in this codebase already uses --
+nothing to reimplement. Checked on every `OnSuccessfulHibernation` ("and save cycle") rather than
+only the exact hibernation where the last food item happens to get eaten, since `GoalFullfilled`
+means "ever complete," not "completed this specific cycle."
+
+**SpearmasterFastEndingRequirement.** The mirror image of `AscensionRequirement`: wants
+`standardVoidSea == false` (any standard story ending, not the void-sea path) within 1 in-game hour
+instead of `== true` within 38 minutes. Confirmed `RainWorldGame.clock` only ever increments (no
+reset call anywhere in the decompiled `RainWorldGame.cs`) before trusting it as a whole-session
+running total the same way `AscensionRequirement`'s own `TimeLimitTicks` already does -- 1 hour =
+`60 * 60 * 40` ticks at the nominal 40 ticks/second.
+
+**InvHighestPointRequirement.** `LC_highestpoint` is confirmed a real, single, dedicated room (LC =
+Metropolis, Inv's own home region) via decompiling `GhostWorldPresence.cs`'s per-region ghost/echo
+table -- so simply entering it IS reaching that named location, no in-room position math needed,
+the same "arrived in room X" shape `VisitorRequirement`/`FishtankRequirement` already use. The
+three simultaneous carries are confirmed possible under vanilla's own rules by decompilation before
+implementing, not assumed: a slugpup (`CreatureTemplate.Type.SlugNPC`) and a mask (`VultureMask`, a
+`PlayerCarryableItem`) each occupy one of the player's two hand grasps, while the "cloak" (the robe
+the Moon iterator gives, `MoreSlugcatsEnums.AbstractObjectType.MoonCloak`) is worn via
+`SaveState.wearingCloak` -- a plain persistent bool flag set the instant the object is picked up
+(`Player.cs`), not a grasp slot at all -- so two hands genuinely suffice for all three items at
+once, with no third grasp needed.
+
+**Not yet built or tested** -- no .NET toolchain in this container, same standing caveat as
+everything else in this doc. All four rely on real vanilla mechanics (WinState's own passage
+tracker, SaveState.wearingCloak, RainWorldGame.clock) confirmed by reading the decompiled source
+directly rather than guessed at, but none of the four has been exercised in a live game.
+
+## 2026-09-17 (same day, later): InvHighestPointRequirement corrected -- highest SCREEN, not just the room
+
+User correction: "reaching the highest point in LC_highestpoint room" actually meant the highest
+camera SCREEN within that room, not merely entering the room at all. A Rain World room can span
+multiple screens (`Room.cameraPositions`, one `Vector2` per screen -- its own bottom-left
+world-space corner, each a fixed 1366x768) -- reused `Room.CameraViewingPoint(Vector2)`, vanilla's
+own "which screen index contains this point" helper (confirmed via decompilation, already used
+internally for exactly this kind of point-to-screen resolution), rather than reimplementing the
+box-containment math by hand. "Highest" is whichever screen(s) have the largest
+`cameraPositions[i].y` (room-space Y increases upward, confirmed by that same method's own
+containment test), compared with `>=` rather than a single tracked index so a top row spanning more
+than one screen still counts reaching any of them.
+
+Also switched detection from "check once at room entry" (the original implementation) to "check
+every tick while genuinely inside this one room" -- a Postfix on `Player.Update(bool)`, the same
+hook TimeLimitGimmick/ChainsGimmick already patch, gated immediately on the room name before any
+other work. Reaching the literal top screen is unlikely to be the very first thing that happens on
+arrival, so an entry-only check would have missed the realistic "arrive low, climb up" case.
+Detection now lives in a static `CheckPlayer(Player)` method with its own `RequirementID` const
+(the same static-method-needs-a-const shape `TriplopiaRequirement`/`OutlawRequirement` already
+use), called from a new top-level `InvHighestPointUpdateHook` Harmony patch class; `Register()` is
+correspondingly a no-op. The item-carrying checks (slugpup + mask in the two hand grasps, cloak via
+`SaveState.wearingCloak`) are unchanged from the original pass.
+
+Still unbuilt/untested -- no .NET toolchain in this container.
+
+## 2026-09-17 (same day, later still): character icons added alongside the existing colors, Community Challenges get a white slugpup/batfly tag
+
+Requested directly: gimmicks and requirements should carry both a color AND an icon based on which
+character they're designed for, with the 50 curated Community Challenge requirements specifically
+getting white + a slugpup icon (batfly as a coded fallback if that one can't be resolved).
+
+**There is no per-playable-character icon SHAPE in vanilla's own kill-icon atlas.** Checked before
+assuming otherwise: decompiling `CreatureSymbol.SpriteNameOfCreature` shows `CreatureTemplate.Type
+.Slugcat` is the only case that returns the generic `"Kill_Slugcat"` silhouette, and no other
+playable-character type (Survivor/Hunter/Gourmand/Artificer/...) has its own distinct icon --
+color is the only thing that actually differentiates one character's tag from another's in-game,
+which is exactly why the existing gimmick-row treatment was already color-only. So the new icon
+system reuses that same single "Kill_Slugcat" shape for every character-tagged row, tinted per
+character -- unifying color and icon into one lookup rather than inventing new per-character art.
+
+**`GetHomeCharacterColor` generalized from `GimmickDef` to plain `SlugcatStats.Name`** so
+`Requirement.HomeCharacter` (new, mirrors `GimmickDef.HomeCharacter` exactly, `null` by default)
+can share the exact same reflection/cache/try-catch instead of a second copy. The four
+character-specific requirements (Artificer/Gourmand/Spearmaster/Inv, added earlier this same day)
+now each override it to their own character.
+
+**Community Challenges' own white/slugpup(-or-batfly) treatment** lives in
+`PrimalOptions.GetRequirementIcon`, checked first via `CommunityChallengesRoster.Contains(id)`
+before falling back to `HomeCharacter` -- none of the 50 curated challenges set a `HomeCharacter`
+of their own, so without this check they'd simply render with no icon at all. The slugpup icon
+itself is a genuine attempt-then-fallback, not an assumption: `MoreSlugcatsEnums
+.CreatureTemplateType.SlugNPC` is an MSC-only ExtEnum value (only even attempted while
+`ModManager.MSC` is true), and the resolved sprite name is double-checked against
+`Futile.atlasManager.DoesContainElementWithName` (the same check `OpImage`'s own constructor
+performs) before being trusted -- falling back to `CreatureTemplate.Type.Fly` ("Kill_Bat", vanilla
+base-game, always available) otherwise, exactly per the request. In practice `SlugNPC` also
+resolves to plain `"Kill_Slugcat"` (the same sharing described above), so the two paths converge on
+one shape either way -- white vs. real character colors is what actually reads as the distinction
+between "a Community Challenge" and "a character-specific requirement/gimmick," not shape.
+
+**Rendering**: a new `RowIcon` struct (sprite name + color) and `BuildIconElement` (constructs an
+`OpImage` from an atlas element name, wrapped exactly the way `OpImage`'s own atlas-string
+constructor expects, then normalizes it to a fixed 24px on-screen size regardless of the source
+sprite's own native pixel dimensions -- `Kill_Slugcat` and `Kill_Bat` aren't necessarily the same
+size) are shared by all three places a gimmick/requirement is ever drawn: the Split view's own
+assigned-list rows (icon added to the left, name button/label and the "x" remove button all shifted
+right by `RowIconSize + RowIconGap` to make room -- `ColumnNameButtonW` shrunk by the same amount)
+and both Add*Modal pickers' 4-column grids (icon at each cell's left edge, its own button narrowed
+and shifted right to match). A requirement row's name, previously a plain `OpLabel` with no color at
+all, now also picks up the icon's own color when one applies (matching the existing gimmick-row
+precedent of tinting both the icon and the name).
+
+**Not yet built or tested** -- no .NET toolchain in this container. Worth particular scrutiny on
+the next real build: whether `Kill_Slugcat`/`Kill_Bat` actually look reasonable at the normalized
+24px size inside Remix's own coordinate space (never tried before in this codebase -- every prior
+icon usage, KillListDialog's own 32px icons, lives inside a `Menu.Dialog`'s native `FSprite`
+coordinate space, not an `OpImage` inside an `OpTab`/`OpScrollBox`), and whether the narrowed
+4-column picker cells still fit the longest gimmick/requirement display names without clipping now
+that they're a little tighter than before.
+
+## 2026-09-17 (same day, later still): Primal-mode character-select portrait override
+
+Requested directly: while on the Primal slot with Remix set to read-only Primal mode, swap a
+character's select-screen portrait between mod-supplied "primal-[name]-default" and
+"primal-[name]-complete" asset folders -- "complete" once every Requirement currently assigned to
+that character has been satisfied, falling back to vanilla's own normal portrait if "default" is
+missing, and vanilla's own "story ending" (not the void-sea one) if "complete" is missing. Went
+through two rounds of clarification before implementing, both of which changed the design
+materially -- see the exchange itself for the full reasoning; summarized here is what actually got
+built, in `PrimalPortraitOverride.cs` (new).
+
+**Portraits are multi-layer scenes, not single images, and there are three of them per character,
+not two.** Confirmed via decompiling Menu/SlugcatSelectMenu.cs and Menu/MenuScene.cs: each
+character has a default scene, a distinct "story ending" scene (`SlugcatPage.AddAltEndingImage()`,
+vanilla's own "Slugcat End_B - X"/"AltEnd_X" folders -- exists for Survivor, Monk, Gourmand,
+Artificer, Rivulet, Spearmaster), and a separate true void-sea/ascension scene
+(`SlugcatPage.AddImage(true)`, "Ghost_X"/"Slugcat End - X"). The user's own "non-void-sea ending"
+fallback maps to the STORY ending specifically, not the ascension one -- an important correction
+from my own first-pass assumption that vanilla only had two states. Hunter, Saint, Inv, and Watcher
+have no distinct story-ending asset, so they fall back to the ascension one instead as the closest
+available "finished" portrait, documented as a known simplification.
+
+**"Complete" needed its own new, permanently-persisted marker, not a live recomputation.** The
+character-select screen shows every real character at once, but vanilla itself only fully loads
+ONE character's own save data into memory at a time (`RainWorld.progression.currentSaveState`);
+every other character's fields get read by regex-scraping the raw save-file text in memory
+(`SlugcatSelectMenu.SaveGameData.MineForSaveData`'s own slow path, confirmed via decompilation) for
+a fixed whitelist of known field names our own Requirement markers aren't on. Per the user's own
+suggestion ("whether you met the requirement should be stored as a saved value once you did"),
+`RequirementCompletionSummary` (Requirement.cs's `OnSatisfied` event, extended with the
+`DeathPersistentSaveData` parameter it already had internally so this consumer doesn't need a live
+Player to re-derive it) computes "has this character satisfied every currently-assigned
+Requirement" the instant it can, and permanently marks it via `PrimalSaveMarkers` -- reducing the
+menu-time question to a plain substring search (`PrimalSaveMarkers.Add` writes markers as literal
+strings embedded verbatim in the raw save text, confirmed via decompiling
+`DeathPersistentSaveData.ToString()`/`.FromString()`) against `PlayerProgression
+.GetProgLinesFromMemory()`'s own per-character raw lines -- which works for every character on the
+slot, not just whichever one is "active," exactly what was asked for in the second clarification
+round.
+
+**The redirect mechanism itself, and why it patches AssetManager rather than MenuScene's own
+per-character scene-building code.** Every layer of a portrait scene is its own PNG, loaded via
+`MenuIllustration`/`MenuDepthIllustration`'s shared `LoadFile`, which calls
+`AssetManager.ResolveFilePath(string)` synchronously at construction time (confirmed via
+decompilation -- not deferred). Patching that one method (Prefix, rewrites the path before the
+original runs) lets vanilla's own scene-building code run completely unmodified -- it never needs
+to know it's loading from a different folder -- and tolerates the user's own stated intent to ship
+a different NUMBER of layer files than vanilla's own scene expects, which reimplementing
+`MenuScene`'s hardcoded layer lists would not have. Since that method has zero context of "which
+character's portrait is being built," a second pair of patches on `SlugcatPage.AddImage`/
+`AddAltEndingImage` brackets an "ambient context" (character, complete-or-not) for exactly the
+duration of that one synchronous scene-build call -- safe specifically because the loading is
+confirmed synchronous and nested entirely inside it. Those same two patches also FORCE which
+vanilla method actually runs and with what `ascended` value, based purely on our own "complete"
+decision, deliberately overriding vanilla's own ascended/altEnding dispatch entirely while gated --
+per the user's own framing ("we want the framework to implement all character... portraits"), this
+is a full override, not a supplement layered on top of vanilla's own three-state system.
+
+**Known simplifications, flagged explicitly in the file's own header comment too:** Hunter's own
+"Dead" scene sub-variant isn't distinguished from its normal default; Watcher's four distinct
+endings (A/B/C/D) collapse to a single "A" fallback; Inv's scene splits its own layers across TWO
+vanilla folders ("Slugcat - White", reused from Survivor, plus a separate "Inv Screen" folder for
+just its body sprite) -- both redirect to the same "primal-Inv-*" folder, so one custom folder is
+expected to supply every layer Inv's scene needs, not mirror vanilla's own two-folder split.
+`slugcatNumber` (genuinely new surface for this codebase) is read via `AccessTools.Field`, not a
+direct field access, per this project's own standing Gotcha #1 discipline.
+
+**Not yet built or tested** -- no .NET toolchain in this container. Flagged as the most speculative
+patch in this mod so far: `AssetManager.ResolveFilePath` is called constantly throughout the ENTIRE
+game, not just this one screen, so its own Prefix's fast-path bailout (ambient context inactive)
+deserves particular scrutiny, along with whether the ambient-context bracketing genuinely holds for
+every code path that can reach `AddImage`/`AddAltEndingImage` (only `SlugcatPageContinue` and
+`SlugcatPageNewGame` were traced; a third caller this pass didn't find could see stale context).
 
 ## Outstanding items
 

@@ -41,5 +41,40 @@ namespace Primal.Gimmicks
         {
             return GetSaveState(screen)?.saveStateNumber?.value;
         }
+
+        /// <summary>Added 2026-09-17 for OutlawTracker -- the vanilla end-of-campaign score screen
+        /// (Menu.StoryGameStatisticsScreen, a KarmaLadderScreen subclass, so it also carries
+        /// everything above). `allDone` and `scoreKeeper`/ScoreKeeper.score are brand new territory
+        /// for this mod, never accessed before this pass -- reflected the same as `saveState` above
+        /// on the same Gotcha #1 reasoning (a field reading public in the decompiled/publicized
+        /// reference proves nothing about the real assembly), not because either has actually been
+        /// caught failing directly.</summary>
+        private static readonly FieldInfo AllDoneField =
+            AccessTools.Field(typeof(Menu.StoryGameStatisticsScreen), "allDone");
+
+        private static readonly FieldInfo ScoreKeeperField =
+            AccessTools.Field(typeof(Menu.StoryGameStatisticsScreen), "scoreKeeper");
+
+        private static readonly FieldInfo ScoreField =
+            AccessTools.Field(typeof(Menu.StoryGameStatisticsScreen.ScoreKeeper), "score");
+
+        /// <summary>True once the score screen's own tally/multiplier animation has fully finished
+        /// -- the point at which ScoreKeeper.score holds its real final value.</summary>
+        public static bool IsScoreScreenDone(Menu.StoryGameStatisticsScreen screen)
+        {
+            return screen != null && AllDoneField != null && (bool)AllDoneField.GetValue(screen);
+        }
+
+        /// <summary>The final tallied score shown on this screen, or null if it (or the
+        /// ScoreKeeper itself) couldn't be resolved.</summary>
+        public static int? GetFinalScore(Menu.StoryGameStatisticsScreen screen)
+        {
+            object scoreKeeper = screen != null ? ScoreKeeperField?.GetValue(screen) : null;
+            if (scoreKeeper == null || ScoreField == null)
+            {
+                return null;
+            }
+            return (int)ScoreField.GetValue(scoreKeeper);
+        }
     }
 }

@@ -87,14 +87,38 @@ namespace Primal.Gimmicks
 
             try
             {
-                // Same reasoning as SurvivorRegionMarkers.Init() just above -- each ChallengeTracker
+                // Same reasoning as SurvivorRegionMarkers.Init() just above -- each Requirement
                 // subscribes to SurvivorEvents/mechanism callbacks from its own Register(), a plain
                 // method call PatchAll has no way to discover on its own.
-                ChallengeTrackerRegistry.RegisterAll();
+                RequirementRegistry.RegisterAll();
             }
             catch (Exception ex)
             {
-                Plugin.Log?.LogError($"ChallengeTrackerRegistry.RegisterAll() threw -- one or more community challenge trackers may not be active this session: {ex}");
+                Plugin.Log?.LogError($"RequirementRegistry.RegisterAll() threw -- one or more requirements may not be active this session: {ex}");
+            }
+
+            try
+            {
+                // Same reasoning again -- a plain event subscription (RequirementCompletion.OnSatisfied),
+                // not a Harmony patch, needs its own explicit one-shot call site.
+                CommunityChallengesNotifications.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"CommunityChallengesNotifications.Init() threw -- the live challenge-complete popup may not fire this session: {ex}");
+            }
+
+            try
+            {
+                // Same reasoning again -- another plain RequirementCompletion.OnSatisfied
+                // subscription, needed so the Primal-mode character-select portrait override
+                // (PrimalPortraitOverride.cs) has an up-to-date "has this character completed
+                // everything assigned to it" marker to read at menu time.
+                RequirementCompletionSummary.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"RequirementCompletionSummary.Init() threw -- the Primal-mode character-select portrait override may not reflect real completion state this session: {ex}");
             }
         }
     }

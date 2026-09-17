@@ -141,6 +141,10 @@ namespace Primal.Gimmicks
                 return;
             }
             SurvivorTollRoster.Observe(__instance);
+            if (SurvivorTollState.HasOutpostTickSubscribers)
+            {
+                SurvivorTollState.RaiseOutpostTick(__instance);
+            }
         }
     }
 
@@ -148,7 +152,8 @@ namespace Primal.Gimmicks
     /// happens -- an independent Postfix on Creature.Die (PrimalKillDieHook already patches this
     /// same method independently for its own, unrelated per-species record; two independent
     /// Postfixes on one method need no ordering between them since neither reads the other's
-    /// result). Reuses PrimalKillTracker's own reflected KillTagField/TryGetRecentHandler rather
+    /// result). Reuses PrimalKillTracker.ResolveKiller (pulled up 2026-09-17 once this exact
+    /// resolution turned out to be duplicated a third time, by TriplopiaPoleMimicDeathHook) rather
     /// than re-deriving attribution.</summary>
     [HarmonyPatch(typeof(Creature), nameof(Creature.Die))]
     internal static class SurvivorTollRosterDeathHook
@@ -167,15 +172,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            AbstractCreature killer = PrimalKillTracker.KillTagField?.GetValue(scavenger) as AbstractCreature;
-            if (killer == null)
-            {
-                int? tick = scavenger.abstractCreature?.world?.game?.clock;
-                if (tick.HasValue)
-                {
-                    PrimalKillTracker.TryGetRecentHandler(scavenger, tick.Value, out killer);
-                }
-            }
+            AbstractCreature killer = PrimalKillTracker.ResolveKiller(scavenger);
 
             if (killer?.realizedCreature is Player player && GimmickGate.TryGetCharacter(player, out _))
             {

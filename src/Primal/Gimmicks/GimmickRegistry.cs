@@ -120,7 +120,7 @@ namespace Primal.Gimmicks
             ChainsSettings.BuildUI,
             // ChainsSettings.BuildUI lays out an escape-timer row, two toggles, a preset picker,
             // and a 6-row/2-column, 12-checkbox banlist grid -- well over 400px tall, badly
-            // overflowing the plain ~241px settings viewport (see PrimalOptions.RenderGimmickSettings).
+            // overflowing the plain settings viewport (see PrimalOptions.RenderGimmickSettingsModal).
             // 480 gives it room to scroll instead of clipping/being unreachable.
             settingsContentHeight: 480f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
@@ -249,29 +249,6 @@ namespace Primal.Gimmicks
             "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );
 
-        /// <summary>
-        /// The first piece of the "Survivor" project (see COMMUNITY_CHALLENGES.md): a single
-        /// gimmick meant to eventually track as many of the ~50 informal Rain World community
-        /// challenges as possible in one run. As of this pass it does nothing gameplay-wise at
-        /// all -- CommunityChallengesGimmick.cs has no Harmony patches -- it only exists so this
-        /// settings sub-view (50 checkboxes, one per challenge, in a 5-column/10-row grid) has
-        /// something to bind and cache. See that file's own header comment for why these 50
-        /// toggles are ordinary Remix Configurables (shared across every save slot for this
-        /// character, same as gimmick assignment itself) rather than anything save-file-scoped --
-        /// actual challenge PROGRESS, once it exists, will need the opposite (DeathPersistentSaveData,
-        /// per save file, the same way Kill List's own kill records already work). No default
-        /// assignment and no homeCharacter -- not tied to any specific character, same reasoning
-        /// as NoPassages/CreatureKillList above.
-        /// </summary>
-        public static readonly GimmickDef CommunityChallenges = new GimmickDef(
-            CommunityChallengesGimmick.ID,
-            "Community Challenges",
-            "Select which informal Rain World community challenges to track for this character. Selection only for now -- no tracking or scoring logic yet.",
-            CommunityChallengesSettings.Bind,
-            CommunityChallengesSettings.BuildUI,
-            settingsContentHeight: 400f
-        );
-
         public static readonly GimmickDef[] All =
         {
             Misery,
@@ -287,7 +264,6 @@ namespace Primal.Gimmicks
             ThreatSlowdown,
             ThreatPanic,
             CreatureKillList,
-            CommunityChallenges,
         };
     }
 }

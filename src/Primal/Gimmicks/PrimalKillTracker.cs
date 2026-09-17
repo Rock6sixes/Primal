@@ -132,6 +132,31 @@ namespace Primal.Gimmicks
             return false;
         }
 
+        /// <summary>Added 2026-09-17, pulled up after this exact resolution (KillTagField first,
+        /// falling back to TryGetRecentHandler) turned out to be independently duplicated
+        /// verbatim in three separate Creature.Die Postfixes -- PrimalKillDieHook (this file),
+        /// SurvivorTollRosterDeathHook (Manslaughter's "no kill credit" check), and
+        /// TriplopiaPoleMimicDeathHook (Triplopia's same-den kill tracking). Same shared-mechanism
+        /// reasoning as everything else already pulled into this class: "who gets credit for this
+        /// death" is one question every consumer answers identically, so it belongs here once, not
+        /// re-derived per caller. Null if neither vanilla's own killTag nor this class's own
+        /// proximity-based handler attribution can name anyone.</summary>
+        public static AbstractCreature ResolveKiller(Creature creature)
+        {
+            AbstractCreature killer = KillTagField?.GetValue(creature) as AbstractCreature;
+            if (killer != null)
+            {
+                return killer;
+            }
+
+            int? tick = creature?.abstractCreature?.world?.game?.clock;
+            if (tick.HasValue && TryGetRecentHandler(creature, tick.Value, out AbstractCreature handler))
+            {
+                return handler;
+            }
+            return null;
+        }
+
         private static string Marker(string characterID, string creatureID)
         {
             return PrimalSaveMarkers.Marker(SaveMarkerKey, characterID, creatureID);
@@ -172,6 +197,16 @@ namespace Primal.Gimmicks
                 && _instanceKills.TryGetValue(characterID, out HashSet<int> set)
                 && set.Contains(instanceNumber);
         }
+
+        /// <summary>Added 2026-09-17 for Saint ("without killing anything") -- unlike everything
+        /// else in this class, which is a passive record read back later, Saint needs to know the
+        /// INSTANT a kill happens (any kill permanently disqualifies that character's current
+        /// attempt). Fired from PrimalKillDieHook's own Postfix, right alongside the existing
+        /// per-type/per-instance recording it already does -- same raw signal, just also exposed
+        /// as a live event for a consumer that cares about the moment rather than the record.</summary>
+        public static event System.Action<string> OnKillCredited;
+
+        internal static void RaiseKillCredited(string characterID) => OnKillCredited?.Invoke(characterID);
 
         /// <summary>Merges this character's pending-this-cycle kills into the real, permanent save
         /// data, then clears the pending set. Always resets _lastCommitted for this character
@@ -303,15 +338,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            AbstractCreature killer = PrimalKillTracker.KillTagField?.GetValue(__instance) as AbstractCreature;
-            if (killer == null)
-            {
-                int? tick = __instance.abstractCreature?.world?.game?.clock;
-                if (tick.HasValue && PrimalKillTracker.TryGetRecentHandler(__instance, tick.Value, out AbstractCreature handler))
-                {
-                    killer = handler;
-                }
-            }
+            AbstractCreature killer = PrimalKillTracker.ResolveKiller(__instance);
 
             Player player = killer?.realizedCreature as Player;
             if (!GimmickGate.TryGetCharacter(player, out string characterID))
@@ -335,6 +362,7 @@ namespace Primal.Gimmicks
             PrimalKillTracker.Recorded.Add(__instance, null);
             PrimalKillTracker.RecordPendingKill(characterID, type.value);
             PrimalKillTracker.RecordInstanceKill(characterID, __instance.abstractCreature.ID.number);
+            PrimalKillTracker.RaiseKillCredited(characterID);
         }
     }
 

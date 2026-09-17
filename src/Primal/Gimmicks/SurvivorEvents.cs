@@ -62,6 +62,35 @@ namespace Primal.Gimmicks
         /// kills on death.</summary>
         public static event Action<RainWorldGame, Player, string> OnCycleFailed;
 
+        /// <summary>Added 2026-09-17, pulled up after this exact pair of subscriptions (one to
+        /// OnSuccessfulHibernation, one to OnCycleFailed, each just discarding this character's own
+        /// per-cycle state) turned out to be independently repeated, verbatim, in Visions,
+        /// Mycologist, Nomad, and Ornaments -- with the same shape (just clearing a different
+        /// target) in several more trackers that reset a SurvivorCreatureTracking key instead of a
+        /// raw dictionary entry. "A cycle just ended, one way or the other" is one condition every
+        /// one of those callers means identically; this composes both real events so a caller
+        /// states its own reset action once instead of registering two near-identical lambdas
+        /// itself. Not itself a new event -- a thin composition of the two above, kept here rather
+        /// than in ChallengeTrackers.cs since it's a property of these two events' own relationship
+        /// to each other, not of any one challenge.</summary>
+        public static void ResetOnCycleBoundary(Action<string> reset)
+        {
+            OnSuccessfulHibernation += (game, player, characterID) =>
+            {
+                if (characterID != null)
+                {
+                    reset(characterID);
+                }
+            };
+            OnCycleFailed += (game, player, characterID) =>
+            {
+                if (characterID != null)
+                {
+                    reset(characterID);
+                }
+            };
+        }
+
         /// <summary>Fires on every call to RainWorldGame.BeatGameMode, for every character, handing
         /// back the same `standardVoidSea` flag SlugpupGimmick's own ending hook already reads (see
         /// that file's header comment for the full trace of what this flag actually means: true is
