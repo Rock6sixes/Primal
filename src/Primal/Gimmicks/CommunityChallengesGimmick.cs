@@ -170,7 +170,7 @@ namespace Primal.Gimmicks
             RequirementCompletion.OnSatisfied += OnRequirementSatisfied;
         }
 
-        private static void OnRequirementSatisfied(Player player, string characterID, string requirementID, bool isLive)
+        private static void OnRequirementSatisfied(Player player, string characterID, string requirementID, bool isLive, DeathPersistentSaveData saveData)
         {
             if (!isLive || player == null || !CommunityChallengesRoster.Contains(requirementID))
             {

@@ -5912,6 +5912,80 @@ coordinate space, not an `OpImage` inside an `OpTab`/`OpScrollBox`), and whether
 4-column picker cells still fit the longest gimmick/requirement display names without clipping now
 that they're a little tighter than before.
 
+## 2026-09-17 (same day, later still): Primal-mode character-select portrait override
+
+Requested directly: while on the Primal slot with Remix set to read-only Primal mode, swap a
+character's select-screen portrait between mod-supplied "primal-[name]-default" and
+"primal-[name]-complete" asset folders -- "complete" once every Requirement currently assigned to
+that character has been satisfied, falling back to vanilla's own normal portrait if "default" is
+missing, and vanilla's own "story ending" (not the void-sea one) if "complete" is missing. Went
+through two rounds of clarification before implementing, both of which changed the design
+materially -- see the exchange itself for the full reasoning; summarized here is what actually got
+built, in `PrimalPortraitOverride.cs` (new).
+
+**Portraits are multi-layer scenes, not single images, and there are three of them per character,
+not two.** Confirmed via decompiling Menu/SlugcatSelectMenu.cs and Menu/MenuScene.cs: each
+character has a default scene, a distinct "story ending" scene (`SlugcatPage.AddAltEndingImage()`,
+vanilla's own "Slugcat End_B - X"/"AltEnd_X" folders -- exists for Survivor, Monk, Gourmand,
+Artificer, Rivulet, Spearmaster), and a separate true void-sea/ascension scene
+(`SlugcatPage.AddImage(true)`, "Ghost_X"/"Slugcat End - X"). The user's own "non-void-sea ending"
+fallback maps to the STORY ending specifically, not the ascension one -- an important correction
+from my own first-pass assumption that vanilla only had two states. Hunter, Saint, Inv, and Watcher
+have no distinct story-ending asset, so they fall back to the ascension one instead as the closest
+available "finished" portrait, documented as a known simplification.
+
+**"Complete" needed its own new, permanently-persisted marker, not a live recomputation.** The
+character-select screen shows every real character at once, but vanilla itself only fully loads
+ONE character's own save data into memory at a time (`RainWorld.progression.currentSaveState`);
+every other character's fields get read by regex-scraping the raw save-file text in memory
+(`SlugcatSelectMenu.SaveGameData.MineForSaveData`'s own slow path, confirmed via decompilation) for
+a fixed whitelist of known field names our own Requirement markers aren't on. Per the user's own
+suggestion ("whether you met the requirement should be stored as a saved value once you did"),
+`RequirementCompletionSummary` (Requirement.cs's `OnSatisfied` event, extended with the
+`DeathPersistentSaveData` parameter it already had internally so this consumer doesn't need a live
+Player to re-derive it) computes "has this character satisfied every currently-assigned
+Requirement" the instant it can, and permanently marks it via `PrimalSaveMarkers` -- reducing the
+menu-time question to a plain substring search (`PrimalSaveMarkers.Add` writes markers as literal
+strings embedded verbatim in the raw save text, confirmed via decompiling
+`DeathPersistentSaveData.ToString()`/`.FromString()`) against `PlayerProgression
+.GetProgLinesFromMemory()`'s own per-character raw lines -- which works for every character on the
+slot, not just whichever one is "active," exactly what was asked for in the second clarification
+round.
+
+**The redirect mechanism itself, and why it patches AssetManager rather than MenuScene's own
+per-character scene-building code.** Every layer of a portrait scene is its own PNG, loaded via
+`MenuIllustration`/`MenuDepthIllustration`'s shared `LoadFile`, which calls
+`AssetManager.ResolveFilePath(string)` synchronously at construction time (confirmed via
+decompilation -- not deferred). Patching that one method (Prefix, rewrites the path before the
+original runs) lets vanilla's own scene-building code run completely unmodified -- it never needs
+to know it's loading from a different folder -- and tolerates the user's own stated intent to ship
+a different NUMBER of layer files than vanilla's own scene expects, which reimplementing
+`MenuScene`'s hardcoded layer lists would not have. Since that method has zero context of "which
+character's portrait is being built," a second pair of patches on `SlugcatPage.AddImage`/
+`AddAltEndingImage` brackets an "ambient context" (character, complete-or-not) for exactly the
+duration of that one synchronous scene-build call -- safe specifically because the loading is
+confirmed synchronous and nested entirely inside it. Those same two patches also FORCE which
+vanilla method actually runs and with what `ascended` value, based purely on our own "complete"
+decision, deliberately overriding vanilla's own ascended/altEnding dispatch entirely while gated --
+per the user's own framing ("we want the framework to implement all character... portraits"), this
+is a full override, not a supplement layered on top of vanilla's own three-state system.
+
+**Known simplifications, flagged explicitly in the file's own header comment too:** Hunter's own
+"Dead" scene sub-variant isn't distinguished from its normal default; Watcher's four distinct
+endings (A/B/C/D) collapse to a single "A" fallback; Inv's scene splits its own layers across TWO
+vanilla folders ("Slugcat - White", reused from Survivor, plus a separate "Inv Screen" folder for
+just its body sprite) -- both redirect to the same "primal-Inv-*" folder, so one custom folder is
+expected to supply every layer Inv's scene needs, not mirror vanilla's own two-folder split.
+`slugcatNumber` (genuinely new surface for this codebase) is read via `AccessTools.Field`, not a
+direct field access, per this project's own standing Gotcha #1 discipline.
+
+**Not yet built or tested** -- no .NET toolchain in this container. Flagged as the most speculative
+patch in this mod so far: `AssetManager.ResolveFilePath` is called constantly throughout the ENTIRE
+game, not just this one screen, so its own Prefix's fast-path bailout (ambient context inactive)
+deserves particular scrutiny, along with whether the ambient-context bracketing genuinely holds for
+every code path that can reach `AddImage`/`AddAltEndingImage` (only `SlugcatPageContinue` and
+`SlugcatPageNewGame` were traced; a third caller this pass didn't find could see stale context).
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

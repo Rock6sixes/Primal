@@ -244,8 +244,16 @@ namespace Primal.Gimmicks
         /// live popup) should treat `isLive` as the signal for whether one is actually available,
         /// not just check `player != null` on its own. Any number of independent consumers may
         /// subscribe to the same requirement ID -- Community Challenges' own popup is one; nothing
-        /// here assumes it's the only one.</summary>
-        public static event Action<Player, string, string, bool> OnSatisfied;
+        /// here assumes it's the only one.
+        ///
+        /// 2026-09-17: added the DeathPersistentSaveData parameter (the exact same one Report/
+        /// ReportForSave already resolved internally to persist the marker in the first place) so
+        /// a subscriber can act on OTHER markers for this same save without needing its own live
+        /// Player to re-derive it from -- RequirementCompletionSummary (added the same day, see
+        /// PrimalPortraitOverride.cs) is the first consumer that actually needs this: it has to
+        /// read/write its own aggregate "has this character satisfied everything currently
+        /// assigned" marker even when `player` is null (a ReportForSave-driven completion).</summary>
+        public static event Action<Player, string, string, bool, DeathPersistentSaveData> OnSatisfied;
 
         /// <summary>Reports `requirementID` as satisfied for `characterID`. `isLive` says whether
         /// this was detected mid-cycle during active gameplay (true) or only confirmable at the
@@ -265,7 +273,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            OnSatisfied?.Invoke(player, characterID, requirementID, isLive);
+            OnSatisfied?.Invoke(player, characterID, requirementID, isLive, saveData);
         }
 
         /// <summary>The menu-context counterpart to Report, for a requirement whose own detection
@@ -278,7 +286,7 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            OnSatisfied?.Invoke(null, characterID, requirementID, false);
+            OnSatisfied?.Invoke(null, characterID, requirementID, false, saveData);
         }
 
         /// <summary>The part shared by both overloads above: idempotently persist the marker and

@@ -278,8 +278,21 @@ namespace Primal.Gimmicks
         // True while ScreenMode is "Primal" -- every control that would change an assignment
         // checks this (or is built with greyedOut set from it) before allowing an edit. See this
         // class's own header comment for the two-layer enforcement (UI greyedOut + this same check
-        // again inside SetEnabledFor).
-        private bool IsReadOnly => _modeConfig != null && _modeConfig.Value == "Primal";
+        // again inside SetEnabledFor). Internal (not private), and Instance below exists, so
+        // PrimalPortraitOverride.cs (2026-09-17) -- a Harmony patch on the character-select menu,
+        // with no relationship to this specific OptionInterface instance otherwise -- can read
+        // "is the Remix screen currently set to read-only Primal mode" from a totally different
+        // call context. There is exactly one PrimalOptions instance for the process's whole
+        // lifetime (RainWorldHooks constructs it once and hands it to MachineConnector
+        // .SetRegisteredOI), so a plain static self-reference is safe and never stale.
+        internal bool IsReadOnly => _modeConfig != null && _modeConfig.Value == "Primal";
+
+        internal static PrimalOptions Instance { get; private set; }
+
+        public PrimalOptions()
+        {
+            Instance = this;
+        }
 
         // Guards EnsureConfigBound() against running its config.Bind() loop more than once on
         // this instance -- see that method's own doc comment for why it now gets called from two

@@ -107,6 +107,19 @@ namespace Primal.Gimmicks
             {
                 Plugin.Log?.LogError($"CommunityChallengesNotifications.Init() threw -- the live challenge-complete popup may not fire this session: {ex}");
             }
+
+            try
+            {
+                // Same reasoning again -- another plain RequirementCompletion.OnSatisfied
+                // subscription, needed so the Primal-mode character-select portrait override
+                // (PrimalPortraitOverride.cs) has an up-to-date "has this character completed
+                // everything assigned to it" marker to read at menu time.
+                RequirementCompletionSummary.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"RequirementCompletionSummary.Init() threw -- the Primal-mode character-select portrait override may not reflect real completion state this session: {ex}");
+            }
         }
     }
 }
