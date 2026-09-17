@@ -1096,3 +1096,26 @@ Elder and Outlaw confirmed correct as implemented. Two real corrections:
   share a key while unrelated PoleMimics elsewhere don't.
 
 Still 44 of 50, still unbuilt/untested in this container.
+
+## Status update, 2026-09-17 (later still): Journey, Visitor, Fishtank implemented -- 47 of 50 now done
+
+User supplied the exact room IDs the "Final status" table said were unreachable from source alone:
+
+- **Journey:** highest Five Pebbles shelter `SS_S04`, Depths entry `SB_E05` (already known). Closest
+  analog turned out to be DevoteeTracker's HomeShelter/DepthsReached shape, not UTurnTracker as
+  guessed earlier -- no round trip, no time limit, just "started this cycle at X, reach Y before it
+  ends."
+- **Visitor:** spawn room `SU_C04` (the user's own tip, plus a request to dig up more about it) led
+  straight to vanilla's own tutorial-room list: `OverseerAbstractAI.DefineTutorialRooms`'s vanilla
+  branch is exactly `SU_C04, SU_A41, SU_A42, SU_A43, SU_A44, SU_A22` -- the whole "left the tutorial
+  area" boundary Visitor needed, for free, off one room ID. Also closes most of Vegan's own
+  remaining gap (same tutorial geometry) -- Vegan still needs the 7 fruit positions + gap room on
+  top of it.
+- **Fishtank:** the user simplified "unique spawn locations" to "distinct Hazer instances,"
+  explicitly confirming 2 Hazers grabbed from the same room still count as 2 of the 7. Implemented
+  as a plain snapshot check (does the current room have water and 7+ live Hazers), the same shape
+  Safari/Elder already use.
+
+**47 of 50 now implemented.** Only Vegan, Broadcast, and Saint remain -- Vegan needs 2 more concrete
+facts (fruit positions + gap room), Broadcast still has zero technical foothold, Saint is still
+genuinely underspecified. Still unbuilt/untested in this container.

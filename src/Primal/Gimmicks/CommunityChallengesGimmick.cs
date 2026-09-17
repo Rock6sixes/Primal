@@ -555,6 +555,9 @@ namespace Primal.Gimmicks
             new HeistTracker(),
             new TriplopiaTracker(),
             new OutlawTracker(),
+            new JourneyTracker(),
+            new VisitorTracker(),
+            new FishtankTracker(),
         };
 
         private static bool _registered;

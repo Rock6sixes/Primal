@@ -3044,4 +3044,186 @@ namespace Primal.Gimmicks
             OutlawTracker.CheckScoreScreen(__instance);
         }
     }
+
+    /// <summary>Added 2026-09-17, room IDs confirmed by the user: "Reach the Depths from the
+    /// highest shelter in Five Pebbles in one cycle" -- the highest shelter is SS_S04, the Depths
+    /// entry room is SB_E05 (already established by DevoteeTracker). Closest existing analog is
+    /// actually DevoteeTracker's own HomeShelter/DepthsReached shape, not UTurnTracker as originally
+    /// guessed in the doc -- Journey is a one-way "started this cycle at shelter X, reach checkpoint
+    /// Y before the cycle ends" check, with no round trip and no time limit, so
+    /// SurvivorCheckpointRun's loop-timing machinery (built for U-Turn/Circuit) doesn't apply here.
+    /// "Started this cycle at the highest shelter" is read off the hibernation that ends the
+    /// PREVIOUS cycle: hibernating in SS_S04 arms the NEXT cycle's watch for SB_E05, mirroring
+    /// exactly how DevoteeTracker's own HomeShelter locks in off OnSuccessfulHibernation. Persists
+    /// across cycles until either Depths is reached or a hibernation happens somewhere else
+    /// (disarming it) -- matching "on any cycle" wording (no CSV cycle-number requirement, unlike
+    /// e.g. Criminal's explicit "starting cycle").</summary>
+    internal sealed class JourneyTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Journey");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string HighestFivePebblesShelter = "SS_S04";
+        private const string DepthsRoom = "SB_E05";
+
+        // Per characterID -- true once a cycle has begun (via hibernation) at the highest shelter,
+        // awaiting Depths this same cycle.
+        private static readonly HashSet<string> _armed = new HashSet<string>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                string shelter = SurvivorShelterContents.ShelterRoomFor(player)?.name;
+                if (shelter == HighestFivePebblesShelter)
+                {
+                    _armed.Add(characterID);
+                }
+                else
+                {
+                    _armed.Remove(characterID);
+                }
+            };
+
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || !_armed.Contains(characterID))
+                {
+                    return;
+                }
+
+                if (roomName == DepthsRoom)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                    _armed.Remove(characterID);
+                }
+            };
+
+            SurvivorEvents.OnCycleFailed += (game, player, eventCharacterID) =>
+            {
+                if (eventCharacterID != null)
+                {
+                    _armed.Remove(eventCharacterID);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-17, per the user's own confirmation and a follow-up decompilation
+    /// pass: "After leaving the tutorial area, re-enter and return to the platform you first spawn
+    /// on before the rain starts, on any cycle." The user identified the spawn room as SU_C04 and
+    /// asked for more on it -- decompiling turned up the full picture: SU_C04 is vanilla's own
+    /// canonical story-mode starting den for every character except Hunter (LF_H01) and MSC's
+    /// Sofanthiel (SH_E01) (SaveState.GetStoryDenPosition's own fallback case), and it hosts a
+    /// dedicated startup script (RoomSpecificScript.SU_C04StartUp) that pushes the player rightward
+    /// and tracks when they "stand up" -- the literal "out of control, moving out of the top-left
+    /// corner" intro sequence the user described. Even better, vanilla defines the WHOLE tutorial
+    /// area's own room list directly: OverseerAbstractAI.DefineTutorialRooms's vanilla (non-MMF)
+    /// branch is exactly `{ "SU_C04", "SU_A41", "SU_A42", "SU_A43", "SU_A44", "SU_A22" }` -- the
+    /// MMF-only 2 extra gate rooms are skipped since MSC/MMF must be disabled for every one of
+    /// these challenges anyway (community_challenges_source.csv's own header note). "Left the
+    /// tutorial area" is checked as "entered a room outside that 6-room list" (Outskirts, SU, is a
+    /// much bigger region than just these 6 tutorial rooms, so this is a real, meaningful
+    /// boundary, not just "left SU entirely"). Persists across cycles ("on any cycle" -- no
+    /// per-cycle reset), matching Journey's own "on any cycle" treatment above.</summary>
+    internal sealed class VisitorTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Visitor");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const string SpawnRoom = "SU_C04";
+
+        private static readonly HashSet<string> TutorialRooms = new HashSet<string>
+        {
+            "SU_C04", "SU_A41", "SU_A42", "SU_A43", "SU_A44", "SU_A22",
+        };
+
+        // Per characterID -- has this character ever entered a room outside the tutorial area
+        // since this tracker started watching.
+        private static readonly HashSet<string> _hasLeftTutorial = new HashSet<string>();
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID) || roomName == null)
+                {
+                    return;
+                }
+
+                if (!TutorialRooms.Contains(roomName))
+                {
+                    _hasLeftTutorial.Add(characterID);
+                    return;
+                }
+
+                if (roomName == SpawnRoom && _hasLeftTutorial.Contains(characterID))
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+        }
+    }
+
+    /// <summary>Added 2026-09-17, per the user's own clarification: "Bring 7 Hazers from unique
+    /// spawn locations to the same body of water, alive." Rather than needing a Hazer den map (the
+    /// original blocker), the user confirmed distinct Hazer INSTANCES are the right proxy for
+    /// "unique spawn locations" -- explicitly including the case of grabbing 2 Hazers from the same
+    /// room and bringing both, which still counts as 2 of the 7 (no per-origin-room dedup).
+    /// Checked as a plain snapshot (the same "N creatures alive together in one room" shape
+    /// Safari/Elder already use) on every room arrival: does the player's CURRENT room have water
+    /// (Room.water, confirmed public) and contain 7+ live Hazers (CreatureTemplate.Type.Hazer)?
+    /// Doesn't require a single trip -- if Hazers accumulate in one water room across several
+    /// separate carries until 7 are alive there together, that satisfies "brought 7 ... to the same
+    /// body of water" exactly as well as one trip with all 7 in hand.</summary>
+    internal sealed class FishtankTracker : ChallengeTracker
+    {
+        private static readonly ChallengeEntry _entry = CommunityChallengesRegistry.Find("Fishtank");
+        public override ChallengeEntry Challenge => _entry;
+
+        private const int RequiredHazers = 7;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                Room room = player.room;
+                if (room == null || !room.water)
+                {
+                    return;
+                }
+
+                List<AbstractWorldEntity> entities = room.abstractRoom?.entities;
+                if (entities == null)
+                {
+                    return;
+                }
+
+                int liveHazers = 0;
+                foreach (AbstractWorldEntity entity in entities)
+                {
+                    if (entity is AbstractCreature creature && !creature.state.dead
+                        && creature.creatureTemplate?.type == CreatureTemplate.Type.Hazer)
+                    {
+                        liveHazers++;
+                    }
+                }
+
+                if (liveHazers >= RequiredHazers)
+                {
+                    ReportCompletion(player, characterID, isLive: true);
+                }
+            };
+        }
+    }
 }

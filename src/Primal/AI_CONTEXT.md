@@ -5256,6 +5256,57 @@ ScoreKeeper`) this mod has never compiled against before, so treat it with a bit
 the other three (which all reuse already-proven mechanisms) until it's actually been through a
 build.
 
+## 2026-09-17 (later): Journey, Visitor, Fishtank implemented off user-supplied room IDs — 47 of 50
+
+The user supplied the exact room IDs this doc's own "Broadcast and the other 6" section above said
+were unreachable from source alone, plus one clarification each on the actual completion shape:
+
+- **Journey — "Reach the Depths from the highest shelter in Five Pebbles in one cycle."** Highest
+  shelter: `SS_S04`. Depths entry: `SB_E05` (already established by DevoteeTracker). **Correction to
+  this doc's own earlier guess:** the "Final status" section above said this would be "mechanically
+  identical to UTurnTracker" — it isn't. UTurnTracker is a round-trip-within-a-time-limit shape
+  (`SurvivorCheckpointRun`); Journey is one-way with no time limit, so it's actually much closer to
+  DevoteeTracker's own HomeShelter/DepthsReached shape: hibernating at `SS_S04` arms the *next*
+  cycle's watch for `SB_E05`, and hibernating anywhere else disarms it. Persists across cycles
+  ("on any cycle" — no per-cycle reset needed).
+- **Visitor — "After leaving the tutorial area, re-enter and return to the platform you first spawn
+  on before the rain starts, on any cycle."** The user identified the spawn room (`SU_C04`) and
+  asked for more on it — decompiling turned up the whole picture in one pass: `SU_C04` is vanilla's
+  own canonical story-mode starting den for every character except Hunter (`LF_H01`) and MSC's
+  Sofanthiel (`SH_E01`) (`SaveState.GetStoryDenPosition`'s own fallback case), and it hosts a
+  dedicated startup script (`RoomSpecificScript.SU_C04StartUp`, tracking `pushRight`/`stoodUp`) that
+  IS the literal "out of control, moving out of the top-left corner" intro sequence the user
+  described. Even better, vanilla defines the WHOLE tutorial area's own room list directly —
+  `OverseerAbstractAI.DefineTutorialRooms`'s vanilla (non-MMF) branch: `SU_C04, SU_A41, SU_A42,
+  SU_A43, SU_A44, SU_A22` (the MMF-only 2 extra gate rooms are skipped, since MSC/MMF must be
+  disabled for every one of these challenges per the CSV's own header note) — exactly the "left the
+  tutorial area" boundary this challenge needed, found by chasing the user's one room ID rather than
+  needing a second question. "Left the tutorial area" = entered any room outside that 6-room list
+  (Outskirts as a whole is much bigger than just these 6, so this is a real boundary, not "left SU
+  entirely"). This closes most of Vegan's own remaining gap too (same tutorial-area geometry) — see
+  Outstanding items below for what Vegan still needs on top of it (the 7 fruit positions + gap
+  room).
+- **Fishtank — "Bring 7 Hazers from unique spawn locations to the same body of water, alive."** The
+  user resolved the original blocker (a Hazer den map) with a simplification instead: distinct
+  Hazer INSTANCES stand in for "unique spawn locations," explicitly including grabbing 2 Hazers from
+  the SAME room and bringing both — that still counts as 2 of the 7, no per-origin-room dedup at
+  all. Checked as a plain snapshot (the same "N creatures alive together in one room" shape
+  Safari/Elder already established) on every room arrival: does the player's current room have
+  water (`Room.water`, a plain public field) and contain 7+ live Hazers
+  (`CreatureTemplate.Type.Hazer`)? Doesn't require one single trip — Hazers accumulating in one
+  water room across several separate carries until 7 are alive there together satisfies this exactly
+  as well as one trip with all 7 in hand.
+
+**Takeaway reinforcing the user's own new standing instruction from the Heist correction earlier:**
+all three of these went from "blocked, needs a map/room ID no source-search could ever find" to
+"fully implemented" the moment the exact room ID was asked for directly — confirming again that
+these room-ID gaps are a one-question fix, not a research problem. **47 of 50 challenges now have a
+tracker registered.** Remaining 3: Vegan (needs the 7 fruit positions + the charge-hop gap room,
+now that the tutorial geometry itself is known), Broadcast (still zero technical foothold at all,
+independent of room IDs), Saint (still genuinely underspecified by its own rules). None of today's
+7 new trackers (Elder/Heist/Triplopia/Outlaw/Journey/Visitor/Fishtank) have been built or tested
+in-game — no `.NET` toolchain in this container this session either.
+
 ## History — why the architecture is what it is now (don't re-litigate these)
 
 1. **First design (discarded):** 9 separate SlugBase-defined "alt" characters (clones of the
