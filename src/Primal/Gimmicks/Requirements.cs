@@ -3094,8 +3094,9 @@ namespace Primal.Gimmicks
             // Shared restriction -- any credited kill, ever, permanently disqualifies. Ungated
             // beyond PrimalKillTracker's own PrimalSlot+real-character resolution: StateFor is
             // harmless to touch for a character that never has Saint enabled at all, since nothing
-            // ever reads it without going through TryGetEnabledCharacter first.
-            PrimalKillTracker.OnKillCredited += (characterID) =>
+            // ever reads it without going through TryGetEnabledCharacter first. Ignores the Player
+            // parameter OnKillCredited gained later the same day -- this check never needed one.
+            PrimalKillTracker.OnKillCredited += (characterID, _) =>
             {
                 StateFor(characterID).Violated = true;
             };
@@ -3311,57 +3312,42 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>
-    /// Added 2026-09-17: four requirements requested directly by character, each tied to that one
-    /// specific character's own story mechanics rather than being a generic, any-character
-    /// condition -- unlike the 50 curated Community Challenges above, these were never part of
-    /// that community list. Each gates on `characterID == &lt;SlugcatStatsName&gt;.value` inside its
-    /// own detection code, the same "check the resolved character against one specific name"
-    /// pattern OutlawRequirement already established for its own Hunter-only completion --
-    /// TryGetEnabledCharacter's own gate only confirms the requirement is enabled and the player is
-    /// on a reserved slot, not which real character it resolved to, so this second check is still
-    /// needed the same way it was there. (Nothing stops a player from enabling one of these for a
-    /// character it doesn't apply to via the Add Requirement picker -- it will simply never
-    /// complete, exactly the same accepted behavior OutlawRequirement already has among the 50
-    /// above.)
+    /// 2026-09-17 (UI redesign round 4): split off from the original "Artificer -- Kill List &amp;
+    /// Ascend" requirement (added the same day as the three character-tied ones below --
+    /// GourmandFoodQuestRequirement/SpearmasterFastEndingRequirement/InvHighestPointRequirement --
+    /// but the only one of the four that didn't survive intact). Its "ascend" half is dropped
+    /// entirely: the void-sea/ascension ending is already tracked, non-character-specifically, by
+    /// AscensionRequirement (one of the 50 curated Community Challenges above), which reads the
+    /// exact same standardVoidSea flag, so re-checking it a second time here would just duplicate
+    /// that Requirement. What's left, "kill every Kill List species," is made fully general (no
+    /// HomeCharacter, no per-character gate) instead of staying tied to Artificer -- per direct
+    /// request for "a more generalized, not slugcat specific" version. Checked live, the instant
+    /// the last missing species is credited, via PrimalKillTracker.OnKillCredited -- which gained a
+    /// Player parameter alongside its existing characterID one specifically for this (see that
+    /// class's own header comment) -- rather than only at game end; unlike the ascend-gated
+    /// original, there's no natural "the run is over" moment left to defer the check to.
     /// </summary>
-    internal sealed class ArtificerKillAscendRequirement : Requirement
+    internal sealed class UniqueKillsRequirement : Requirement
     {
-        public override string ID => "ArtificerKillAscend";
-        public override string DisplayName => "Artificer -- Kill List & Ascend";
-        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Artificer;
+        public override string ID => "UniqueKills";
+        public override string DisplayName => "Unique Kills";
 
         public override void Register()
         {
-            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            PrimalKillTracker.OnKillCredited += (_, player) =>
             {
-                // standardVoidSea == true is the separate void-sea/ascension ending -- "ascend" --
-                // see OnGameEnding's own doc comment (AscensionRequirement above reads the same
-                // flag the same way).
-                if (!standardVoidSea || game?.Players == null)
+                if (!TryGetEnabledCharacter(player, out string characterID))
                 {
                     return;
                 }
 
-                DeathPersistentSaveData saveData = game.GetStorySession?.saveState?.deathPersistentSaveData;
-                if (saveData == null)
+                DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(GimmickGate.GameFor(player));
+                if (saveData == null || !HasKilledEveryKillListSpecies(saveData, characterID))
                 {
                     return;
                 }
 
-                foreach (AbstractCreature abstractPlayer in game.Players)
-                {
-                    if (!(abstractPlayer?.realizedCreature is Player player)
-                        || !TryGetEnabledCharacter(player, out string characterID)
-                        || characterID != MoreSlugcatsEnums.SlugcatStatsName.Artificer.value)
-                    {
-                        continue;
-                    }
-
-                    if (HasKilledEveryKillListSpecies(saveData, characterID))
-                    {
-                        ReportCompletion(player, characterID, isLive: false);
-                    }
-                }
+                ReportCompletion(player, characterID, isLive: true);
             };
         }
 
@@ -3369,7 +3355,8 @@ namespace Primal.Gimmicks
         // same 55-species roster CreatureKillListGimmick.cs's own cycle-end popup checks off,
         // reusing PrimalKillTracker's own global, permanent (ever-on-this-save) kill records
         // rather than any Kill-List-gimmick-specific state (Kill List's own assignment/UI is
-        // irrelevant here, same as Ranger/Spearfisher above already established).
+        // irrelevant here, same as Ranger/Spearfisher and the original ArtificerKillAscendRequirement
+        // this was split from already established).
         private static bool HasKilledEveryKillListSpecies(DeathPersistentSaveData saveData, string characterID)
         {
             foreach (KillListEntry entry in KillListRegistry.All)
@@ -3397,7 +3384,10 @@ namespace Primal.Gimmicks
     internal sealed class GourmandFoodQuestRequirement : Requirement
     {
         public override string ID => "GourmandFoodQuest";
-        public override string DisplayName => "Gourmand -- Food Quest & Save";
+        // 2026-09-17 (UI redesign round 4): dropped the "Gourmand -- " prefix per direct request --
+        // General-category requirement rows no longer print the tied character's name, since the
+        // row's own icon+color already carry that (matching how gimmick rows have always worked).
+        public override string DisplayName => "Food Quest & Save";
         public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Gourmand;
 
         public override void Register()
@@ -3431,7 +3421,9 @@ namespace Primal.Gimmicks
     internal sealed class SpearmasterFastEndingRequirement : Requirement
     {
         public override string ID => "SpearmasterFastEnding";
-        public override string DisplayName => "Spearmaster -- Fast Ending (Under 1 Hour)";
+        // 2026-09-17 (UI redesign round 4): renamed per direct request, and dropped the
+        // "Spearmaster -- " prefix (see GourmandFoodQuestRequirement's own comment on why).
+        public override string DisplayName => "Quick Broadcast";
         public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Spear;
 
         private const int TimeLimitTicks = 60 * 60 * 40;
@@ -3501,7 +3493,9 @@ namespace Primal.Gimmicks
         // to read the instance property from) -- see this class's own doc comment.
         internal const string RequirementID = "InvHighestPoint";
         public override string ID => RequirementID;
-        public override string DisplayName => "Inv -- Highest Screen Triple Carry";
+        // 2026-09-17 (UI redesign round 4): renamed per direct request, and dropped the
+        // "Inv -- " prefix (see GourmandFoodQuestRequirement's own comment on why).
+        public override string DisplayName => "Highest Point";
         public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel;
 
         internal const string TargetRoom = "LC_highestpoint";

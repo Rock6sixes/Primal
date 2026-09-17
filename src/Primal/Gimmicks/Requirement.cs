@@ -66,9 +66,11 @@ namespace Primal.Gimmicks
         public virtual string DisplayName => ID;
 
         /// <summary>Optional. The real vanilla character this requirement is thematically tied to
-        /// -- added 2026-09-17 for the four character-specific requirements (ArtificerKillAscend,
-        /// GourmandFoodQuest, SpearmasterFastEnding, InvHighestPoint -- see their own shared header
-        /// comment in Requirements.cs), mirroring GimmickDef.HomeCharacter exactly. PrimalOptions
+        /// -- added 2026-09-17 for three character-specific requirements (GourmandFoodQuest,
+        /// SpearmasterFastEnding, InvHighestPoint -- see their own doc comments in Requirements.cs;
+        /// a fourth, ArtificerKillAscend, was split apart later the same day into the fully general
+        /// UniqueKillsRequirement, which leaves this null), mirroring GimmickDef.HomeCharacter
+        /// exactly. PrimalOptions
         /// uses it to color/icon-tag the requirement in the Requirements column and Add Requirement
         /// picker, the same "Kill_Slugcat" icon tinted via PlayerGraphics.DefaultSlugcatColor
         /// GimmickDef's own rows already use (there is no distinct icon SHAPE per playable
@@ -172,13 +174,15 @@ namespace Primal.Gimmicks
             new SaintRequirement(),
             new BroadcastRequirement(),
 
-            // Character-specific requirements (2026-09-17) -- see their own shared header comment
-            // in Requirements.cs for why these are gated to one specific character each, unlike
-            // every entry above.
-            new ArtificerKillAscendRequirement(),
+            // Character-specific requirements (2026-09-17) -- gated to one specific character each,
+            // unlike every entry above (see each one's own doc comment in Requirements.cs).
             new GourmandFoodQuestRequirement(),
             new SpearmasterFastEndingRequirement(),
             new InvHighestPointRequirement(),
+
+            // General, non-character-specific (2026-09-17, UI redesign round 4) -- split off from
+            // the character-specific group above; see UniqueKillsRequirement's own doc comment.
+            new UniqueKillsRequirement(),
         };
 
         private static bool _registered;

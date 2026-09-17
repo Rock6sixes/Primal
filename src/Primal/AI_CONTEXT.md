@@ -6191,6 +6191,76 @@ area (at the cost of the Change Mode button's own width) if it reads badly in pr
 was reasoned from the decompiled UI toolkit and existing layout constants, not from an in-game
 screenshot of the new layout -- **not yet built-and-seen in-game**, only compiled clean.
 
+## 2026-09-17 (same day, later still): Add-picker category tabs, general-requirement renames, UniqueKills split off from Artificer, and a second scrollbar-overlap fix
+
+Requested directly, from two annotated screenshots of round 3's in-game look (a working "Add
+Gimmick" picker, and an "Add Requirement" picker whose slide bar was visibly drawn over its own 4th
+column): (1) split the AddGimmick picker into General (no tied character) / Specialized (tied)
+category tabs; (2) split AddRequirement into General / Community Challenges tabs; (3) stop printing
+a character's name in a General requirement's own title; (4) split the Artificer combo requirement
+into a "Kill List" half and a "more generalized, not slugcat specific" Ascend half; (5) three
+renames (Inv -> "Highest Point", Spearmaster -> "Quick Broadcast", Artificer -> "Unique Kills"); (6)
+actually fix the scrollbar overlap this time.
+
+**Category tabs, derived from existing data, no new fields.** Both categorizations turned out to
+already be fully computable from what `GimmickDef`/`Requirement` already expose: "General" for a
+gimmick means `HomeCharacter == null` (Kill List, No Passages -- exactly the two examples the
+request itself gave); "General" for a requirement means it's NOT one of the 50 curated IDs in
+`CommunityChallengesRoster` (the same `.Contains` check `GetRequirementIcon` already uses for its
+own white/slugpup tag). `RenderAddGimmickModal`/`RenderAddRequirementModal` each gained two new
+full-width `OpSimpleButton`s (`PickerCategoryTabWidth = (ModalListViewportWidth -
+PickerCategoryTabGap) / 2`) between the "< Back"/title row and the grid, filtering `candidates`
+before the grid is built; clicking a tab sets a new per-modal enum field
+(`_gimmickPickerCategory`/`_requirementPickerCategory`, reset to General every time "+ Add" opens
+the picker fresh) and re-renders the whole modal, the same "click -> rebuild the detail area"
+interaction every other control on this screen already uses. The active tab is tinted white
+(`colorEdge = Color.white`) so it's visually obvious which one is showing. `PickerListViewportTop`/
+`Height` (new) shrink the grid's own viewport to make room for the tab row above it --
+`ModalListViewportTop`/`Height` are unchanged and still used by the (tab-less) GimmickSettings modal.
+
+**General requirements no longer print the tied character's name, and three got renamed.** Per
+direct request, dropped the "X -- " prefix from the three still-character-tied requirements'
+`DisplayName`s (their row's own icon+color already carries that, matching how gimmick rows have
+always worked) and renamed them at the same time: `GourmandFoodQuestRequirement` -> "Food Quest &
+Save" (name unchanged, just de-prefixed), `SpearmasterFastEndingRequirement` -> "Quick Broadcast",
+`InvHighestPointRequirement` -> "Highest Point".
+
+**ArtificerKillAscendRequirement split apart; its kill-tracking half is now UniqueKillsRequirement,
+fully general.** Per direct request ("not slugcat specific... kill list and... ascend" as two
+separate things): the "ascend" half is dropped outright, not reimplemented anywhere -- it was always
+a pure duplicate of the already-existing, already-general `AscensionRequirement` (one of the 50
+curated Community Challenges), which reads the exact same `standardVoidSea` flag. What's left, "kill
+every Kill List species" (`HasKilledEveryKillListSpecies`, unchanged logic, moved verbatim), is now
+`UniqueKillsRequirement` -- no `HomeCharacter`, no per-character gate, checked against
+`TryGetEnabledCharacter` alone so it can be enabled for, and completed by, any character. Since it's
+no longer gated to a game-ending event, it needed a genuinely new trigger: checked live the instant
+the last missing species is credited, via `PrimalKillTracker.OnKillCredited`, which **gained a
+`Player` parameter** (`System.Action<string, Player>`, was `System.Action<string>`) specifically for
+this -- `PrimalKillDieHook`'s own Postfix already resolves a `Player` right before raising the event,
+it just wasn't threaded through before. The one existing subscriber (`SaintRequirement`, "any kill
+disqualifies") was updated to ignore the new parameter (`(characterID, _) => ...`) rather than
+needing it. Registered as a new "general" entry in `RequirementRegistry.All`, separate from the
+three still-character-specific ones above it (with a comment explaining the split, so a future
+reader doesn't go looking for a fourth character-specific class that no longer exists).
+
+**Scrollbar overlap, round 2 -- the round-3 fix didn't actually apply to the Add*Modal pickers.**
+Re-diagnosed from the screenshot rather than assumed fixed: `ModalListViewportWidth = ContentWidth -
+40f`'s own comment claimed it already left "clearance... for the scroll box's own slide bar," but
+that's not what it does -- it only makes the scroll box itself narrower than the full screen width;
+`PickerColumnWidth` was still sized to fill that ENTIRE width, so the last column's buttons landed
+exactly on top of where `OpScrollBox` draws its slide bar (`size.x - 20f`, same decompiled fact
+`ColumnScrollbarClearance` already relied on). Fixed the same way: a new `PickerScrollbarClearance`
+subtracted before the per-column math (`PickerContentWidth = ModalListViewportWidth -
+PickerScrollbarClearance`), leaving the OpScrollBox's own width/backdrop untouched. **Also bumped
+both `ColumnScrollbarClearance` and this new `PickerScrollbarClearance` from 24f to 30f** -- the
+math at 24f left only a ~4px gap before the slide bar's own confirmed 20px width, uncomfortably
+thin for one more rounding adjustment somewhere else in either row's layout to eat into; 30f leaves
+a more comfortable margin.
+
+**Not yet built-and-seen in-game** -- compiled clean and redeployed, but this round's actual pixel
+layout (especially "Community Challenges" fitting in a ~265px-wide tab button, and whether 30f is
+enough clearance in practice, not just on paper) hasn't been looked at yet.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

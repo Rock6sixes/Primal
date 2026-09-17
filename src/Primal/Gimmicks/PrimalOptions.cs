@@ -165,6 +165,24 @@ namespace Primal.Gimmicks
             AddRequirement,
         }
 
+        // 2026-09-17 (UI redesign round 4): which category tab the AddGimmick/AddRequirement
+        // pickers currently show. "General" for a gimmick means GimmickDef.HomeCharacter == null
+        // (not tied to any one character, e.g. Kill List/No Passages); "Specialized" means it has
+        // one. "General" for a requirement means it's NOT one of the 50 curated Community
+        // Challenges (CommunityChallengesRoster); "CommunityChallenges" means it is. Both are pure
+        // filters over existing data, not a new field on GimmickDef/Requirement.
+        private enum GimmickPickerCategory
+        {
+            General,
+            Specialized,
+        }
+
+        private enum RequirementPickerCategory
+        {
+            General,
+            CommunityChallenges,
+        }
+
         private const float TitleY = 570f;
 
         // Remix's OptionInterface screen is a fixed ~600x600 coordinate space (confirmed by
@@ -246,7 +264,12 @@ namespace Primal.Gimmicks
         // remove button sitting flush against, and effectively under, that slide bar. Reserving this
         // clearance up front keeps every row's rightmost element short of the column's true right
         // edge, same as ModalListViewportWidth already does for the wider modal scroll boxes.
-        private const float ColumnScrollbarClearance = 24f;
+        // 30f, not a round 20f matching the slide bar's own width exactly (confirmed via
+        // decompiling OpScrollBox: with the (pos, size, ...) constructor this codebase always uses,
+        // _isTab is false, so the bar sits at exactly `size.x - 20f` to `size.x`) -- a small extra
+        // margin so this doesn't degrade to a paper-thin few-pixel gap from one more rounding
+        // adjustment somewhere in this row's own math.
+        private const float ColumnScrollbarClearance = 30f;
         private const float ColumnNameButtonW = ColumnWidth - ColumnScrollbarClearance - RowIconSize - RowIconGap - ColumnRemoveButtonW - ColumnRowGap;
 
         // ---- the GimmickSettings/AddGimmick/AddRequirement "modal" overlays --------------------
@@ -257,15 +280,42 @@ namespace Primal.Gimmicks
         private const float ModalListViewportTop = ModalTop - ModalHeaderHeight;
         private const float ModalListViewportBottom = ModalBottom;
         private const float ModalListViewportHeight = ModalListViewportTop - ModalListViewportBottom;
-        // Narrower than the full content width to leave clearance at the right edge for the scroll
-        // box's own slide bar -- same reasoning the old single-column settings viewport used.
+        // Narrower than the full content width so the scroll box itself doesn't run edge-to-edge --
+        // NOT the same thing as leaving room for its own slide bar (that's PickerScrollbarClearance
+        // below; this margin alone was not enough, see that constant's own comment).
         private const float ModalListViewportWidth = ContentWidth - 40f;
         private const float ModalContentTopPadding = 20f;
 
+        // 2026-09-17 (UI redesign round 4, per direct request -- reported with a screenshot showing
+        // the Add Requirement picker's own slide bar drawn directly on top of its 4th column):
+        // same root cause as ColumnScrollbarClearance above -- PickerColumnWidth used to be sized to
+        // fill the ENTIRE ModalListViewportWidth (the scroll box's own width), so the last column's
+        // buttons landed exactly where OpScrollBox draws its slide bar (`size.x - 20f`, confirmed via
+        // decompilation). Subtracted here, before the per-column math, rather than shrinking
+        // ModalListViewportWidth itself (which also sizes the OpScrollBox's own visual frame/
+        // backdrop and shouldn't change).
+        // Same 30f-not-20f reasoning as ColumnScrollbarClearance above.
+        private const float PickerScrollbarClearance = 30f;
+        private const float PickerContentWidth = ModalListViewportWidth - PickerScrollbarClearance;
+
         private const int PickerColumns = 4;
         private const float PickerColumnGap = 10f;
-        private const float PickerColumnWidth = (ModalListViewportWidth - (PickerColumns - 1) * PickerColumnGap) / PickerColumns;
+        private const float PickerColumnWidth = (PickerContentWidth - (PickerColumns - 1) * PickerColumnGap) / PickerColumns;
         private const float PickerRowHeight = 40f;
+
+        // ---- category tabs atop the AddGimmick/AddRequirement pickers (UI redesign round 4) -----
+        // Two full-width toggle buttons (General/Specialized for gimmicks, General/Community
+        // Challenges for requirements) sit between the "< Back"/title row and the picker grid,
+        // filtering which not-yet-assigned entries the grid below shows. Both categorizations are
+        // derived from data the picker already has (GimmickDef.HomeCharacter presence, and
+        // CommunityChallengesRoster membership) -- no new fields needed on GimmickDef/Requirement.
+        private const float PickerCategoryTabHeight = 30f;
+        private const float PickerCategoryTabGap = 10f;
+        private const float PickerCategoryTabY = ModalListViewportTop - PickerCategoryTabHeight;
+        private const float PickerCategoryTabWidth = (ModalListViewportWidth - PickerCategoryTabGap) / 2f;
+        // The grid's own viewport shrinks to make room for the tab row above it.
+        private const float PickerListViewportTop = PickerCategoryTabY - PickerCategoryTabGap;
+        private const float PickerListViewportHeight = PickerListViewportTop - ModalListViewportBottom;
 
         // ---- the mode-selection screen (shown before ScreenMode has ever been chosen) ----------
         private const float ModeAuthorY = TitleY - 26f;
@@ -307,6 +357,13 @@ namespace Primal.Gimmicks
         private readonly List<UIelement> _detailItems = new List<UIelement>();
 
         private DetailView _detailView = DetailView.Split;
+
+        // Reset to General each time a picker is (re)opened -- see OpenAddGimmickPicker/
+        // OpenAddRequirementPicker -- rather than remembered across sessions; a fresh "+ Add" click
+        // starting on the same tab it always has is simpler to reason about than remembering the
+        // last-viewed category from a previous, possibly long-past, add.
+        private GimmickPickerCategory _gimmickPickerCategory = GimmickPickerCategory.General;
+        private RequirementPickerCategory _requirementPickerCategory = RequirementPickerCategory.General;
         private string _charID;
         private string _gimmickID;
 
@@ -1053,6 +1110,7 @@ namespace Primal.Gimmicks
         private void OpenAddGimmickPicker(string characterID)
         {
             _charID = characterID;
+            _gimmickPickerCategory = GimmickPickerCategory.General;
             _detailView = DetailView.AddGimmick;
             RenderDetail();
         }
@@ -1060,6 +1118,7 @@ namespace Primal.Gimmicks
         private void OpenAddRequirementPicker(string characterID)
         {
             _charID = characterID;
+            _requirementPickerCategory = RequirementPickerCategory.General;
             _detailView = DetailView.AddRequirement;
             RenderDetail();
         }
@@ -1396,7 +1455,12 @@ namespace Primal.Gimmicks
             var candidates = new List<GimmickDef>();
             foreach (GimmickDef gimmick in GimmickRegistry.All)
             {
-                if (!IsEnabledFor(character.ID, gimmick.ID))
+                if (IsEnabledFor(character.ID, gimmick.ID))
+                {
+                    continue;
+                }
+                bool isGeneral = gimmick.HomeCharacter == null;
+                if (isGeneral == (_gimmickPickerCategory == GimmickPickerCategory.General))
                 {
                     candidates.Add(gimmick);
                 }
@@ -1411,9 +1475,38 @@ namespace Primal.Gimmicks
 
             items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, "Add a gimmick to " + character.DisplayName + ":", true));
 
+            // Category tabs (2026-09-17, UI redesign round 4, per direct request): General (no tied
+            // HomeCharacter, e.g. Kill List/No Passages) vs. Specialized (tied to one character's
+            // own mechanics, e.g. Misery/Chains) -- filters `candidates` above. Clicking a tab
+            // re-renders this whole modal, the same "click -> rebuild the detail area" interaction
+            // every other control on this screen already uses.
+            OpSimpleButton generalTab = new OpSimpleButton(new Vector2(ContentLeft, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
+            if (_gimmickPickerCategory == GimmickPickerCategory.General)
+            {
+                generalTab.colorEdge = Color.white;
+            }
+            generalTab.OnClick += _ =>
+            {
+                _gimmickPickerCategory = GimmickPickerCategory.General;
+                RenderDetail();
+            };
+            items.Add(generalTab);
+
+            OpSimpleButton specializedTab = new OpSimpleButton(new Vector2(ContentLeft + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Specialized");
+            if (_gimmickPickerCategory == GimmickPickerCategory.Specialized)
+            {
+                specializedTab.colorEdge = Color.white;
+            }
+            specializedTab.OnClick += _ =>
+            {
+                _gimmickPickerCategory = GimmickPickerCategory.Specialized;
+                RenderDetail();
+            };
+            items.Add(specializedTab);
+
             if (candidates.Count == 0)
             {
-                items.Add(new OpLabel(ContentLeft + 10f, ModalListViewportTop, "All gimmicks are already assigned to this character.", false));
+                items.Add(new OpLabel(ContentLeft + 10f, PickerListViewportTop, "No gimmicks in this category are available to add.", false));
                 ShowDetail(items);
                 return;
             }
@@ -1424,11 +1517,11 @@ namespace Primal.Gimmicks
             // ("Threat Slowdown") at 4-column width is unverified in-game as of this pass** -- same
             // honest caveat this file's settings viewports already carry elsewhere.
             int rows = Mathf.CeilToInt(candidates.Count / (float)PickerColumns);
-            float contentHeight = Mathf.Max(ModalListViewportHeight, rows * PickerRowHeight);
+            float contentHeight = Mathf.Max(PickerListViewportHeight, rows * PickerRowHeight);
 
             OpScrollBox scrollBox = new OpScrollBox(
                 new Vector2(ContentLeft, ModalListViewportBottom),
-                new Vector2(ModalListViewportWidth, ModalListViewportHeight),
+                new Vector2(ModalListViewportWidth, PickerListViewportHeight),
                 contentHeight,
                 false,  // horizontal
                 false,  // hasBack
@@ -1494,7 +1587,12 @@ namespace Primal.Gimmicks
             var candidates = new List<Requirement>();
             foreach (Requirement requirement in RequirementRegistry.All)
             {
-                if (!IsEnabledFor(character.ID, requirement.ID))
+                if (IsEnabledFor(character.ID, requirement.ID))
+                {
+                    continue;
+                }
+                bool isCommunityChallenge = CommunityChallengesRoster.Contains(requirement.ID);
+                if (isCommunityChallenge == (_requirementPickerCategory == RequirementPickerCategory.CommunityChallenges))
                 {
                     candidates.Add(requirement);
                 }
@@ -1509,9 +1607,38 @@ namespace Primal.Gimmicks
 
             items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, "Add a requirement to " + character.DisplayName + ":", true));
 
+            // Category tabs (2026-09-17, UI redesign round 4, per direct request): General (every
+            // registered requirement NOT in the 50 curated Community Challenges, e.g. the
+            // character-specific ones and Unique Kills) vs. Community Challenges (CommunityChallengesRoster's
+            // own 50 IDs) -- filters `candidates` above, same interaction as RenderAddGimmickModal's
+            // own tabs.
+            OpSimpleButton generalTab = new OpSimpleButton(new Vector2(ContentLeft, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
+            if (_requirementPickerCategory == RequirementPickerCategory.General)
+            {
+                generalTab.colorEdge = Color.white;
+            }
+            generalTab.OnClick += _ =>
+            {
+                _requirementPickerCategory = RequirementPickerCategory.General;
+                RenderDetail();
+            };
+            items.Add(generalTab);
+
+            OpSimpleButton communityTab = new OpSimpleButton(new Vector2(ContentLeft + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Community Challenges");
+            if (_requirementPickerCategory == RequirementPickerCategory.CommunityChallenges)
+            {
+                communityTab.colorEdge = Color.white;
+            }
+            communityTab.OnClick += _ =>
+            {
+                _requirementPickerCategory = RequirementPickerCategory.CommunityChallenges;
+                RenderDetail();
+            };
+            items.Add(communityTab);
+
             if (candidates.Count == 0)
             {
-                items.Add(new OpLabel(ContentLeft + 10f, ModalListViewportTop, "All requirements are already tracked for this character.", false));
+                items.Add(new OpLabel(ContentLeft + 10f, PickerListViewportTop, "No requirements in this category are available to add.", false));
                 ShowDetail(items);
                 return;
             }
@@ -1520,11 +1647,11 @@ namespace Primal.Gimmicks
             // RequirementRegistry.All, so any registered requirement (not just the curated 50
             // Community Challenges ones) is pickable here.
             int rows = Mathf.CeilToInt(candidates.Count / (float)PickerColumns);
-            float contentHeight = Mathf.Max(ModalListViewportHeight, rows * PickerRowHeight);
+            float contentHeight = Mathf.Max(PickerListViewportHeight, rows * PickerRowHeight);
 
             OpScrollBox scrollBox = new OpScrollBox(
                 new Vector2(ContentLeft, ModalListViewportBottom),
-                new Vector2(ModalListViewportWidth, ModalListViewportHeight),
+                new Vector2(ModalListViewportWidth, PickerListViewportHeight),
                 contentHeight,
                 false,  // horizontal
                 false,  // hasBack

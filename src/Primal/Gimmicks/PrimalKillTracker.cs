@@ -203,10 +203,14 @@ namespace Primal.Gimmicks
         /// INSTANT a kill happens (any kill permanently disqualifies that character's current
         /// attempt). Fired from PrimalKillDieHook's own Postfix, right alongside the existing
         /// per-type/per-instance recording it already does -- same raw signal, just also exposed
-        /// as a live event for a consumer that cares about the moment rather than the record.</summary>
-        public static event System.Action<string> OnKillCredited;
+        /// as a live event for a consumer that cares about the moment rather than the record.
+        /// Gained the `Player` parameter later the same day for UniqueKillsRequirement, which needs
+        /// a live Player to report completion through (ReportCompletion) -- PrimalKillDieHook
+        /// already resolves one right before raising this, it just wasn't threaded through before.
+        /// Saint's own subscriber ignores it.</summary>
+        public static event System.Action<string, Player> OnKillCredited;
 
-        internal static void RaiseKillCredited(string characterID) => OnKillCredited?.Invoke(characterID);
+        internal static void RaiseKillCredited(string characterID, Player player) => OnKillCredited?.Invoke(characterID, player);
 
         /// <summary>Merges this character's pending-this-cycle kills into the real, permanent save
         /// data, then clears the pending set. Always resets _lastCommitted for this character
@@ -362,7 +366,7 @@ namespace Primal.Gimmicks
             PrimalKillTracker.Recorded.Add(__instance, null);
             PrimalKillTracker.RecordPendingKill(characterID, type.value);
             PrimalKillTracker.RecordInstanceKill(characterID, __instance.abstractCreature.ID.number);
-            PrimalKillTracker.RaiseKillCredited(characterID);
+            PrimalKillTracker.RaiseKillCredited(characterID, player);
         }
     }
 
