@@ -65,6 +65,19 @@ namespace Primal.Gimmicks
         /// spelling, which isn't valid in a bare identifier-derived config key).</summary>
         public virtual string DisplayName => ID;
 
+        /// <summary>Optional. The real vanilla character this requirement is thematically tied to
+        /// -- added 2026-09-17 for the four character-specific requirements (ArtificerKillAscend,
+        /// GourmandFoodQuest, SpearmasterFastEnding, InvHighestPoint -- see their own shared header
+        /// comment in Requirements.cs), mirroring GimmickDef.HomeCharacter exactly. PrimalOptions
+        /// uses it to color/icon-tag the requirement in the Requirements column and Add Requirement
+        /// picker, the same "Kill_Slugcat" icon tinted via PlayerGraphics.DefaultSlugcatColor
+        /// GimmickDef's own rows already use (there is no distinct icon SHAPE per playable
+        /// character in vanilla's own kill-icon atlas -- only color differs). Null (the default)
+        /// for a requirement with no specific character tie -- the 50 curated Community Challenges
+        /// all leave this null and get their own distinct white/slugpup treatment instead (see
+        /// PrimalOptions.GetRequirementIcon).</summary>
+        public virtual SlugcatStats.Name HomeCharacter => null;
+
         /// <summary>Called once, at mod startup (RequirementRegistry.RegisterAll, called from
         /// RainWorldHooks.Postfix alongside this mod's other one-shot setup steps) -- subscribe to
         /// whatever SurvivorEvents/mechanism(s) this requirement's own detection needs here.</summary>

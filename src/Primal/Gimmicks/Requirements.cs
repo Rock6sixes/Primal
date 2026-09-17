@@ -3328,6 +3328,7 @@ namespace Primal.Gimmicks
     {
         public override string ID => "ArtificerKillAscend";
         public override string DisplayName => "Artificer -- Kill List & Ascend";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Artificer;
 
         public override void Register()
         {
@@ -3397,6 +3398,7 @@ namespace Primal.Gimmicks
     {
         public override string ID => "GourmandFoodQuest";
         public override string DisplayName => "Gourmand -- Food Quest & Save";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Gourmand;
 
         public override void Register()
         {
@@ -3430,6 +3432,7 @@ namespace Primal.Gimmicks
     {
         public override string ID => "SpearmasterFastEnding";
         public override string DisplayName => "Spearmaster -- Fast Ending (Under 1 Hour)";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Spear;
 
         private const int TimeLimitTicks = 60 * 60 * 40;
 
@@ -3499,6 +3502,7 @@ namespace Primal.Gimmicks
         internal const string RequirementID = "InvHighestPoint";
         public override string ID => RequirementID;
         public override string DisplayName => "Inv -- Highest Screen Triple Carry";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel;
 
         internal const string TargetRoom = "LC_highestpoint";
 

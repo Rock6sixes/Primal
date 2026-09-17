@@ -5857,6 +5857,61 @@ correspondingly a no-op. The item-carrying checks (slugpup + mask in the two han
 
 Still unbuilt/untested -- no .NET toolchain in this container.
 
+## 2026-09-17 (same day, later still): character icons added alongside the existing colors, Community Challenges get a white slugpup/batfly tag
+
+Requested directly: gimmicks and requirements should carry both a color AND an icon based on which
+character they're designed for, with the 50 curated Community Challenge requirements specifically
+getting white + a slugpup icon (batfly as a coded fallback if that one can't be resolved).
+
+**There is no per-playable-character icon SHAPE in vanilla's own kill-icon atlas.** Checked before
+assuming otherwise: decompiling `CreatureSymbol.SpriteNameOfCreature` shows `CreatureTemplate.Type
+.Slugcat` is the only case that returns the generic `"Kill_Slugcat"` silhouette, and no other
+playable-character type (Survivor/Hunter/Gourmand/Artificer/...) has its own distinct icon --
+color is the only thing that actually differentiates one character's tag from another's in-game,
+which is exactly why the existing gimmick-row treatment was already color-only. So the new icon
+system reuses that same single "Kill_Slugcat" shape for every character-tagged row, tinted per
+character -- unifying color and icon into one lookup rather than inventing new per-character art.
+
+**`GetHomeCharacterColor` generalized from `GimmickDef` to plain `SlugcatStats.Name`** so
+`Requirement.HomeCharacter` (new, mirrors `GimmickDef.HomeCharacter` exactly, `null` by default)
+can share the exact same reflection/cache/try-catch instead of a second copy. The four
+character-specific requirements (Artificer/Gourmand/Spearmaster/Inv, added earlier this same day)
+now each override it to their own character.
+
+**Community Challenges' own white/slugpup(-or-batfly) treatment** lives in
+`PrimalOptions.GetRequirementIcon`, checked first via `CommunityChallengesRoster.Contains(id)`
+before falling back to `HomeCharacter` -- none of the 50 curated challenges set a `HomeCharacter`
+of their own, so without this check they'd simply render with no icon at all. The slugpup icon
+itself is a genuine attempt-then-fallback, not an assumption: `MoreSlugcatsEnums
+.CreatureTemplateType.SlugNPC` is an MSC-only ExtEnum value (only even attempted while
+`ModManager.MSC` is true), and the resolved sprite name is double-checked against
+`Futile.atlasManager.DoesContainElementWithName` (the same check `OpImage`'s own constructor
+performs) before being trusted -- falling back to `CreatureTemplate.Type.Fly` ("Kill_Bat", vanilla
+base-game, always available) otherwise, exactly per the request. In practice `SlugNPC` also
+resolves to plain `"Kill_Slugcat"` (the same sharing described above), so the two paths converge on
+one shape either way -- white vs. real character colors is what actually reads as the distinction
+between "a Community Challenge" and "a character-specific requirement/gimmick," not shape.
+
+**Rendering**: a new `RowIcon` struct (sprite name + color) and `BuildIconElement` (constructs an
+`OpImage` from an atlas element name, wrapped exactly the way `OpImage`'s own atlas-string
+constructor expects, then normalizes it to a fixed 24px on-screen size regardless of the source
+sprite's own native pixel dimensions -- `Kill_Slugcat` and `Kill_Bat` aren't necessarily the same
+size) are shared by all three places a gimmick/requirement is ever drawn: the Split view's own
+assigned-list rows (icon added to the left, name button/label and the "x" remove button all shifted
+right by `RowIconSize + RowIconGap` to make room -- `ColumnNameButtonW` shrunk by the same amount)
+and both Add*Modal pickers' 4-column grids (icon at each cell's left edge, its own button narrowed
+and shifted right to match). A requirement row's name, previously a plain `OpLabel` with no color at
+all, now also picks up the icon's own color when one applies (matching the existing gimmick-row
+precedent of tinting both the icon and the name).
+
+**Not yet built or tested** -- no .NET toolchain in this container. Worth particular scrutiny on
+the next real build: whether `Kill_Slugcat`/`Kill_Bat` actually look reasonable at the normalized
+24px size inside Remix's own coordinate space (never tried before in this codebase -- every prior
+icon usage, KillListDialog's own 32px icons, lives inside a `Menu.Dialog`'s native `FSprite`
+coordinate space, not an `OpImage` inside an `OpTab`/`OpScrollBox`), and whether the narrowed
+4-column picker cells still fit the longest gimmick/requirement display names without clipping now
+that they're a little tighter than before.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)
