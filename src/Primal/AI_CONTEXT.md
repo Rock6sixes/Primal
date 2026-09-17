@@ -6373,6 +6373,52 @@ look, the next step should be measuring the actual on-screen pixel overflow dire
 with a ruler/grid, or reading `AddSize`'s live value via a temporary debug log) rather than a third
 attempt at computing it from the formula alone.
 
+## 2026-09-17 (same day, later still): the padding was inset on the wrong element -- container moved instead of the child padded within it
+
+User correction, with screenshots, on the previous round's padding fix: "youre adding padding to
+the CONTAINER... look how much empty space there is now from the edge of the window to where the
+button is, but thats just the gap between the container - the buttons edge on hover still goes out
+of bounds."
+
+**What the previous pass actually did wrong, once stated plainly: it moved the CONTAINER (the
+OpScrollBox, and the Add button) inward from the column's own edges, rather than keeping the
+container where it already was and padding the CHILD drawn inside it.** Those are not the same
+operation. Moving the container creates a visible dead gap between the column's true edge (where
+the character grid above, and everything else on this screen, still lines up) and the relocated
+container -- while a row/button still drawn edge-to-edge WITHIN that relocated container has exactly
+as much clearance from ITS OWN immediate bounds as before (none), so it still overflows on hover,
+just against a boundary that moved and is now harder to see relative to everything else.
+
+**Fixed by reverting every container to its original position/size and padding only the child drawn
+inside it:**
+- Both Split-view `OpScrollBox`es are back to the column's full, original `(LeftColumnX/
+  RightColumnX, ColumnWidth)` extent. `ColumnNameButtonW`'s formula now subtracts `ColumnSidePadding`
+  directly (alongside the existing `ColumnScrollbarClearance` on the right) from the full
+  `ColumnWidth`, and each row's name button (plus the "No gimmicks/requirements..." empty-state
+  label) is positioned at local `x = ColumnSidePadding` instead of `0f` -- genuine clearance from the
+  scroll box's own true left edge, without moving that edge.
+- The "+ Add Gimmick"/"+ Add Requirement" buttons reverted to the column's own unpadded extent
+  entirely (`LeftColumnX`/`RightColumnX`, full `ColumnWidth`) -- matching the character grid's own
+  alignment above them. The reported hover-overflow was specifically about gimmick/requirement ROWS
+  (e.g. "hovering over a gimmick"), never the Add button itself, so it needed no inset at all; giving
+  it one only produced the exact misaligned-gap artifact the screenshots called out.
+- Same treatment for the Add*Modal pickers: both scroll boxes are back to the modal's full
+  `(ContentLeft, ModalListViewportWidth)` extent, `PickerContentWidth` now subtracts
+  `PickerSidePadding` (left) and `PickerScrollbarClearance` (right) from that full width directly,
+  and each grid entry's `x` gets a `PickerSidePadding` head-start instead of starting at `0f`. The
+  category tabs (General/Specialized, General/Community Challenges) reverted to the same unpadded
+  `(ContentLeft, ModalListViewportWidth)` extent as the "< Back" button and title label directly
+  above them, for the same alignment reason the Add buttons did -- `PickerAreaX`/`PickerAreaWidth`
+  (the constants that inset them) are gone entirely, not just unused.
+
+**Lesson, worth remembering for any future padding/inset request on this screen:** "add padding
+around X" means X gets smaller/repositioned within an UNCHANGED parent, not "move X's parent inward
+and leave X exactly as big as its new parent." The two look superficially similar in the constants
+(both involve subtracting a padding value somewhere) but produce visibly different, and differently
+broken, results.
+
+**Not yet seen in-game** -- compiled clean and redeployed.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)
