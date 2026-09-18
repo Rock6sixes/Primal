@@ -94,6 +94,25 @@ namespace Primal.Gimmicks
     ///     Flood/FloodAndRain (which is presumably exactly why vanilla's own
     ///     `earlyCycleFloodChance` is itself per-region in the first place -- regions with no
     ///     flood-capable rooms at all would have no reason to roll for it).
+    ///
+    /// **"Force Submerged Superstructure Precycles" (added 2026-09-18, later still):** a checkbox
+    /// that skips the MS/Rivulet exception above entirely for this character -- checked, the flood
+    /// chance rolled above applies on MS too, for anyone.
+    ///
+    /// **"Force shelter unavailable" (added 2026-09-18, later still) -- see
+    /// `PrecycleForceShelterUnavailableHook` below, a SEPARATE Harmony patch on `ShelterDoor`'s own
+    /// constructor:** answers the user's own follow-up question directly -- whether a shelter can be
+    /// forced unusable-to-hibernate-in independent of the (region/room-limited) visual flood.
+    /// Traced to a real, existing vanilla mechanic that was simply far narrower than "any shelter,
+    /// any region": `World.brokenShelters` (a plain `bool[]`), set true by `ShelterDoor`'s own
+    /// constructor only when the room being constructed is the player's current den AND that
+    /// specific room's own level design placed a `PlacedObject.Type.BrokenShelterWaterLevel` marker
+    /// in it. Every system that actually treats a shelter as unusable
+    /// (`ShelterDoor.Broken`, `Room.cs`'s danger-type gating, `HUD/FoodMeter.cs`, `Player.cs`,
+    /// `Menu/FastTravelScreen.cs`, `Watcher/Sandstorm.cs`) reads that SAME flag, and none of them
+    /// additionally check for visible water -- confirming the flag alone, not the flood, is what
+    /// actually controls availability. This checkbox forces that flag directly, without needing the
+    /// room to have ever had that placed-object marker at all, so it works in any shelter.
     /// </summary>
     [HarmonyPatch(typeof(RainCycle), MethodType.Constructor, new Type[] { typeof(World), typeof(float) })]
     internal static class PrecycleTimerGimmick
@@ -159,10 +178,89 @@ namespace Primal.Gimmicks
             if (floodRoll * 100f < floodChancePercent)
             {
                 bool isRivulet = characterID == MoreSlugcats.MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value;
-                game.globalRain.drainWorldFlood = (world.region.name == "MS" && !isRivulet) ? 0f : 99000f;
+                bool suppressOnMS = world.region.name == "MS" && !isRivulet && !PrecycleTimerSettings.ForceSubmergedSuperstructure(characterID);
+                game.globalRain.drainWorldFlood = suppressOnMS ? 0f : 99000f;
             }
 
             Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: precycle triggered (roll {triggerRoll:F1} < {frequencyPercent}%), duration {durationTicks} ticks, flood roll {floodRoll * 100f:F1} vs {floodChancePercent}%");
+        }
+    }
+
+    /// <summary>
+    /// Companion to PrecycleTimerGimmick's own flood-chance override: forces the player's CURRENT
+    /// shelter to be functionally unavailable (can't be used to hibernate) during an active,
+    /// gimmick-triggered precycle -- independent of whether the room's own level design supports
+    /// visible flood water, per the user's own explicit question ("can every shelter... be forced
+    /// to be unavailable, even if the visual flooding is not present?").
+    ///
+    /// Traced to `ShelterDoor`'s own constructor (root namespace): vanilla itself already has this
+    /// exact mechanic, just gated much more narrowly than "any shelter, any region." When
+    /// `rainCycle.preTimer > 0` and the room being constructed IS the player's current den
+    /// (`room.world.GetAbstractRoom(room.world.game.startingRoom) == room.abstractRoom`), vanilla
+    /// checks whether that SPECIFIC room's own `roomSettings.placedObjects` includes a
+    /// `PlacedObject.Type.BrokenShelterWaterLevel` marker -- a level-design object, one region
+    /// designers place only in specific shelters meant to fail. Only if that marker is present does
+    /// vanilla set `room.world.brokenShelters[shelterIndex] = true` (and
+    /// `brokenShelterIndexDueToPrecycle = shelterIndex`) -- a plain `bool[]` on `World`, read by
+    /// `ShelterDoor.Broken` and, independently, by several unrelated systems across the codebase
+    /// (`Room.cs`'s own danger-type gating, `HUD/FoodMeter.cs`, `Player.cs`, `Menu/FastTravelScreen.cs`,
+    /// `Watcher/Sandstorm.cs`) that all treat a broken shelter as "doesn't function as a shelter" --
+    /// none of them additionally check for visible water, confirming this flag alone is what
+    /// controls actual unavailability, not the flood visuals.
+    ///
+    /// This Prefix sets `brokenShelters[shelterIndex]`/`brokenShelterIndexDueToPrecycle` directly,
+    /// BEFORE vanilla's own constructor body runs -- not gated on that room ever having a
+    /// `BrokenShelterWaterLevel` placed object at all, so it works in literally any shelter room in
+    /// any region. Using a Prefix rather than a Postfix specifically so vanilla's own later
+    /// `if (Broken) { ... }` block (further down the same constructor, which randomizes the broken
+    /// door's visual segment/flap offsets) sees the forced value too -- the door's own broken visual
+    /// plays correctly, it's only the room-wide water level (a separate, DangerType-gated system,
+    /// see PrecycleTimerGimmick's own header comment) that may not.
+    /// </summary>
+    [HarmonyPatch(typeof(ShelterDoor), MethodType.Constructor, new Type[] { typeof(Room) })]
+    internal static class PrecycleForceShelterUnavailableHook
+    {
+        private static void Prefix(Room room)
+        {
+            RainWorldGame game = room?.world?.game;
+            if (game == null || !game.IsStorySession || !PrimalSlot.IsActive(game.rainWorld))
+            {
+                return;
+            }
+
+            if (!ModManager.PrecycleModule)
+            {
+                return;
+            }
+
+            RainCycle rainCycle = room.world.rainCycle;
+            if (rainCycle == null || rainCycle.preTimer <= 0)
+            {
+                return;
+            }
+
+            // Only the player's actual current den/shelter -- matches vanilla's own scope for this
+            // exact mechanic (see this class's own header comment).
+            if (room.world.GetAbstractRoom(game.startingRoom) != room.abstractRoom)
+            {
+                return;
+            }
+
+            string characterID = game.StoryCharacter?.value;
+            if (!GimmickAssignments.IsEnabled(characterID, PrecycleTimerGimmick.ID) ||
+                !PrecycleTimerSettings.ForceShelterUnavailable(characterID))
+            {
+                return;
+            }
+
+            int shelterIndex = room.abstractRoom.shelterIndex;
+            if (shelterIndex < 0 || room.world.brokenShelters == null || shelterIndex >= room.world.brokenShelters.Length)
+            {
+                return;
+            }
+
+            room.world.brokenShelters[shelterIndex] = true;
+            room.world.brokenShelterIndexDueToPrecycle = shelterIndex;
         }
     }
 
@@ -211,10 +309,23 @@ namespace Primal.Gimmicks
         private const int MinFloodChancePercent = 0;
         private const int MaxFloodChancePercent = 100;
 
+        /// <summary>Vanilla suppresses the flood on the "MS" region (Submerged Superstructure) for
+        /// anyone but Rivulet -- off by default here too, so this gimmick matches vanilla's own
+        /// behavior until explicitly told otherwise.</summary>
+        private const bool DefaultForceSubmergedSuperstructure = false;
+
+        /// <summary>Vanilla's own precycle-broken-shelter mechanic only ever fires for the small set
+        /// of shelters a region's own level design specifically placed a BrokenShelterWaterLevel
+        /// marker in -- off by default here too, so assigning this gimmick doesn't unexpectedly
+        /// start locking players out of shelters that were never meant to fail.</summary>
+        private const bool DefaultForceShelterUnavailable = false;
+
         private static readonly Dictionary<string, Configurable<int>> _frequencyPercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<int>> _durationMinutes = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceMaxDuration = new Dictionary<string, Configurable<bool>>();
         private static readonly Dictionary<string, Configurable<int>> _floodChancePercent = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, Configurable<bool>> _forceSubmergedSuperstructure = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _forceShelterUnavailable = new Dictionary<string, Configurable<bool>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why.
@@ -247,6 +358,16 @@ namespace Primal.Gimmicks
                 new ConfigurableInfo(
                     "Chance, out of 100, that a triggered precycle also floods (raises the water level in rooms the region's own level design allows to flood -- this has no visible effect in a region/room that was never built with a flood danger type). Replaces vanilla's own per-region flood chance entirely for this character.",
                     new ConfigAcceptableRange<int>(MinFloodChancePercent, MaxFloodChancePercent)));
+
+            _forceSubmergedSuperstructure[characterID] = owner.config.Bind(
+                characterID + "_PrecycleTimer_forceSubmergedSuperstructure",
+                DefaultForceSubmergedSuperstructure,
+                new ConfigurableInfo("If checked, the flood chance above also applies on the Submerged Superstructure region (\"MS\"), which vanilla normally exempts from precycle flooding for every character except Rivulet."));
+
+            _forceShelterUnavailable[characterID] = owner.config.Bind(
+                characterID + "_PrecycleTimer_forceShelterUnavailable",
+                DefaultForceShelterUnavailable,
+                new ConfigurableInfo("If checked, the character's current shelter becomes unusable to hibernate in during a triggered precycle, in any shelter -- independent of whether that shelter's own room visibly floods."));
         }
 
         public static int GetFrequencyPercent(string characterID)
@@ -269,6 +390,16 @@ namespace Primal.Gimmicks
             return _floodChancePercent.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultFloodChancePercent;
         }
 
+        public static bool ForceSubmergedSuperstructure(string characterID)
+        {
+            return _forceSubmergedSuperstructure.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
+        }
+
+        public static bool ForceShelterUnavailable(string characterID)
+        {
+            return _forceShelterUnavailable.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
+        }
+
         public static List<UIelement> BuildUI(string characterID, float topY)
         {
             if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
@@ -279,7 +410,9 @@ namespace Primal.Gimmicks
             if (!_frequencyPercent.TryGetValue(characterID, out Configurable<int> frequency) ||
                 !_durationMinutes.TryGetValue(characterID, out Configurable<int> duration) ||
                 !_forceMaxDuration.TryGetValue(characterID, out Configurable<bool> forceMax) ||
-                !_floodChancePercent.TryGetValue(characterID, out Configurable<int> flood))
+                !_floodChancePercent.TryGetValue(characterID, out Configurable<int> flood) ||
+                !_forceSubmergedSuperstructure.TryGetValue(characterID, out Configurable<bool> forceSubmerged) ||
+                !_forceShelterUnavailable.TryGetValue(characterID, out Configurable<bool> forceUnavailable))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
                 // run for this character yet and a later call could succeed.
@@ -316,6 +449,12 @@ namespace Primal.Gimmicks
 
             items.Add(new OpLabel(20f, topY - 88f, "Flood chance, out of 100:", false));
             items.Add(new OpUpdown(flood, new Vector2(280f, topY - 94f), 80f));
+
+            items.Add(new OpCheckBox(forceSubmerged, 20f, topY - 132f));
+            items.Add(new OpLabel(56f, topY - 128f, "Force Submerged Superstructure Precycles", false));
+
+            items.Add(new OpCheckBox(forceUnavailable, 20f, topY - 168f));
+            items.Add(new OpLabel(56f, topY - 164f, "Force shelter unavailable", false));
 
             _uiCache[characterID] = items;
             return items;

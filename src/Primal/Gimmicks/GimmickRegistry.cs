@@ -307,9 +307,13 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef PrecycleTimer = new GimmickDef(
             PrecycleTimerGimmick.ID,
             "Precycle Timer",
-            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (or always the longest configurable one), and flood chance with flat, configured values for this character.",
+            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (or always the longest configurable one), and flood chance with flat, configured values for this character -- with options to also force flooding on Submerged Superstructure and force the current shelter unusable.",
             PrecycleTimerSettings.Bind,
             PrecycleTimerSettings.BuildUI,
+            // Five rows now (frequency; duration+force-max; flood; force-submerged; force-shelter-
+            // unavailable) -- comfortably past the plain viewport's own default clamp, same
+            // reasoning as Chains' own settingsContentHeight.
+            settingsContentHeight: 260f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
         );
 

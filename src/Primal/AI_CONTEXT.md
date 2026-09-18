@@ -533,6 +533,15 @@ was tried twice and rejected both times for good reasons (see History).
   duration (or, with force-max checked, always the longest one) is what actually shows up as the
   pre-rain head start in-game, and confirm flood chance actually raises water in a room known to
   have a flood-capable `DangerType` while having no visible effect in one that doesn't.
+  **Later still the same day:** two more settings -- "Force Submerged Superstructure Precycles"
+  (skips the MS/Rivulet flood exception for everyone) and "Force shelter unavailable" (forces
+  `World.brokenShelters`/`brokenShelterIndexDueToPrecycle` directly via a brand new second Harmony
+  patch, `PrecycleForceShelterUnavailableHook`, a Prefix on `ShelterDoor`'s own constructor --
+  completely separate from this gimmick's `RainCycle`-constructor Postfix, since it needed a
+  different hook point entirely). See the "Precycle Timer gains Force Submerged Superstructure...
+  shelter unavailable" dated section further down for the full account, including why a real vanilla
+  mechanic already existed for this (just scoped to only the shelters a region's own level design
+  specifically marked) and how this hook forces it everywhere instead.
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -6840,6 +6849,52 @@ All three new UI rows built in `PrecycleTimerSettings.BuildUI` alongside the two
 (frequency; duration + the new force-max checkbox on one row; flood on a new third row) -- content
 still comfortably fits the plain settings viewport, no `settingsContentHeight` override needed.
 **Not yet built or tested.**
+
+## 2026-09-18 (later still): Precycle Timer gains Force Submerged Superstructure + Force shelter unavailable
+
+Follow-up, same session. User asked for one more checkbox (skip the MS/Rivulet flood exception for
+everyone) and asked a direct question: can a shelter be forced unusable during a precycle
+independent of the (region/room-limited) visual flood the previous round established?
+
+**"Force Submerged Superstructure Precycles"** — straightforward: a new `Configurable<bool>`
+(`PrecycleTimerSettings.ForceSubmergedSuperstructure`) that, when checked, skips the
+`world.region.name == "MS" && !isRivulet` suppression already in the flood-roll code, so the flood
+chance applies on MS too, for any character.
+
+**"Force shelter unavailable"** — answered the question by finding vanilla ALREADY has almost
+exactly this mechanic, just scoped far narrower than "any shelter, any region." Traced to
+`ShelterDoor`'s own constructor (root namespace): when the room being constructed is the player's
+current den and `rainCycle.preTimer > 0`, vanilla checks whether that SPECIFIC room's own
+`roomSettings.placedObjects` contains a `PlacedObject.Type.BrokenShelterWaterLevel` marker -- a
+level-design object only some regions' shelters were built with -- and only then sets
+`World.brokenShelters[shelterIndex] = true` (plus `brokenShelterIndexDueToPrecycle`). Confirmed by
+grepping every other place `brokenShelters` is read (`Room.cs`'s danger-type gating,
+`HUD/FoodMeter.cs`, `Player.cs`, `Menu/FastTravelScreen.cs`, `Watcher/Sandstorm.cs`,
+`ShelterDoor.Broken` itself) that NONE of them additionally check for visible water -- the flag
+alone, not the flood, is what actually makes a shelter non-functional. So: **yes, answered directly
+-- any shelter can be forced unavailable, independent of visuals**, by setting that same flag
+without needing the room to ever have had the placed-object marker. Implemented as
+`PrecycleForceShelterUnavailableHook`, a SEPARATE new Harmony Prefix on `ShelterDoor`'s own
+constructor (not folded into `PrecycleTimerGimmick`'s existing `RainCycle`-constructor Postfix,
+since this needs a completely different hook point) that sets `brokenShelters`/
+`brokenShelterIndexDueToPrecycle` directly, gated on this gimmick being assigned, a new
+`ForceShelterUnavailable` checkbox being checked, and vanilla's own same two preconditions
+(current den, active precycle). Used a Prefix rather than Postfix specifically so vanilla's own
+later `if (Broken) { ... }` block in the same constructor (which randomizes the broken door's visual
+segment/flap offsets) picks up the forced value too -- the door's own broken-door visual should play
+correctly; only the room-wide water level remains the separate, DangerType-gated system from the
+previous round.
+
+Five settings rows now on `PrecycleTimerGimmick`'s own screen (frequency; duration + force-max;
+flood; force-submerged; force-shelter-unavailable) -- `GimmickRegistry.cs`'s own `PrecycleTimer`
+entry picked up `settingsContentHeight: 260f` to give the scroll box room, matching Chains' own
+precedent for a settings view that outgrew the plain viewport. **Not yet built or tested** -- this
+round is a second, genuinely novel kind of intervention for this mod (forcing a vanilla mechanic
+that's normally level-design-gated, via a brand new hook point on a constructor nothing else in this
+mod has touched before), so test deliberately once a build exists: confirm a shelter with NO
+BrokenShelterWaterLevel marker still becomes unusable when this checkbox is on, and confirm a
+shelter's normal (non-precycle) behavior is completely unaffected when this gimmick isn't assigned
+or the checkbox is off.
 
 ## Outstanding items
 
