@@ -88,18 +88,22 @@ namespace Primal.Gimmicks
         );
 
         /// <summary>
-        /// Spears can never be picked up by the character it's assigned to (Player.Grabability
-        /// forced to CantGrab for anything that "is Spear") -- see NoSpearsGimmick.cs. Doesn't
-        /// block OneSpear's own tail-pull, which attaches its spear through a different, lower-
-        /// level vanilla method that bypasses Grabability entirely. Which of the three spear
-        /// types are still allowed can be configured -- see NoSpearsGimmick.NoSpearsSettings.
+        /// Generalization of the old NoSpears gimmick (removed 2026-09-18) to ten independently
+        /// togglable categories -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas,
+        /// Yeeks, Centipedes, and Other (everything else grabbable) -- see NoHoldGimmick.cs for the
+        /// full category-to-class mapping. Same Player.Grabability Postfix mechanism NoSpears
+        /// always used; still doesn't block OneSpear's own tail-pull (a different, lower-level
+        /// vanilla method that bypasses Grabability entirely). Unlike NoSpears, individual spear
+        /// sub-types (plain/explosive/electric) are no longer separately configurable -- Spears is
+        /// now a single category, per explicit request when this gimmick was generalized.
         /// </summary>
-        public static readonly GimmickDef NoSpears = new GimmickDef(
-            NoSpearsGimmick.ID,
-            "No Spears",
-            "Spears become impossible to pick up -- they act as if they were never grabbable objects at all (individual spear types can be re-allowed in this gimmick's settings).",
-            NoSpearsSettings.Bind,
-            NoSpearsSettings.BuildUI,
+        public static readonly GimmickDef NoHold = new GimmickDef(
+            NoHoldGimmick.ID,
+            "No Hold",
+            "Blocks picking up whichever categories are checked in this gimmick's settings -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, and/or Other (everything else grabbable).",
+            NoHoldSettings.Bind,
+            NoHoldSettings.BuildUI,
+            settingsContentHeight: 300f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
@@ -129,8 +133,8 @@ namespace Primal.Gimmicks
         /// <summary>
         /// Blocks Player.Grabability outright for MoreSlugcats.Yeek (Watcher's small mask-wearing
         /// creature) -- see NoYeeksGimmick.cs, which reuses the exact same Postfix mechanism as
-        /// NoSpears. Plain on/off; there's only one Yeek class, so unlike NoSpears there's nothing
-        /// to sub-select.
+        /// NoHold (this same class is also NoHold's own Yeeks category). Plain on/off; there's
+        /// only one Yeek class, so there's nothing to sub-select.
         /// </summary>
         public static readonly GimmickDef NoYeeks = new GimmickDef(
             NoYeeksGimmick.ID,
@@ -249,13 +253,34 @@ namespace Primal.Gimmicks
             "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );
 
+        /// <summary>
+        /// Rescales how long rain (or, on Saint, the region-wide blizzard -- the exact same
+        /// underlying timer, see RainTimerGimmick.cs's own header comment for the full trace) takes
+        /// to arrive each cycle, as a percentage of vanilla's own normal timing. Postfixes
+        /// RainCycle's constructor and rescales the cycleLength it already computed, mirroring the
+        /// exact same scaling points a real, already-installed third-party mod (MMF) uses for its
+        /// own rain-speed config. A hard floor (see RainTimerGimmick.MinCycleLengthTicks) keeps the
+        /// result well clear of a real vanilla rendering bug -- pushing the timer below roughly 13%
+        /// of its normal length breaks Saint's blizzard visuals entirely (root-caused in
+        /// BlizzardGraphics.CycleUpdate; see the header comment for the exact math) -- no matter how
+        /// low this is configured.
+        /// </summary>
+        public static readonly GimmickDef RainTimer = new GimmickDef(
+            RainTimerGimmick.ID,
+            "Rain Timer",
+            "Rescales how long rain (or Saint's blizzard) takes to arrive each cycle, as a percentage of normal vanilla timing -- a floor keeps it from ever dropping low enough to break the blizzard's own visuals.",
+            RainTimerSettings.Bind,
+            RainTimerSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+        );
+
         public static readonly GimmickDef[] All =
         {
             Misery,
             Slugpup,
             OneSpear,
             TimeLimit,
-            NoSpears,
+            NoHold,
             Chains,
             NoYeeks,
             NoCicadas,
@@ -263,6 +288,7 @@ namespace Primal.Gimmicks
             NoPassages,
             ThreatSlowdown,
             ThreatPanic,
+            RainTimer,
             CreatureKillList,
         };
     }

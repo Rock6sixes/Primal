@@ -1361,7 +1361,7 @@ namespace Primal.Gimmicks
                 !_typeBans.TryGetValue(characterID, out Dictionary<string, Configurable<bool>> bans))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
-                // run for this character yet (see NoSpearsSettings for the same guard and why).
+                // run for this character yet (see NoHoldSettings for the same guard and why).
                 return items;
             }
 

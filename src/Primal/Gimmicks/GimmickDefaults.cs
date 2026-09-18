@@ -24,14 +24,16 @@ namespace Primal.Gimmicks
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Gourmand.value, GimmickRegistry.Misery.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Gourmand.value, GimmickRegistry.Slugpup.ID, true);
 
-            // Spearmaster gets OneSpear, TimeLimit, and NoSpears by default on the reserved slot:
+            // Spearmaster gets OneSpear, TimeLimit, and NoHold by default on the reserved slot:
             // his usually-unlimited spear-pull becomes just one for the whole save file (OneSpear),
-            // he can never pick up a spear from the ground or from anyone else (NoSpears -- his one
-            // tail-pull still works, see that gimmick's own doc comment for why), and the run ends
-            // in death after one real-world hour of play (TimeLimit).
+            // he can never pick up a spear from the ground or from anyone else (NoHold -- its
+            // Spears category defaults to blocked, migrated 2026-09-18 from the old NoSpears
+            // gimmick this replaced; his own tail-pull still works, see NoHoldGimmick.cs's doc
+            // comment for why), and the run ends in death after one real-world hour of play
+            // (TimeLimit).
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.OneSpear.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.TimeLimit.ID, true);
-            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.NoSpears.ID, true);
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.NoHold.ID, true);
 
             // Artificer gets Chains by default on the reserved slot -- ported from a local mod
             // the user already plays this way on Artificer specifically (see ChainsGimmick.cs);
@@ -51,11 +53,12 @@ namespace Primal.Gimmicks
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Artificer.value, GimmickRegistry.NoMauling.ID, true);
 
             // Inv ("Sofanthiel" internally -- see PrimalOptions.cs's AllCharacters comment)
-            // gets the same three plus NoSpears by default, per explicit request (2026-09-12).
+            // gets the same three plus NoHold by default, per explicit request (2026-09-12; NoHold
+            // migrated from NoSpears 2026-09-18, see the Spearmaster comment above).
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoYeeks.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoCicadas.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoMauling.ID, true);
-            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoSpears.ID, true);
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoHold.ID, true);
 
             // Monk gets ThreatPanic by default (2026-09-13, explicit request: "call it threat
             // panic gimmick, add it to monk"). ThreatSlowdown is NOT defaulted onto Monk here --

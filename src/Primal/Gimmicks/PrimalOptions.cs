@@ -1348,7 +1348,7 @@ namespace Primal.Gimmicks
 
             // Wrapped in a scrollable OpScrollBox -- some gimmicks' settings (Chains, notably: a
             // 12-checkbox banlist plus a preset picker and two toggles) lay out well past 400px
-            // tall. For a gimmick whose settings already fit (TimeLimit, NoSpears, OneSpear,
+            // tall. For a gimmick whose settings already fit (TimeLimit, OneSpear,
             // ThreatPanic -- GimmickDef.SettingsContentHeight left at its default of 0),
             // Mathf.Max clamps the content size up to the viewport's own height, so this is a
             // no-op wrapper for them, not a visible behavior change.

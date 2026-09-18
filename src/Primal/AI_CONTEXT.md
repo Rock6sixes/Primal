@@ -132,11 +132,17 @@ was tried twice and rejected both times for good reasons (see History).
   `player.playerState.slugcatCharacter.value` (the player's **real, unfaked** vanilla identity) and
   `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior. In
   practice every patch does that through **`GimmickGate`** (see below) rather than open-coding it.
-- `GimmickRegistry` lists the known gimmicks — currently 13: `Misery`, `Slugpup`, `OneSpear` (shown
-  in the UI as "Master Spear"), `TimeLimit`, `NoSpears`, `Chains`, `NoYeeks`, `NoCicadas`,
-  `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`, `CreatureKillList` (shown as "Kill
-  List"). Each `GimmickDef` takes its ID from the owning patch class's own `ID` const rather than
-  re-typing the string, so the two can't drift apart silently.
+- `GimmickRegistry` lists the known gimmicks — as of 2026-09-18, 14: `Misery`, `Slugpup`, `OneSpear`
+  (shown in the UI as "Master Spear"), `TimeLimit`, `NoHold` (shown as "No Hold" -- generalized
+  2026-09-18 from the old single-purpose `NoSpears`, which no longer exists; see NoHoldGimmick.cs),
+  `Chains`, `NoYeeks`, `NoCicadas`, `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`,
+  `CreatureKillList` (shown as "Kill List"), `RainTimer` (new 2026-09-18; see RainTimerGimmick.cs).
+  Each `GimmickDef` takes its ID from the owning patch class's own `ID` const rather than re-typing
+  the string, so the two can't drift apart silently. (Note: this mod also grew a large, separate
+  "Requirements"/Community Challenges architecture in a later 2026-09-16/17 session, generalized
+  onto its own Remix tab -- see "the Requirements architecture" and the Community Challenges
+  sections much further down this doc; this bullet only tracks the original per-character
+  GimmickRegistry list, which is still a live, separate system from Requirements.)
   `GimmickAssignments` is the runtime enabled/disabled lookup (Remix-configured override, falling
   back to a hardcoded default from `GimmickDefaults`). `PrimalOptions` builds the Remix menu
   screen as a **permanent character grid with a detail panel appended below it** — see "Config menu
@@ -333,14 +339,30 @@ was tried twice and rejected both times for good reasons (see History).
   warning/game-over screen yet — just an immediate `self.Die()`, guarded by a `ConditionalWeakTable`
   so it only fires once per player. See **Gotcha #3** for how direct access to `.clock`/`.timer`
   and `.Die()` was verified safe. **Untested by the user as of this doc.**
-- `Gimmicks/NoSpearsGimmick.cs` — makes spears (`obj is Spear`) ungrabbable for the assigned
-  character, by Postfixing `Player.Grabability(PhysicalObject)` (a per-player method, so it can
-  single out one character) and forcing the result to `Player.ObjectGrabability.CantGrab` — unless
-  that spear's specific type is individually re-allowed in `NoSpearsSettings` (same file: three
-  independent toggles, plain/explosive/electric, all default to "not allowed" — matching the
-  gimmick's original blanket behavior). Does not interfere with `OneSpearGimmick`'s tail-pull,
-  which attaches its spear via `Player.SlugcatGrab(...)` — a different, lower-level method that
-  never calls `Grabability`. **Untested by the user as of this doc.**
+- `Gimmicks/NoHoldGimmick.cs` (new, 2026-09-18, replacing the deleted `NoSpearsGimmick.cs` --
+  generalization requested directly: "No Hold - generalization of the No Spear gimmick... The
+  config inside should allow to toggle Spears, Rocks, Bombs, Lanterns, Fruits, Batflies,
+  Squidcadas, Yeeks, Centipedes, Other") — makes any of ten categories of object ungrabbable for
+  the assigned character, by Postfixing `Player.Grabability(PhysicalObject)` (same mechanism
+  `NoSpearsGimmick`/`NoYeeksGimmick`/`NoCicadasGimmick` already used) and forcing the result to
+  `Player.ObjectGrabability.CantGrab` for any object matching a category this character currently
+  has checked in `NoHoldSettings` (same file: one `Configurable<bool>` per category, plus a tenth
+  "Other" toggle for everything not covered by the first nine). Category membership is a plain C#
+  `is` check against the real vanilla class, confirmed class-by-class against `reference/GameSource`
+  rather than guessed — see the file's own header comment for the full category-to-class mapping
+  and the reasoning behind each judgment call (e.g. why `WaterNut` falls under Rocks not Fruits,
+  why `PuffBall`/`FirecrackerPlant` fall under Other not Bombs). Unlike the old `NoSpears`, the
+  three individual spear sub-types (plain/explosive/electric) are no longer separately
+  configurable — Spears is now one category, per the user's own explicit "we wont be needing this
+  anymore." Spears defaults to blocked (matching `NoSpears`' own old default); the other nine
+  default unblocked. `GimmickDefaults.cs`'s two old `NoSpears` default assignments (Spearmaster,
+  Inv) were migrated to `NoHold` in place, preserving their existing behavior exactly (both
+  characters still can't pick up spears by default; nothing else changed for them). Does not
+  interfere with `OneSpearGimmick`'s tail-pull, which attaches its spear via
+  `Player.SlugcatGrab(...)` — a different, lower-level method that never calls `Grabability`.
+  **Not yet built or tested as of this doc** (no `.NET` toolchain in this container — see
+  "Container environment notes"; written by close analogy to `ChainsSettings`' own already-shipped
+  checkbox-grid UI pattern, but genuinely unverified).
 - `Gimmicks/ChainsGimmick.cs` (new, 2026-09-12) — the Chains gimmick: entering a room with any
   living, non-banned creature in it seals every one of that room's exits shut (flips every
   `ShortcutData.Type.RoomExit` in `Room.shortcuts` to `DeadEnd`) and traps the player there,
@@ -400,6 +422,39 @@ was tried twice and rejected both times for good reasons (see History).
   whose own `TerrainImpact` override applies lethal damage, and slow spear-stab kills outlasting
   `killTag`'s own decay window). **Brand new, never built or
   tested as of this doc.**
+- `Gimmicks/RainTimerGimmick.cs` (new, 2026-09-18) — the Rain Timer gimmick: rescales how long rain
+  (or, on Saint, the region-wide blizzard) takes to arrive each cycle, as a configurable percentage
+  of vanilla's own normal timing (`RainTimerSettings`, same file: one `Configurable<int>` percent,
+  10-400%, default 100 = unmodified). Postfixes `RainCycle`'s constructor (the *only* place vanilla
+  itself ever computes `cycleLength`, confirmed via `GetDesiredCycleLength` having exactly one
+  caller) and rescales the `cycleLength` it already computed, plus `sunDownStartTime` by the same
+  ratio so day/night lighting doesn't drift out of sync with how fast the actual rain/blizzard
+  danger is arriving. This is the same pair of fields a real, already-installed third-party mod
+  (MMF) scales for its own "rain time multiplier" config — confirmed by reading `RainCycle.cs`'s
+  own `ModManager.MMF`-gated lines rather than guessing, so this gimmick mirrors an
+  already-working approach instead of inventing a new one. **Works identically for Saint's blizzard
+  with no extra plumbing**, because `BlizzardWorldActive` (true only on Saint) is read *inside*
+  `GetDesiredCycleLength` itself, before this gimmick's own Postfix ever runs — Saint's blizzard
+  isn't a separate timer, it's the same `RainCycle`, just pre-shortened to 70% of normal by
+  vanilla's own code before this gimmick's percentage multiplies on top of that.
+  **The known "blizzard doesn't render" bug, and why it can't recur here:** the user reported that
+  an earlier, non-mod attempt at this same feature found the blizzard stopped rendering once the
+  timer dropped below roughly 13% of its normal length. Root-caused (not just worked around) by
+  reading `MoreSlugcats.BlizzardGraphics.CycleUpdate` directly: for Saint's own home-region ambient
+  blizzard (the "glacial wasteland" branch — `AerieBlizzard`-flagged rooms are a separate,
+  `cycleLength`-independent case and were never at risk), blizzard intensity is
+  `Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`, a ramp that only makes sense
+  while `cycleLength * 0.932 > 3000`; once `cycleLength` drops below `3000 / 0.932 ≈ 3220` ticks
+  (~80.5 seconds), the ramp's two bounds invert and intensity collapses toward zero for the whole
+  cycle — a ~24000-tick (10-minute) cycle taken down to 13% of itself lands at ~3120 ticks, right at
+  that exact breaking point, which is almost certainly what the earlier attempt actually hit.
+  `RainTimerGimmick.MinCycleLengthTicks` (4200, applied *after* this gimmick's own percentage) keeps
+  a comfortable margin above that boundary no matter how low the percentage is configured — see the
+  file's own header comment for the full derivation. **No default assignment yet** — registered
+  with `homeCharacter: Saint` for the Remix button's color tag, but not added to
+  `GimmickDefaults.cs`; the user asked for this "for Saint" but didn't specify a starting
+  percentage, so it's available and assignable via Remix rather than guessed at. **Not yet built or
+  tested as of this doc** (no `.NET` toolchain in this container).
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -6449,6 +6504,71 @@ resolves const-to-const references across the whole class regardless of textual 
 reordering is purely for readability, not required for it to compile).
 
 Not yet seen in-game -- compiled clean and redeployed.
+
+## 2026-09-18: Saint gameplay mechanics, round 1 -- No Hold, Rain Timer, and the Blizzard Timer research
+
+New session, continuing past the 2026-09-17 UI-polish batch above. User asked to work through "the
+rest of the gameplay altering mechanics before testing" and started with three items scoped to
+Saint: No Hold (generalizing No Spears), Rain Timer, and Blizzard Timer. Also confirmed this
+session's own container has no `.NET` toolchain (same limitation documented throughout this file's
+older "Container environment notes" section below -- the 2026-09-15 "sessions now run on the user's
+own Windows machine" note near the top of this doc does NOT hold for this particular session; check
+`dotnet --version` fresh each time rather than trusting that note).
+
+**No Hold and Rain Timer are both implemented** — see their own file-map bullets above
+(`NoHoldGimmick.cs`, `RainTimerGimmick.cs`) for the full account of each. Neither has been built or
+tested yet (no toolchain here). Short summary:
+- **No Hold** replaces `NoSpearsGimmick.cs` outright (deleted) with a 10-category picker (Spears,
+  Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, Other), reusing the exact
+  `Player.Grabability` Postfix mechanism every other No* gimmick already used. `GimmickDefaults.cs`
+  updated in place (Spearmaster/Inv's old `NoSpears` defaults now point at `NoHold`, unchanged
+  behavior). `GimmickRegistry.cs`, `PrimalOptions.cs`, `ChainsGimmick.cs`, `NoYeeksGimmick.cs`,
+  `NoCicadasGimmick.cs` all had small comment-only updates to stop referencing the now-deleted class.
+- **Rain Timer** rescales `RainCycle.cycleLength`/`sunDownStartTime` by a configurable percentage,
+  via a Postfix on `RainCycle`'s constructor -- confirmed to control Saint's blizzard automatically
+  (same underlying timer, see the file-map bullet for the full trace) with a hard floor specifically
+  designed around a real vanilla math bug the user flagged from a prior non-mod attempt (see that
+  bullet for the exact derivation of the ~3220-tick breaking point in
+  `MoreSlugcats.BlizzardGraphics.CycleUpdate`). No default assignment to Saint yet -- ask/wait for a
+  starting percentage rather than guessing one.
+
+**Blizzard Timer: mechanism fully researched, NOT yet implemented -- deliberately paused to ask the
+user which unit to expose, per their own explicit instruction ("let me know first how the timer
+works and then ask me").** Traced to `Creature.HypothermiaUpdate()` (root namespace, no reflection
+needed):
+```
+float num3 = (float)room.world.rainCycle.cycleLength + (float)RainWorldGame.BlizzardHardEndTimer(room.game.IsStorySession);
+HypothermiaGain = Mathf.Lerp(0f, RainWorldGame.DefaultHeatSourceWarmth * 0.1f, Mathf.InverseLerp(0.1f, 0.95f, room.world.rainCycle.CycleProgression));
+HypothermiaGain += Mathf.Lerp(0f, RainWorldGame.BlizzardMaxColdness, Mathf.InverseLerp(0f, num3, room.world.rainCycle.timer));
+HypothermiaGain += Mathf.Lerp(0f, 50f, Mathf.InverseLerp(num3, num3 * 5f, room.world.rainCycle.timer));
+...
+HypothermiaGain = Mathf.Clamp(HypothermiaGain, -1f, 0.0055f);
+```
+`RainWorldGame.BlizzardHardEndTimer(storyMode)` returns a hardcoded **32000 ticks** (800 real
+seconds, 13m20s) in story mode. `num3 = cycleLength + 32000` is the real "harshening" threshold:
+below it, per-tick Hypothermia gain ramps gently (capped near `BlizzardMaxColdness ≈ 0.0016`/tick);
+the instant `room.world.rainCycle.timer` (which keeps counting up even *after* rain/blizzard has
+already hit -- `RainCycle.Update()`'s `timer++` is unconditional, not gated on `timer < cycleLength`)
+crosses `num3`, the third line's `+50` term dwarfs everything else and the whole expression
+immediately saturates at its hard ceiling, `0.0055`/tick -- i.e. an effectively-instant jump from
+"gentle background cold" to "the maximum possible cold gain the game allows," exactly matching the
+user's own description ("suddenly gets significantly harsher"). Since `timer` only starts counting
+toward this AFTER `cycleLength` ticks have already passed (rain/blizzard onset), the real
+wall-clock delay the player experiences is `cycleLength + 32000 ticks` measured from cycle START,
+which for a plausible Saint cycle length comfortably lands in the user's own observed "20-30
+minutes" window -- this is almost certainly the exact mechanic being described, not a guess.
+
+**Open question for the user, per their own instruction to ask before implementing:** the natural
+knob to expose is `RainWorldGame.BlizzardHardEndTimer`'s hardcoded 32000-tick value -- i.e. "how
+long AFTER rain/blizzard onset before it gets brutal" -- since that's the one true constant driving
+the effect (the `cycleLength` half of `num3` is already separately controllable via Rain Timer
+above, and stacks with whatever this gimmick ends up configuring). Could be exposed as raw ticks,
+minutes (this codebase's usual unit for time-based settings -- see `TimeLimitSettings`, 40
+ticks/second), or as a flat "total minutes into the cycle before it happens" (folding the
+`cycleLength` contribution in, so the number matches what the player actually perceives) --
+whichever the user prefers once asked. `RainCycle.timer` and `RainWorldGame.clock` both run at the
+same fixed 40 ticks/second simulation rate this whole codebase already uses for TimeLimit, so
+whatever unit is chosen converts cleanly.
 
 ## Outstanding items
 
