@@ -65,6 +65,16 @@ namespace Primal.Gimmicks
             // the user assigned it to Monk themselves via the Remix menu while testing, which is
             // independent of this hardcoded default and unaffected by it either way.
             GimmickAssignments.SetDefault(SlugcatStats.Name.Yellow.value, GimmickRegistry.ThreatPanic.ID, true);
+
+            // Saint gets Rain Timer and Blizzard Timer by default (2026-09-18, explicit request:
+            // "set the rain timer to be 0 - it needs to start immediately... blizzard timer set to
+            // 1 hour"). The actual 0%/60-minute values are each gimmick's own per-character setting
+            // default (RainTimerSettings.SaintDefaultPercent, BlizzardTimerSettings
+            // .SaintDefaultMinutes), not something SetDefault itself carries -- this call only makes
+            // the gimmicks assigned to Saint out of the box; see those two classes' own Bind()
+            // methods for the character-specific default values.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, GimmickRegistry.RainTimer.ID, true);
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, GimmickRegistry.BlizzardTimer.ID, true);
         }
     }
 }

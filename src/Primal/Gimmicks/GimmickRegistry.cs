@@ -256,19 +256,20 @@ namespace Primal.Gimmicks
         /// <summary>
         /// Rescales how long rain (or, on Saint, the region-wide blizzard -- the exact same
         /// underlying timer, see RainTimerGimmick.cs's own header comment for the full trace) takes
-        /// to arrive each cycle, as a percentage of vanilla's own normal timing. Postfixes
-        /// RainCycle's constructor and rescales the cycleLength it already computed, mirroring the
-        /// exact same scaling points a real, already-installed third-party mod (MMF) uses for its
-        /// own rain-speed config. A hard floor (see RainTimerGimmick.MinCycleLengthTicks) keeps the
-        /// result well clear of a real vanilla rendering bug -- pushing the timer below roughly 13%
-        /// of its normal length breaks Saint's blizzard visuals entirely (root-caused in
-        /// BlizzardGraphics.CycleUpdate; see the header comment for the exact math) -- no matter how
-        /// low this is configured.
+        /// to arrive each cycle, as a percentage of vanilla's own normal timing, all the way down
+        /// to 0 (essentially immediate). Postfixes RainCycle's constructor and rescales the
+        /// cycleLength it already computed, mirroring the exact same scaling points a real,
+        /// already-installed third-party mod (MMF) uses for its own rain-speed config. The real
+        /// vanilla rendering bug this used to just floor around -- pushing the timer below roughly
+        /// 13% of its normal length used to break Saint's blizzard visuals entirely -- is now fixed
+        /// at its actual source (see BlizzardVisualCycleLengthHook, same file, and the header
+        /// comment's "The actual fix" section), so 0% is genuinely safe to configure. Defaulted to
+        /// Saint at 0% (see GimmickDefaults.cs), per explicit request.
         /// </summary>
         public static readonly GimmickDef RainTimer = new GimmickDef(
             RainTimerGimmick.ID,
             "Rain Timer",
-            "Rescales how long rain (or Saint's blizzard) takes to arrive each cycle, as a percentage of normal vanilla timing -- a floor keeps it from ever dropping low enough to break the blizzard's own visuals.",
+            "Rescales how long rain (or Saint's blizzard) takes to arrive each cycle, as a percentage of normal vanilla timing -- 0 is essentially immediate.",
             RainTimerSettings.Bind,
             RainTimerSettings.BuildUI,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
@@ -284,6 +285,7 @@ namespace Primal.Gimmicks
         /// method. Composes correctly with RainTimer above -- both read/derive from the character's
         /// actual live cycleLength at the moment they're asked, so assigning both to the same
         /// character always means exactly what each one's own setting says, independently.
+        /// Defaulted to Saint at 60 minutes (see GimmickDefaults.cs), per explicit request.
         /// </summary>
         public static readonly GimmickDef BlizzardTimer = new GimmickDef(
             BlizzardTimerGimmick.ID,

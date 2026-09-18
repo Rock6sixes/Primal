@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using Menu.Remix.MixedUI;
+using MoreSlugcats;
 using UnityEngine;
 
 namespace Primal.Gimmicks
@@ -9,7 +10,8 @@ namespace Primal.Gimmicks
     /// <summary>
     /// The "Rain Timer" gimmick: speeds up or slows down how quickly rain (or, on Saint, the
     /// region-wide blizzard -- see below for why the two are the same mechanism) arrives each
-    /// cycle, as a percentage of vanilla's own normal timing.
+    /// cycle, as a percentage of vanilla's own normal timing -- all the way down to 0% (rain hits
+    /// essentially immediately) if configured that way.
     ///
     /// Traced from RainCycle.cs (root namespace, no reflection needed -- this whole file is public
     /// in the reference assembly): a RainCycle owns one int, `cycleLength` (ticks at the fixed
@@ -40,34 +42,59 @@ namespace Primal.Gimmicks
     /// timer the blizzard already uses, no extra plumbing required -- and it composes correctly on
     /// any other character's plain rain timer too, for the exact same reason.
     ///
-    /// **The known "blizzard doesn't render" failure mode, and the floor that prevents it:** an
-    /// earlier, non-mod attempt at this same feature (human-programmer implementation, before this
-    /// port) found that pushing the timer below roughly 13% of its normal length made the blizzard
-    /// stop rendering. Root-caused here by reading BlizzardGraphics.CycleUpdate (MoreSlugcats
-    /// namespace) directly: for Saint's own home region (the "glacial wasteland" branch, which is
-    /// what a normal ambient blizzard actually uses -- AerieBlizzard-flagged rooms are a separate,
-    /// cycleLength-independent case and were never affected), blizzard intensity is
-    /// `Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)` -- a ramp meant to run from
-    /// "far bound" cycleLength*0.932 down to "near bound" a hardcoded 3000 ticks. That only makes
-    /// sense while cycleLength*0.932 is bigger than 3000; once cycleLength drops below
-    /// 3000/0.932 ~= 3220 ticks (~80.5 seconds), the two bounds invert and the ramp breaks,
-    /// collapsing blizzard intensity to (near enough) zero for the whole cycle -- exactly
-    /// "the blizzard not visually appearing." A ~24000-tick (10-minute) baseline cycle reduced to
-    /// 13% of itself lands at ~3120 ticks, right at that exact mathematical breaking point -- which
-    /// is almost certainly the actual bug the earlier attempt hit, not a coincidence. MinCycleLength
-    /// below enforces a hard floor comfortably above 3220 ticks, applied AFTER this gimmick's own
-    /// percentage, so no configured value can ever reproduce it.
+    /// **The known "blizzard doesn't render" bug -- root-caused and FIXED, 2026-09-18 (previously
+    /// only floored around):** an earlier, non-mod attempt at this same feature (human-programmer
+    /// implementation, before this port) found that pushing the timer below roughly 13% of its
+    /// normal length made the blizzard stop rendering. First pass at this gimmick (also 2026-09-18)
+    /// only kept `cycleLength` above a floor (4200 ticks) comfortably clear of the breaking point --
+    /// which worked, but meant "0% / immediate rain" wasn't actually reachable. Root-caused (not
+    /// just avoided) here by reading BlizzardGraphics.CycleUpdate (MoreSlugcats namespace) directly:
+    /// for Saint's own home region (the "glacial wasteland" branch, which is what a normal ambient
+    /// blizzard actually uses -- AerieBlizzard-flagged rooms take a separate, cycleLength-INdependent
+    /// branch using fixed absolute-tick thresholds instead, and were never at risk), blizzard
+    /// intensity is `Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`. Worked through
+    /// the actual arithmetic (not just eyeballing the shape) for `cycleLength` under ~3220 ticks
+    /// (3000/0.932): the ramp's "far" bound (`cycleLength * 0.932`) drops BELOW its "near" bound
+    /// (a hardcoded 3000), which doesn't merely clamp to a flat 0 or 1 -- Mathf.InverseLerp still
+    /// computes a valid fraction either way, but with the bounds inverted the ramp now runs
+    /// BACKWARDS: intensity is a small nonzero value right at cycle START (when `TimeUntilRain` is
+    /// still large, near `cycleLength`) and collapses to a clamped 0 well BEFORE rain/blizzard
+    /// actually hits (once `TimeUntilRain` drops below `cycleLength * 0.932`) -- i.e. the blizzard
+    /// visibly fades out just when it should be most intense, exactly "not visually appearing."
+    /// (Confirmed by hand-computing both an above-threshold case, where the ramp behaves normally
+    /// just compressed into a short window near the end, and a below-threshold case, where it
+    /// inverts as described -- this was not a guess.)
+    ///
+    /// **The actual fix: `BlizzardVisualCycleLengthHook` below**, a *separate*, *unconditional*
+    /// Harmony patch on `BlizzardGraphics.CycleUpdate` itself (not gated on this gimmick, or on any
+    /// gimmick -- it's a correctness fix for a real vanilla bug, and has literally zero effect on
+    /// unmodified vanilla, since default cycle lengths are always far above the breaking point;
+    /// it only ever does anything once something -- this gimmick, another mod's own multiplier,
+    /// whatever -- has pushed `cycleLength` below the safe rendering floor). It temporarily
+    /// substitutes a safe floor for `cycleLength` for the exact duration of one `CycleUpdate` call
+    /// (the ONE method in the whole game that ever reads `cycleLength` for rendering purposes),
+    /// then restores the real value immediately after -- so the actual GAMEPLAY timer (when rain
+    /// mechanically hits, hypothermia math, etc.) is free to go all the way down to
+    /// `RainTimerGimmick.MinCycleLengthTicks` (now just large enough to avoid literal
+    /// division-by-zero elsewhere in RainCycle's own math -- CycleProgression, AmountLeft, and
+    /// several others all divide directly by `cycleLength`), while the purely-cosmetic blizzard
+    /// rendering always sees a value comfortably clear of the ~3220-tick breaking point, no matter
+    /// how aggressively this gimmick's percentage has been turned down.
     /// </summary>
     [HarmonyPatch(typeof(RainCycle), MethodType.Constructor, new Type[] { typeof(World), typeof(float) })]
     internal static class RainTimerGimmick
     {
         public const string ID = "RainTimer";
 
-        /// <summary>Hard floor on the post-percentage cycle length, in ticks (40/second) -- see
-        /// this class's own header comment for exactly where the real breaking point (~3220 ticks)
-        /// comes from. 4200 leaves a comfortable margin above it (~105 seconds) rather than tuning
-        /// to the exact boundary.</summary>
-        private const int MinCycleLengthTicks = 4200;
+        /// <summary>Hard floor on the post-percentage cycle length, in ticks (40/second) --
+        /// purely to avoid literal division-by-zero elsewhere in RainCycle's own math
+        /// (CycleProgression, AmountLeft, ProximityToMiddleOfCycle, etc. all divide directly by
+        /// `cycleLength`; a value of exactly 0 would produce NaN/Infinity there). 40 ticks (1
+        /// second) is as close to "immediate" as can safely be configured -- the separate blizzard
+        /// RENDERING bug this used to also guard against is now fixed at its actual source (see
+        /// this class's own header comment, "The actual fix"), so this floor no longer needs to be
+        /// anywhere near as conservative as it originally was.</summary>
+        private const int MinCycleLengthTicks = 40;
 
         private static void Postfix(RainCycle __instance, World world)
         {
@@ -100,13 +127,87 @@ namespace Primal.Gimmicks
         }
     }
 
+    /// <summary>
+    /// General bugfix for BlizzardGraphics.CycleUpdate's own "glacial wasteland" intensity ramp,
+    /// which breaks (see RainTimerGimmick's own header comment, "The known 'blizzard doesn't
+    /// render' bug," for the full derivation) once RainCycle.cycleLength drops below roughly 3220
+    /// ticks. NOT gated on this gimmick, PrimalSlot, or any GimmickAssignments check -- it's a
+    /// correctness fix that only ever changes behavior once cycleLength is already abnormally
+    /// short (never true in untouched vanilla), so it's safe and correct to apply unconditionally
+    /// rather than trying to scope it to exactly the characters/situations that might trigger it.
+    ///
+    /// Mechanism: `CycleUpdate` is the ONLY method anywhere in the game that reads `cycleLength`
+    /// for a rendering purpose (confirmed by reading the whole method -- every other field it uses,
+    /// `TimeUntilRain`/`CycleProgression`, are themselves derived from `cycleLength` too, so
+    /// substituting the one field covers all of them for the span of this one call). Prefix swaps
+    /// in a safe floor if the real value is below it; Postfix restores the real value immediately
+    /// after. Nothing outside this one call (RainCycle.Update, Creature.HypothermiaUpdate, the
+    /// actual rain-onset check, etc.) ever sees the substituted value -- only this method's own
+    /// wind/blizzard/snow/whiteout intensity math for this one frame does.
+    /// </summary>
+    [HarmonyPatch(typeof(BlizzardGraphics), nameof(BlizzardGraphics.CycleUpdate))]
+    internal static class BlizzardVisualCycleLengthHook
+    {
+        /// <summary>Comfortably above the real ~3220-tick breaking point (3000 / 0.932) derived in
+        /// RainTimerGimmick's own header comment, so the "glacial wasteland" ramp always has a sane
+        /// window to work with no matter how short the real gameplay cycleLength has been
+        /// configured.</summary>
+        private const int VisualMinCycleLengthTicks = 4200;
+
+        // Rain World's simulation is single-threaded and CycleUpdate doesn't call itself
+        // reentrantly (it's not recursive, and one BlizzardGraphics instance's Update -> CycleUpdate
+        // call never triggers another instance's), so a simple pair of static fields -- save before,
+        // restore after -- is safe here the same way BlizzardTimerGimmick's own current-creature
+        // stash is.
+        private static int _savedCycleLength;
+        private static bool _substituted;
+
+        private static void Prefix(BlizzardGraphics __instance)
+        {
+            _substituted = false;
+
+            RainCycle rainCycle = __instance.room?.world?.rainCycle;
+            if (rainCycle == null || rainCycle.cycleLength >= VisualMinCycleLengthTicks)
+            {
+                return;
+            }
+
+            _savedCycleLength = rainCycle.cycleLength;
+            rainCycle.cycleLength = VisualMinCycleLengthTicks;
+            _substituted = true;
+        }
+
+        private static void Postfix(BlizzardGraphics __instance)
+        {
+            if (!_substituted)
+            {
+                return;
+            }
+
+            RainCycle rainCycle = __instance.room?.world?.rainCycle;
+            if (rainCycle != null)
+            {
+                rainCycle.cycleLength = _savedCycleLength;
+            }
+            _substituted = false;
+        }
+    }
+
     /// <summary>Per-character settings for RainTimerGimmick: what percentage of the normal
     /// (vanilla-computed) cycle length rain/blizzard actually takes to arrive. 100% is unmodified
-    /// vanilla timing; below 100% is faster, above 100% is slower.</summary>
+    /// vanilla timing; below 100% is faster (down to 0% -- essentially immediate, clamped only by
+    /// RainTimerGimmick.MinCycleLengthTicks' anti-divide-by-zero floor), above 100% is slower.</summary>
     internal static class RainTimerSettings
     {
         private const int DefaultPercent = 100;
-        private const int MinPercent = 10;
+
+        /// <summary>Saint's own default (see GimmickDefaults.cs) -- rain/the blizzard should start
+        /// essentially immediately, per explicit request. 0% clamps to
+        /// RainTimerGimmick.MinCycleLengthTicks (40 ticks, 1 second) rather than a literal instant
+        /// zero, since a true 0 would divide-by-zero elsewhere in RainCycle's own math.</summary>
+        private const int SaintDefaultPercent = 0;
+
+        private const int MinPercent = 0;
         private const int MaxPercent = 400;
 
         private static readonly Dictionary<string, Configurable<int>> _percent = new Dictionary<string, Configurable<int>>();
@@ -117,11 +218,15 @@ namespace Primal.Gimmicks
 
         public static void Bind(OptionInterface owner, string characterID)
         {
+            int defaultPercent = characterID == MoreSlugcatsEnums.SlugcatStatsName.Saint.value
+                ? SaintDefaultPercent
+                : DefaultPercent;
+
             _percent[characterID] = owner.config.Bind(
                 characterID + "_RainTimer_percent",
-                DefaultPercent,
+                defaultPercent,
                 new ConfigurableInfo(
-                    "How long rain (or Saint's blizzard) takes to arrive, as a percentage of the normal vanilla timing. 100 = unmodified. Below 100 arrives faster, above 100 arrives slower. A hard floor well clear of a known rendering bug applies no matter how low this is set.",
+                    "How long rain (or Saint's blizzard) takes to arrive, as a percentage of the normal vanilla timing. 100 = unmodified. Below 100 arrives faster (0 = essentially immediate), above 100 arrives slower.",
                     new ConfigAcceptableRange<int>(MinPercent, MaxPercent)));
         }
 
@@ -145,7 +250,7 @@ namespace Primal.Gimmicks
             }
 
             var items = new List<UIelement>();
-            items.Add(new OpLabel(20f, topY, "Rain/blizzard speed, as % of normal (100 = vanilla):", false));
+            items.Add(new OpLabel(20f, topY, "Rain/blizzard speed, as % of normal (100 = vanilla, 0 = immediate):", false));
             items.Add(new OpUpdown(percent, new Vector2(280f, topY - 6f), 80f));
 
             _uiCache[characterID] = items;

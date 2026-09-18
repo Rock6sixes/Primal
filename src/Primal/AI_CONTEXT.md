@@ -423,10 +423,11 @@ was tried twice and rejected both times for good reasons (see History).
   whose own `TerrainImpact` override applies lethal damage, and slow spear-stab kills outlasting
   `killTag`'s own decay window). **Brand new, never built or
   tested as of this doc.**
-- `Gimmicks/RainTimerGimmick.cs` (new, 2026-09-18) — the Rain Timer gimmick: rescales how long rain
-  (or, on Saint, the region-wide blizzard) takes to arrive each cycle, as a configurable percentage
-  of vanilla's own normal timing (`RainTimerSettings`, same file: one `Configurable<int>` percent,
-  10-400%, default 100 = unmodified). Postfixes `RainCycle`'s constructor (the *only* place vanilla
+- `Gimmicks/RainTimerGimmick.cs` (new, 2026-09-18; render-bug fix and Saint defaults added later
+  same day) — the Rain Timer gimmick: rescales how long rain (or, on Saint, the region-wide
+  blizzard) takes to arrive each cycle, as a configurable percentage of vanilla's own normal timing
+  (`RainTimerSettings`, same file: one `Configurable<int>` percent, 0-400%, default 100 =
+  unmodified, 0 = essentially immediate). Postfixes `RainCycle`'s constructor (the *only* place vanilla
   itself ever computes `cycleLength`, confirmed via `GetDesiredCycleLength` having exactly one
   caller) and rescales the `cycleLength` it already computed, plus `sunDownStartTime` by the same
   ratio so day/night lighting doesn't drift out of sync with how fast the actual rain/blizzard
@@ -438,24 +439,31 @@ was tried twice and rejected both times for good reasons (see History).
   `GetDesiredCycleLength` itself, before this gimmick's own Postfix ever runs — Saint's blizzard
   isn't a separate timer, it's the same `RainCycle`, just pre-shortened to 70% of normal by
   vanilla's own code before this gimmick's percentage multiplies on top of that.
-  **The known "blizzard doesn't render" bug, and why it can't recur here:** the user reported that
-  an earlier, non-mod attempt at this same feature found the blizzard stopped rendering once the
-  timer dropped below roughly 13% of its normal length. Root-caused (not just worked around) by
+  **The known "blizzard doesn't render" bug — root-caused AND FIXED (2026-09-18, later same day),
+  not just floored around:** the user reported that an earlier, non-mod attempt at this same
+  feature found the blizzard stopped rendering once the timer dropped below roughly 13% of its
+  normal length, and asked this to actually be resolved rather than just avoided. Root-caused by
   reading `MoreSlugcats.BlizzardGraphics.CycleUpdate` directly: for Saint's own home-region ambient
-  blizzard (the "glacial wasteland" branch — `AerieBlizzard`-flagged rooms are a separate,
-  `cycleLength`-independent case and were never at risk), blizzard intensity is
-  `Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`, a ramp that only makes sense
-  while `cycleLength * 0.932 > 3000`; once `cycleLength` drops below `3000 / 0.932 ≈ 3220` ticks
-  (~80.5 seconds), the ramp's two bounds invert and intensity collapses toward zero for the whole
-  cycle — a ~24000-tick (10-minute) cycle taken down to 13% of itself lands at ~3120 ticks, right at
-  that exact breaking point, which is almost certainly what the earlier attempt actually hit.
-  `RainTimerGimmick.MinCycleLengthTicks` (4200, applied *after* this gimmick's own percentage) keeps
-  a comfortable margin above that boundary no matter how low the percentage is configured — see the
-  file's own header comment for the full derivation. **No default assignment yet** — registered
-  with `homeCharacter: Saint` for the Remix button's color tag, but not added to
-  `GimmickDefaults.cs`; the user asked for this "for Saint" but didn't specify a starting
-  percentage, so it's available and assignable via Remix rather than guessed at. **Not yet built or
-  tested as of this doc** (no `.NET` toolchain in this container).
+  blizzard (the "glacial wasteland" branch — `AerieBlizzard`-flagged rooms use fixed absolute-tick
+  thresholds instead and were never at risk), blizzard intensity is
+  `Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`; once `cycleLength` drops below
+  `3000 / 0.932 ≈ 3220` ticks (~80.5 seconds), `Mathf.InverseLerp`'s two bounds invert and the ramp
+  runs BACKWARDS instead of clamping flat — a small nonzero intensity right at cycle start,
+  collapsing to a clamped 0 well BEFORE rain/blizzard actually hits (worked out by hand, not
+  guessed — see the file's own header comment, "The known 'blizzard doesn't render' bug," for the
+  full arithmetic). **The actual fix is `BlizzardVisualCycleLengthHook`**, a separate, unconditional
+  Prefix+Postfix pair directly on `BlizzardGraphics.CycleUpdate` (not gated on any gimmick) that
+  temporarily substitutes a safe floor (4200 ticks) for `cycleLength` for the span of that one call
+  — confirmed to be the *only* method anywhere that reads `cycleLength` for rendering — then
+  restores the real value immediately after. This has zero effect on unmodified vanilla and only
+  ever engages once something has pushed the real gameplay `cycleLength` below the safe rendering
+  threshold. With the real bug fixed, `RainTimerGimmick.MinCycleLengthTicks` (the gameplay-side
+  floor) dropped from 4200 down to 40 ticks (1 second) — now purely an anti-division-by-zero guard,
+  not a render-bug workaround, so `RainTimerSettings.MinPercent` could drop from 10 to 0 too. **Now
+  defaulted to Saint at 0%** (`RainTimerSettings.SaintDefaultPercent`, special-cased inside `Bind()`)
+  and assigned to Saint by default in `GimmickDefaults.cs`, per explicit request ("it needs to
+  start immediately"). **Not yet built or tested as of this doc** (no `.NET` toolchain in this
+  container) — the render-bug fix in particular has never been seen in-game.
 - `Gimmicks/BlizzardTimerGimmick.cs` (new, 2026-09-18) — the Blizzard Timer gimmick: controls how
   many minutes into the cycle (from the cycle's own start, not from whenever rain/blizzard actually
   hits) the blizzard's heat-drain mechanic suddenly jumps from a gentle background rate to its
@@ -482,9 +490,10 @@ was tried twice and rejected both times for good reasons (see History).
   wind-chill sub-term, so temporarily substituting it would have silently thrown that off too.
   Composes correctly with Rain Timer above -- both resolve against the character's actual live
   `cycleLength` at the moment they're asked, so assigning both to the same character means exactly
-  what each one's own setting independently says, no double-counting. **No default assignment yet**
-  (same reasoning as Rain Timer -- "for Saint" was the request, no specific starting value). **Not
-  yet built or tested as of this doc** (no `.NET` toolchain in this container) -- also genuinely the
+  what each one's own setting independently says, no double-counting. **Now defaulted to Saint at 60
+  minutes** (`BlizzardTimerSettings.SaintDefaultMinutes`, special-cased inside `Bind()`, 2026-09-18
+  later same day) and assigned to Saint by default in `GimmickDefaults.cs`, per explicit request.
+  **Not yet built or tested as of this doc** (no `.NET` toolchain in this container) -- also genuinely the
   riskiest of today's three gimmicks to verify by inspection alone, since it hooks a Postfix on a
   method with no natural per-call context and relies on a stashed-static-field handoff between two
   separate patches; test this one particularly carefully once a build is available (assign it to a
@@ -6604,6 +6613,62 @@ minutes" window -- this is almost certainly the exact mechanic being described, 
 post-onset minutes/ticks matching `TimeLimitSettings`' own convention, or a percent-of-vanilla
 slider matching Rain Timer's own style) -- see `BlizzardTimerSettings` in
 `BlizzardTimerGimmick.cs` for the resulting single `Configurable<int>` (default 25 minutes).
+
+## 2026-09-18 (later): Rain Timer's blizzard-render bug actually fixed, not just floored around; Saint gets real defaults
+
+Follow-up, same session. User asked two things: (1) look into the ~3220-tick "blizzard doesn't
+render" bug Rain Timer's first pass only floored around, and actually fix it if possible; (2) give
+Saint real default values -- Rain Timer at 0% ("it needs to start immediately") and Blizzard Timer
+at 60 minutes.
+
+**The render bug is now fixed at its actual source**, not just avoided. Re-derived the exact
+breakdown by hand (not just re-stating the earlier "13%" finding): `BlizzardGraphics.CycleUpdate`'s
+"glacial wasteland" branch (Saint's own home region's normal ambient blizzard, as opposed to the
+separate `AerieBlizzard`-flagged-room case, which was never at risk -- it uses fixed absolute-tick
+thresholds, not `cycleLength`-relative ones) computes
+`BlizzardIntensity = Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`. Worked the
+actual arithmetic for `cycleLength` under ~3220 ticks (3000/0.932): the ramp doesn't just clamp to a
+flat 0 -- `Mathf.InverseLerp` still returns a valid fraction with the bounds inverted, so the ramp
+runs BACKWARDS -- a small nonzero intensity right at cycle START, collapsing to a clamped 0 well
+BEFORE rain/blizzard actually hits. That's the real mechanism behind "the blizzard not visually
+appearing": it's not invisible the whole cycle, it fades out exactly when it should be most intense.
+
+**Fix:** `BlizzardVisualCycleLengthHook` (new, same file as `RainTimerGimmick`, `RainTimerGimmick.cs`)
+-- a *separate*, *unconditional* Harmony patch (Prefix+Postfix) directly on
+`BlizzardGraphics.CycleUpdate` itself, not gated on any gimmick or PrimalSlot. It temporarily
+substitutes a safe floor (4200 ticks, the same margin-above-3220 value the old gameplay floor used
+to be) for `RainCycle.cycleLength` for the exact duration of one `CycleUpdate` call -- confirmed to
+be the ONLY method in the whole game that ever reads `cycleLength` for a rendering purpose -- then
+restores the real value immediately after. Because this is a correctness fix for a genuine vanilla
+bug rather than a gimmick effect, it deliberately has no gate at all: it only ever changes anything
+once `cycleLength` is already abnormally short, which never happens in untouched vanilla, so it's
+inert everywhere except when this mod's own Rain Timer (or, in principle, any other mod) has pushed
+the timer that low.
+
+With the actual bug fixed, `RainTimerGimmick`'s own gameplay-side floor
+(`RainTimerGimmick.MinCycleLengthTicks`) could be dropped from the old 4200 down to 40 ticks (1
+second) -- now purely an anti-division-by-zero guard (`RainCycle.CycleProgression`, `AmountLeft`,
+etc. all divide directly by `cycleLength`; a literal 0 would produce NaN/Infinity there), not a
+render-bug guard anymore. `RainTimerSettings.MinPercent` correspondingly dropped from 10 to 0, so
+"0%" is now a reachable, safe config value that clamps to that 1-second floor rather than a true
+instant zero.
+
+**Saint's real defaults**, in `GimmickDefaults.cs`: Rain Timer and Blizzard Timer are now both
+assigned to Saint by default (`GimmickAssignments.SetDefault(..., true)` for both IDs). The actual
+VALUES (0% / 60 minutes) aren't something `SetDefault` itself carries -- each gimmick's own settings
+class special-cases Saint's default inside its own `Bind()` (`RainTimerSettings.SaintDefaultPercent
+= 0`, `BlizzardTimerSettings.SaintDefaultMinutes = 60`), the same per-character-default pattern
+introduced for this. Every other character still gets each gimmick's generic default (100% / 25
+min) if ever assigned it manually via Remix.
+
+**Not yet built or tested as of this doc** (no `.NET` toolchain in this container). When retesting,
+in addition to Rain/Blizzard Timer's own existing checklists (see their file-map bullets above):
+(1) confirm Saint's Remix panel shows Rain Timer and Blizzard Timer both already assigned, at 0%
+and 60 min respectively, on a fresh save; (2) confirm rain/blizzard onset is now near-instant for
+Saint at the 0% default, AND the blizzard still visually renders (this is the one that would have
+failed before today's fix); (3) as an extra check beyond what's already flagged, try Rain Timer at
+0% on some OTHER blizzard-affected setup if one exists, to confirm the render fix isn't somehow
+Saint-specific despite being written to be character-agnostic.
 
 ## Outstanding items
 

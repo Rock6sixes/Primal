@@ -115,10 +115,17 @@ namespace Primal.Gimmicks
     /// heat-drain mechanic suddenly maxes out. Default (25 min) approximates vanilla's own typical
     /// timing for a Saint-length cycle, per this gimmick's own header comment -- vanilla has no
     /// single constant for this (it depends on the region's own cycle length), so this is a
-    /// reasonable starting point rather than an exact reproduction of any specific region.</summary>
+    /// reasonable starting point rather than an exact reproduction of any specific region. Saint
+    /// himself (see GimmickDefaults.cs) gets his own explicitly-requested default of 60 minutes
+    /// instead of the generic 25.</summary>
     internal static class BlizzardTimerSettings
     {
         private const int DefaultMinutes = 25;
+
+        /// <summary>Saint's own default (see GimmickDefaults.cs), per explicit request: "the
+        /// blizzard timer set to 1 hour."</summary>
+        private const int SaintDefaultMinutes = 60;
+
         private const int MinMinutes = 1;
         private const int MaxMinutes = 999;
 
@@ -130,9 +137,13 @@ namespace Primal.Gimmicks
 
         public static void Bind(OptionInterface owner, string characterID)
         {
+            int defaultMinutes = characterID == MoreSlugcats.MoreSlugcatsEnums.SlugcatStatsName.Saint.value
+                ? SaintDefaultMinutes
+                : DefaultMinutes;
+
             _minutes[characterID] = owner.config.Bind(
                 characterID + "_BlizzardTimer_minutes",
-                DefaultMinutes,
+                defaultMinutes,
                 new ConfigurableInfo(
                     "Minutes into the cycle (counted from the cycle's own start, not from whenever rain/blizzard actually hits) before the blizzard's heat-drain mechanic suddenly maxes out.",
                     new ConfigAcceptableRange<int>(MinMinutes, MaxMinutes)));
