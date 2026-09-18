@@ -4,6 +4,8 @@ Read this whole file before touching code. It exists because this project has be
 major architecture pivots and several misdiagnosed bugs, and re-deriving that history from the
 code alone wastes time. Written 2026-09-11.
 
+AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT
+
 ## Mod renamed: AltCharacters -> Primal (2026-09-12)
 
 This mod was originally built and shipped under the name **AltCharacters** (namespace
