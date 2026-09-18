@@ -132,12 +132,13 @@ was tried twice and rejected both times for good reasons (see History).
   `player.playerState.slugcatCharacter.value` (the player's **real, unfaked** vanilla identity) and
   `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior. In
   practice every patch does that through **`GimmickGate`** (see below) rather than open-coding it.
-- `GimmickRegistry` lists the known gimmicks — as of 2026-09-18, 14: `Misery`, `Slugpup`, `OneSpear`
+- `GimmickRegistry` lists the known gimmicks — as of 2026-09-18, 15: `Misery`, `Slugpup`, `OneSpear`
   (shown in the UI as "Master Spear"), `TimeLimit`, `NoHold` (shown as "No Hold" -- generalized
   2026-09-18 from the old single-purpose `NoSpears`, which no longer exists; see NoHoldGimmick.cs),
   `Chains`, `NoYeeks`, `NoCicadas`, `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`,
-  `CreatureKillList` (shown as "Kill List"), `RainTimer` (new 2026-09-18; see RainTimerGimmick.cs).
-  Each `GimmickDef` takes its ID from the owning patch class's own `ID` const rather than re-typing
+  `CreatureKillList` (shown as "Kill List"), `RainTimer` (new 2026-09-18; see RainTimerGimmick.cs),
+  `BlizzardTimer` (new 2026-09-18; see BlizzardTimerGimmick.cs). Each `GimmickDef` takes its ID from
+  the owning patch class's own `ID` const rather than re-typing
   the string, so the two can't drift apart silently. (Note: this mod also grew a large, separate
   "Requirements"/Community Challenges architecture in a later 2026-09-16/17 session, generalized
   onto its own Remix tab -- see "the Requirements architecture" and the Community Challenges
@@ -455,6 +456,42 @@ was tried twice and rejected both times for good reasons (see History).
   `GimmickDefaults.cs`; the user asked for this "for Saint" but didn't specify a starting
   percentage, so it's available and assignable via Remix rather than guessed at. **Not yet built or
   tested as of this doc** (no `.NET` toolchain in this container).
+- `Gimmicks/BlizzardTimerGimmick.cs` (new, 2026-09-18) — the Blizzard Timer gimmick: controls how
+  many minutes into the cycle (from the cycle's own start, not from whenever rain/blizzard actually
+  hits) the blizzard's heat-drain mechanic suddenly jumps from a gentle background rate to its
+  maximum severity. Traced to `Creature.HypothermiaUpdate()`: vanilla computes a threshold tick
+  `num3 = cycleLength + RainWorldGame.BlizzardHardEndTimer(storyMode)` (the latter a hardcoded
+  32000-tick/13m20s constant in story mode), and the instant `rainCycle.timer` (which keeps counting
+  up even after rain/blizzard has already hit) crosses `num3`, per-tick cold gain jumps from a
+  gentle ramp straight to the method's own hard ceiling (`Mathf.Clamp(..., 0.0055f)`) -- effectively
+  instant, matching the user's own "suddenly gets significantly harsher" framing exactly. **Unit,
+  per the user's own explicit choice after being shown this mechanism: "Total minutes into the
+  cycle"** (`BlizzardTimerSettings`, same file: one `Configurable<int>` minutes, default 25,
+  approximating -- not reproducing exactly, vanilla has no single constant for this -- the vanilla
+  feel the user described). Implementation is a Postfix on `RainWorldGame.BlizzardHardEndTimer`
+  (confirmed via full-codebase grep to have exactly one call site anywhere in the game, so patching
+  it can't affect anything else) that overrides its return value to `(configured total ticks) -
+  cycleLength`, clamped to never go negative. Since that static method takes no Player/Creature
+  parameter at all, a second Prefix+Postfix pair on `Creature.HypothermiaUpdate()` itself
+  (`BlizzardTimerHypothermiaGateHook`) stashes/clears which Creature is currently mid-call in a
+  shared static field (`BlizzardTimerGimmick.CurrentCreature`) so the `BlizzardHardEndTimer` Postfix
+  can resolve "which player, if any, is asking" despite the method it's patching having no such
+  context -- safe because Rain World's simulation is single-threaded and this method never
+  recurses. Deliberately does NOT touch `cycleLength` directly (the more obvious-looking approach):
+  that field is read a second time a few lines later in the same vanilla method for an unrelated
+  wind-chill sub-term, so temporarily substituting it would have silently thrown that off too.
+  Composes correctly with Rain Timer above -- both resolve against the character's actual live
+  `cycleLength` at the moment they're asked, so assigning both to the same character means exactly
+  what each one's own setting independently says, no double-counting. **No default assignment yet**
+  (same reasoning as Rain Timer -- "for Saint" was the request, no specific starting value). **Not
+  yet built or tested as of this doc** (no `.NET` toolchain in this container) -- also genuinely the
+  riskiest of today's three gimmicks to verify by inspection alone, since it hooks a Postfix on a
+  method with no natural per-call context and relies on a stashed-static-field handoff between two
+  separate patches; test this one particularly carefully once a build is available (assign it to a
+  character, confirm the cold-gain spike now happens at the configured total-cycle-minute mark
+  instead of vanilla's own regionally-varying default, and confirm nothing else that reads
+  `RainWorldGame.BlizzardHardEndTimer` or `Creature.HypothermiaUpdate` regressed for a character
+  that does NOT have this gimmick assigned).
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -6505,7 +6542,7 @@ reordering is purely for readability, not required for it to compile).
 
 Not yet seen in-game -- compiled clean and redeployed.
 
-## 2026-09-18: Saint gameplay mechanics, round 1 -- No Hold, Rain Timer, and the Blizzard Timer research
+## 2026-09-18: Saint gameplay mechanics, round 1 -- No Hold, Rain Timer, and Blizzard Timer
 
 New session, continuing past the 2026-09-17 UI-polish batch above. User asked to work through "the
 rest of the gameplay altering mechanics before testing" and started with three items scoped to
@@ -6515,9 +6552,9 @@ older "Container environment notes" section below -- the 2026-09-15 "sessions no
 own Windows machine" note near the top of this doc does NOT hold for this particular session; check
 `dotnet --version` fresh each time rather than trusting that note).
 
-**No Hold and Rain Timer are both implemented** — see their own file-map bullets above
-(`NoHoldGimmick.cs`, `RainTimerGimmick.cs`) for the full account of each. Neither has been built or
-tested yet (no toolchain here). Short summary:
+**All three are now implemented** — see their own file-map bullets above (`NoHoldGimmick.cs`,
+`RainTimerGimmick.cs`, `BlizzardTimerGimmick.cs`) for the full account of each. None has been built
+or tested yet (no toolchain here). Short summary:
 - **No Hold** replaces `NoSpearsGimmick.cs` outright (deleted) with a 10-category picker (Spears,
   Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, Other), reusing the exact
   `Player.Grabability` Postfix mechanism every other No* gimmick already used. `GimmickDefaults.cs`
@@ -6532,10 +6569,15 @@ tested yet (no toolchain here). Short summary:
   `MoreSlugcats.BlizzardGraphics.CycleUpdate`). No default assignment to Saint yet -- ask/wait for a
   starting percentage rather than guessing one.
 
-**Blizzard Timer: mechanism fully researched, NOT yet implemented -- deliberately paused to ask the
-user which unit to expose, per their own explicit instruction ("let me know first how the timer
-works and then ask me").** Traced to `Creature.HypothermiaUpdate()` (root namespace, no reflection
-needed):
+- **Blizzard Timer** — mechanism researched first, then the user was asked which unit to expose
+  (per their own explicit instruction: "let me know first how the timer works and then ask me"),
+  and answered **"Total minutes into the cycle."** Implemented as a Postfix on
+  `RainWorldGame.BlizzardHardEndTimer` (its one and only call site anywhere in the game) that
+  overrides the hardcoded post-rain delay to whatever makes `cycleLength + result` equal the
+  configured total-cycle-minute mark, via a stashed-current-creature handoff from a second Prefix/
+  Postfix pair on `Creature.HypothermiaUpdate` (see the file-map bullet and this gimmick's own
+  header comment for exactly why that indirection is needed, and why `cycleLength` itself was
+  deliberately NOT touched directly). Full mechanism trace, preserved below for reference:
 ```
 float num3 = (float)room.world.rainCycle.cycleLength + (float)RainWorldGame.BlizzardHardEndTimer(room.game.IsStorySession);
 HypothermiaGain = Mathf.Lerp(0f, RainWorldGame.DefaultHeatSourceWarmth * 0.1f, Mathf.InverseLerp(0.1f, 0.95f, room.world.rainCycle.CycleProgression));
@@ -6558,17 +6600,10 @@ wall-clock delay the player experiences is `cycleLength + 32000 ticks` measured 
 which for a plausible Saint cycle length comfortably lands in the user's own observed "20-30
 minutes" window -- this is almost certainly the exact mechanic being described, not a guess.
 
-**Open question for the user, per their own instruction to ask before implementing:** the natural
-knob to expose is `RainWorldGame.BlizzardHardEndTimer`'s hardcoded 32000-tick value -- i.e. "how
-long AFTER rain/blizzard onset before it gets brutal" -- since that's the one true constant driving
-the effect (the `cycleLength` half of `num3` is already separately controllable via Rain Timer
-above, and stacks with whatever this gimmick ends up configuring). Could be exposed as raw ticks,
-minutes (this codebase's usual unit for time-based settings -- see `TimeLimitSettings`, 40
-ticks/second), or as a flat "total minutes into the cycle before it happens" (folding the
-`cycleLength` contribution in, so the number matches what the player actually perceives) --
-whichever the user prefers once asked. `RainCycle.timer` and `RainWorldGame.clock` both run at the
-same fixed 40 ticks/second simulation rate this whole codebase already uses for TimeLimit, so
-whatever unit is chosen converts cleanly.
+**Resolved:** the user picked "Total minutes into the cycle" over the alternatives offered (raw
+post-onset minutes/ticks matching `TimeLimitSettings`' own convention, or a percent-of-vanilla
+slider matching Rain Timer's own style) -- see `BlizzardTimerSettings` in
+`BlizzardTimerGimmick.cs` for the resulting single `Configurable<int>` (default 25 minutes).
 
 ## Outstanding items
 

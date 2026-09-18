@@ -274,6 +274,26 @@ namespace Primal.Gimmicks
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
         );
 
+        /// <summary>
+        /// Controls how many minutes into the cycle (from the cycle's own start, not from whenever
+        /// rain/blizzard actually hits) the blizzard's heat-drain mechanic suddenly maxes out --
+        /// see BlizzardTimerGimmick.cs's own header comment for the full trace of
+        /// Creature.HypothermiaUpdate()'s real formula and why a Postfix on the single-call-site
+        /// static helper RainWorldGame.BlizzardHardEndTimer, rather than touching cycleLength
+        /// directly, is what avoids side-effecting an unrelated wind-chill sub-term in the same
+        /// method. Composes correctly with RainTimer above -- both read/derive from the character's
+        /// actual live cycleLength at the moment they're asked, so assigning both to the same
+        /// character always means exactly what each one's own setting says, independently.
+        /// </summary>
+        public static readonly GimmickDef BlizzardTimer = new GimmickDef(
+            BlizzardTimerGimmick.ID,
+            "Blizzard Timer",
+            "Controls how many minutes into the cycle the blizzard's heat-drain mechanic suddenly jumps from a gentle background rate to its maximum severity.",
+            BlizzardTimerSettings.Bind,
+            BlizzardTimerSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+        );
+
         public static readonly GimmickDef[] All =
         {
             Misery,
@@ -289,6 +309,7 @@ namespace Primal.Gimmicks
             ThreatSlowdown,
             ThreatPanic,
             RainTimer,
+            BlizzardTimer,
             CreatureKillList,
         };
     }
