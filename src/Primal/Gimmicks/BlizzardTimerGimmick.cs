@@ -86,6 +86,15 @@ namespace Primal.Gimmicks
     [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.BlizzardHardEndTimer))]
     internal static class BlizzardHardEndTimerHook
     {
+        /// <summary>Used instead of the minutes math when BlizzardTimerSettings' "Disable timer"
+        /// checkbox is checked -- unlike RainTimerGimmick's own Unlimited sentinel, this doesn't
+        /// need to account for `cycleLength` at all (it's independent of it, see this file's own
+        /// header comment for why touching `cycleLength` directly would have side-effected an
+        /// unrelated wind-chill term), so it can just be a flat, large-but-bounded number of ticks
+        /// -- ~100 million ticks is roughly 29 days of continuous simulated time, effectively never
+        /// reached in any real play session.</summary>
+        private const int UnlimitedExtraTicks = 100_000_000;
+
         private static void Postfix(ref int __result)
         {
             Creature creature = BlizzardTimerGimmick.CurrentCreature;
@@ -96,6 +105,12 @@ namespace Primal.Gimmicks
 
             if (!GimmickGate.IsActiveFor(player, BlizzardTimerGimmick.ID, out string characterID))
             {
+                return;
+            }
+
+            if (BlizzardTimerSettings.IsDisabled(characterID))
+            {
+                __result = UnlimitedExtraTicks;
                 return;
             }
 
@@ -117,7 +132,10 @@ namespace Primal.Gimmicks
     /// single constant for this (it depends on the region's own cycle length), so this is a
     /// reasonable starting point rather than an exact reproduction of any specific region. Saint
     /// himself (see GimmickDefaults.cs) gets his own explicitly-requested default of 60 minutes
-    /// instead of the generic 25.</summary>
+    /// instead of the generic 25. A separate "Disable timer" checkbox (same pattern as
+    /// RainTimerSettings, per the same user request) overrides the minutes entirely -- checked, the
+    /// harshening spike effectively never happens (see BlizzardHardEndTimerHook.UnlimitedExtraTicks);
+    /// the numeric field and its label grey out while it's checked.</summary>
     internal static class BlizzardTimerSettings
     {
         private const int DefaultMinutes = 25;
@@ -130,6 +148,7 @@ namespace Primal.Gimmicks
         private const int MaxMinutes = 999;
 
         private static readonly Dictionary<string, Configurable<int>> _minutes = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, Configurable<bool>> _disabled = new Dictionary<string, Configurable<bool>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why.
@@ -145,13 +164,23 @@ namespace Primal.Gimmicks
                 characterID + "_BlizzardTimer_minutes",
                 defaultMinutes,
                 new ConfigurableInfo(
-                    "Minutes into the cycle (counted from the cycle's own start, not from whenever rain/blizzard actually hits) before the blizzard's heat-drain mechanic suddenly maxes out.",
+                    "Minutes into the cycle (counted from the cycle's own start, not from whenever rain/blizzard actually hits) before the blizzard's heat-drain mechanic suddenly maxes out. Ignored entirely while \"Disable timer\" is checked.",
                     new ConfigAcceptableRange<int>(MinMinutes, MaxMinutes)));
+
+            _disabled[characterID] = owner.config.Bind(
+                characterID + "_BlizzardTimer_disabled",
+                false,
+                new ConfigurableInfo("If checked, the blizzard's heat-drain mechanic never suddenly maxes out -- the minutes above are ignored while this is checked."));
         }
 
         public static int GetMinutes(string characterID)
         {
             return _minutes.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultMinutes;
+        }
+
+        public static bool IsDisabled(string characterID)
+        {
+            return _disabled.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
         }
 
         public static List<UIelement> BuildUI(string characterID, float topY)
@@ -161,7 +190,8 @@ namespace Primal.Gimmicks
                 return cached;
             }
 
-            if (!_minutes.TryGetValue(characterID, out Configurable<int> minutes))
+            if (!_minutes.TryGetValue(characterID, out Configurable<int> minutes) ||
+                !_disabled.TryGetValue(characterID, out Configurable<bool> disabled))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
                 // run for this character yet and a later call could succeed.
@@ -169,8 +199,28 @@ namespace Primal.Gimmicks
             }
 
             var items = new List<UIelement>();
-            items.Add(new OpLabel(20f, topY, "Minutes into the cycle before it turns harsh:", false));
-            items.Add(new OpUpdown(minutes, new Vector2(280f, topY - 6f), 80f));
+
+            var label = new OpLabel(20f, topY, "Minutes into the cycle before it turns harsh:", false);
+            var updown = new OpUpdown(minutes, new Vector2(280f, topY - 6f), 80f);
+            var disableCheckbox = new OpCheckBox(disabled, 380f, topY - 6f);
+            var disableLabel = new OpLabel(416f, topY - 2f, "Disable timer", false);
+
+            // Captured once, right after construction -- see RainTimerSettings.BuildUI for why.
+            Color enabledLabelColor = label.color;
+
+            void ApplyDisabledVisual(bool isDisabled)
+            {
+                updown.greyedOut = isDisabled;
+                label.color = isDisabled ? Color.grey : enabledLabelColor;
+            }
+
+            ApplyDisabledVisual(disabled.Value);
+            disabled.OnChange += () => ApplyDisabledVisual(disabled.Value);
+
+            items.Add(label);
+            items.Add(updown);
+            items.Add(disableCheckbox);
+            items.Add(disableLabel);
 
             _uiCache[characterID] = items;
             return items;

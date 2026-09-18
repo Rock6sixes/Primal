@@ -132,12 +132,13 @@ was tried twice and rejected both times for good reasons (see History).
   `player.playerState.slugcatCharacter.value` (the player's **real, unfaked** vanilla identity) and
   `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior. In
   practice every patch does that through **`GimmickGate`** (see below) rather than open-coding it.
-- `GimmickRegistry` lists the known gimmicks — as of 2026-09-18, 15: `Misery`, `Slugpup`, `OneSpear`
+- `GimmickRegistry` lists the known gimmicks — as of 2026-09-18, 16: `Misery`, `Slugpup`, `OneSpear`
   (shown in the UI as "Master Spear"), `TimeLimit`, `NoHold` (shown as "No Hold" -- generalized
   2026-09-18 from the old single-purpose `NoSpears`, which no longer exists; see NoHoldGimmick.cs),
   `Chains`, `NoYeeks`, `NoCicadas`, `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`,
   `CreatureKillList` (shown as "Kill List"), `RainTimer` (new 2026-09-18; see RainTimerGimmick.cs),
-  `BlizzardTimer` (new 2026-09-18; see BlizzardTimerGimmick.cs). Each `GimmickDef` takes its ID from
+  `BlizzardTimer` (new 2026-09-18; see BlizzardTimerGimmick.cs), `PrecycleTimer` (new 2026-09-18,
+  later still; see PrecycleTimerGimmick.cs). Each `GimmickDef` takes its ID from
   the owning patch class's own `ID` const rather than re-typing
   the string, so the two can't drift apart silently. (Note: this mod also grew a large, separate
   "Requirements"/Community Challenges architecture in a later 2026-09-16/17 session, generalized
@@ -500,7 +501,29 @@ was tried twice and rejected both times for good reasons (see History).
   character, confirm the cold-gain spike now happens at the configured total-cycle-minute mark
   instead of vanilla's own regionally-varying default, and confirm nothing else that reads
   `RainWorldGame.BlizzardHardEndTimer` or `Creature.HypothermiaUpdate` regressed for a character
-  that does NOT have this gimmick assigned).
+  that does NOT have this gimmick assigned). **Later same day:** both this gimmick and Rain Timer
+  gained a "Disable timer" checkbox next to their numeric field (greys out the field+label when
+  checked, substitutes a large-but-bounded sentinel instead of the normal math) -- see the "Disable
+  timer checkboxes... Precycle Timer" dated section further down for the full account.
+- `Gimmicks/PrecycleTimerGimmick.cs` (new, 2026-09-18, later still) — the Precycle Timer gimmick:
+  replaces vanilla's own precycle ("shelter failure") decision outright, both frequency (a flat
+  0-100% for the assigned character, replacing vanilla's own per-region `earlyCycleChance`) and
+  head-start duration (a fixed configured number of minutes, replacing vanilla's own random 2-5
+  minute roll). A Postfix on the same `RainCycle` constructor `RainTimerGimmick` already Postfixes,
+  touching entirely disjoint fields (`maxPreTimer`/`preTimer`/`preCycleRainPulse_Wave*` vs
+  `cycleLength`/`sunDownStartTime`), so the two compose with no ordering dependency. See the file's
+  own header comment for the full trace (including a deliberately-flagged scope gap around
+  vanilla's separate "early cycle flood" roll, which already ran before this gimmick's Postfix and
+  isn't retroactively adjusted) and the "Disable timer checkboxes... Precycle Timer" dated section
+  further down for the full account, including the vanilla variance numbers (400-800 second base
+  cycle length, 4800-12000 tick precycle duration) this gimmick's own design was checked against.
+  No default assignment to any character. **Not yet built or tested as of this doc** (no `.NET`
+  toolchain in this container) — genuinely novel among this mod's gimmicks in that it re-derives and
+  overrides a vanilla RNG roll rather than just reading or gating on existing state, so treat it
+  with extra scrutiny once a build is available: confirm precycles actually stop happening at 0%
+  even in a normally precycle-prone region, confirm they happen (eventually) at 100% even in a
+  region that normally never has them, and confirm the configured duration (not vanilla's own
+  2-5 minute random range) is what actually shows up as the pre-rain head start in-game.
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -6669,6 +6692,97 @@ Saint at the 0% default, AND the blizzard still visually renders (this is the on
 failed before today's fix); (3) as an extra check beyond what's already flagged, try Rain Timer at
 0% on some OTHER blizzard-affected setup if one exists, to confirm the render fix isn't somehow
 Saint-specific despite being written to be character-agnostic.
+
+## 2026-09-18 (later still): "Disable timer" checkboxes for Rain/Blizzard Timer, and a new Precycle Timer gimmick
+
+Follow-up, same session. User asked for two things: (1) a way to make Rain Timer's and Blizzard
+Timer's numeric setting mean "unlimited" (originally floated as a special slider notch, then
+resolved to a simpler design after a clarifying question -- see below); (2) a brand new gimmick,
+Precycle Timer, controlling vanilla's "shelter failure"/precycle mechanic.
+
+**The slider+textbox UI question, and why it was asked rather than guessed:** the user's exact ask
+("add a textbox to input the slider value") assumed there wasn't already a way to type a number
+directly. Checked the actual decompiled Remix source first rather than assuming either way:
+`OpUpdown` (what this mod's "sliders" have always actually been, confirmed via grep -- there's no
+`OpSlider` anywhere in this codebase) already extends `OpTextBox` and is directly typable, click and
+type a number, no separate box needed. But `Menu.Remix.MixedUI.UIconfig`'s own constructor throws
+`MultiuseConfigurableException` if a second UI element ever tries to bind the same `Configurable`
+that's already bound to a live one (`config.BoundUIconfig != null` check, confirmed by reading
+`UIconfig.cs` directly) -- so a REAL drag-slider (`OpSlider`) next to a genuinely separate typable
+box, both pointing at the same literal stored value, isn't possible without a second, manually
+synced `Configurable` and reentrancy-guarded `OnChange` wiring on both sides. Given no compiler in
+this container to catch a mistake in that sync logic, asked the user to pick between keeping the
+already-typable `OpUpdown` (lower risk) or building the real synced pair (more risk, closer to a
+literal "slider"). **User's answer superseded both options with a third, simpler one:** keep the
+`OpUpdown`, and add a plain `OpCheckBox` to its right labeled "Disable timer" that greys out the
+number field and its label when checked.
+
+**Implemented for both `RainTimerGimmick.cs` and `BlizzardTimerGimmick.cs`** (`RainTimerSettings`/
+`BlizzardTimerSettings`, same files): a new `Configurable<bool>` per character (`_disabled`),
+`IsDisabled(characterID)` getter, and `BuildUI` now constructs the `OpCheckBox` + its own `OpLabel`
+alongside the existing `OpUpdown` + label, wiring the checkbox's `OnChange` to set
+`opUpdown.greyedOut` (a plain public field on `UIfocusable`, confirmed via the decompiled source --
+`OpUpdown` already checks it in its own `Update()`) and swap the numeric label's color to grey (the
+label's own *original* color is captured once at construction and restored on uncheck, rather than
+hardcoding a "normal" color guess). Checked, each gimmick's own Postfix skips its normal
+percent/minutes math entirely and substitutes a large-but-bounded sentinel instead of trying to
+truly disable the underlying mechanic (which would mean patching yet another, separate vanilla
+method for each): `RainTimerGimmick.UnlimitedCycleLengthTicks` (100 million ticks, ~29 days) is
+set directly as `cycleLength` (deliberately WITHOUT also scaling `sunDownStartTime` the way the
+normal percent branch does, so day/night keeps behaving like vanilla while only rain/the blizzard
+is pushed out to practically-never); `BlizzardHardEndTimerHook.UnlimitedExtraTicks` (also 100
+million) is returned directly, independent of `cycleLength`, so it can't overflow when later added
+to it in `Creature.HypothermiaUpdate`'s own float-space arithmetic. Saint's own defaults (0% / 60
+min from the previous entry) are unaffected -- the new checkbox defaults to unchecked for every
+character, including Saint. **Not yet built or tested.**
+
+**New gimmick: Precycle Timer** (`PrecycleTimerGimmick.cs`, new file). Traced vanilla's own precycle
+("shelter failure") decision to `RainCycle`'s constructor -- the same method `RainTimerGimmick`
+already Postfixes, touching entirely disjoint fields so the two coexist with no ordering dependency.
+Two independent vanilla rolls, both now overridden: (1) **whether** a precycle happens --
+vanilla rolls `Random.Range(0,100) < region.regionParams.earlyCycleChance * 100` (a PER-REGION
+value, not one constant -- matches the user's own "2% in certain regions," but every region defines
+its own; Rivulet/Sofanthiel/Watcher get special-cased overrides instead), reseeded deterministically
+off the cycle's own seed and saved/restored around the roll so it doesn't disturb any other
+`UnityEngine.Random` use in the same constructor. This gimmick re-derives that exact same kind of
+roll (same seeding call, `StoryGameSession.SetRandomSeedToCycleSeed(1)`) but compares it against the
+character's own flat `FrequencyPercent` (0-100) instead, fully overriding vanilla's decision either
+way (0% truly never triggers regardless of the region's own chance; 100% always does). (2) **how
+long** the head start lasts if one triggers -- vanilla rolls `Random.Range(4800f, 12000f)` ticks
+(120-300 seconds, 2-5 minutes) fresh every time, stored in `maxPreTimer`/`preTimer`; this gimmick
+replaces that with a fixed, configured `DurationMinutes` instead. When triggering, sets up the exact
+same fields vanilla's own trigger path does (`maxPreTimer`, `preTimer`, the three
+`preCycleRainPulse_Wave*` floats, `globalRain.preCycleRainPulse_Scale = 1f`); when not, zeros
+`maxPreTimer`/`preTimer` back out, overriding whatever vanilla's own per-region roll (which already
+ran earlier in the same constructor call) had already decided. **"Periodic rains" and "different
+creatures spawn" needed no new code at all** -- both read `RainCycle.preTimer`/`maxPreTimer` live
+wherever they actually happen (confirmed via `preTimer` references in `Room.cs`/`GlobalRain.cs`),
+not a separately-cached decision, and this gimmick's Postfix runs well before any room lazily loads
+and reads those fields. **One deliberate, flagged scope gap:** vanilla's own SEPARATE "early cycle
+flood" roll (`region.regionParams.earlyCycleFloodChance`, gated on `maxPreTimer > 0`) already
+consumes its own random value using vanilla's own precycle decision, before this gimmick's Postfix
+ever runs -- so a precycle this gimmick forces on (that vanilla itself wouldn't have rolled) never
+gets a chance at that flood interaction, and vice versa. Left as-is since flood-on-precycle wasn't
+part of what the user asked this gimmick to control; noted here in case a future session is asked to
+close that gap too. No default assignment to any character (not requested with a specific value, same
+reasoning as Rain/Blizzard Timer before Saint's own defaults were given) -- `homeCharacter: Saint`
+for the Remix color tag only, since it was raised in the same Saint-focused conversation. **Not yet
+built or tested.**
+
+**Variance question, answered directly from the source rather than guessed (see the chat reply
+itself for the full numbers):** vanilla's own `cycleLength`, BEFORE Rain Timer's percentage ever
+touches it, already re-rolls every single cycle -- `Lerp(cycleTimeMin, cycleTimeMax, Random.value)`
+seconds, defaulting to a 400-800 second (6m40s-13m20s) range that's itself changeable in vanilla's
+own Options menu (traced to `World.cs`'s constructor and `RainWorld.cs`'s own default values, lines
+1682-1683: `cycleTimeMin = 400; cycleTimeMax = 800;`). Rivulet/Gourmand/Saint get a biased roll
+instead (`0.35 + 0.65 * Random.value^1.2`, never sampling the bottom 35% of that range). Rain
+Timer's percent multiplies whatever that already-random per-cycle base comes out to, every cycle
+independently -- it doesn't replace vanilla's own randomness, it scales it. Precycle's own duration
+(`maxPreTimer`) is vanilla's own separate 4800-12000 tick (2-5 minute) roll, rerolled fresh every
+time a precycle actually triggers -- now replaced outright by Precycle Timer's fixed
+`DurationMinutes` rather than preserving that randomness (a design choice, not forced by anything
+technical -- flagged in case the user would rather keep some randomness around a configured
+midpoint instead of a perfectly fixed value).
 
 ## Outstanding items
 

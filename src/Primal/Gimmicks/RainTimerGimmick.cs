@@ -96,6 +96,17 @@ namespace Primal.Gimmicks
         /// anywhere near as conservative as it originally was.</summary>
         private const int MinCycleLengthTicks = 40;
 
+        /// <summary>Used instead of the percentage math when RainTimerSettings' "Disable timer"
+        /// checkbox is checked for this character -- see that class's own header comment for the
+        /// UI, and why this is a large-but-bounded sentinel rather than trying to truly suppress
+        /// rain forever (which would mean patching the onset check itself, a second, separate piece
+        /// of vanilla logic, for no real player-facing difference). ~100 million ticks is roughly
+        /// 29 days of continuous, uninterrupted simulated time -- rain effectively never arrives in
+        /// any real play session, while staying comfortably clear of int32 overflow if anything
+        /// downstream ever multiplies it by a small factor (unlike sunDownStartTime's own ratio
+        /// scaling below, which is skipped entirely in this branch for exactly that reason).</summary>
+        private const int UnlimitedCycleLengthTicks = 100_000_000;
+
         private static void Postfix(RainCycle __instance, World world)
         {
             RainWorldGame game = world?.game;
@@ -113,6 +124,17 @@ namespace Primal.Gimmicks
             int originalCycleLength = __instance.cycleLength;
             if (originalCycleLength <= 0)
             {
+                return;
+            }
+
+            if (RainTimerSettings.IsDisabled(characterID))
+            {
+                // Deliberately does NOT scale sunDownStartTime here (unlike the normal branch
+                // below) -- day/night keeps behaving exactly like vanilla while only rain itself is
+                // pushed out to practically-never, rather than also stretching sunset out to an
+                // equally huge, meaningless value.
+                __instance.cycleLength = UnlimitedCycleLengthTicks;
+                Plugin.Log?.LogInfo($"[RainTimer] {characterID}: timer disabled -- rain effectively never arrives");
                 return;
             }
 
@@ -196,7 +218,13 @@ namespace Primal.Gimmicks
     /// <summary>Per-character settings for RainTimerGimmick: what percentage of the normal
     /// (vanilla-computed) cycle length rain/blizzard actually takes to arrive. 100% is unmodified
     /// vanilla timing; below 100% is faster (down to 0% -- essentially immediate, clamped only by
-    /// RainTimerGimmick.MinCycleLengthTicks' anti-divide-by-zero floor), above 100% is slower.</summary>
+    /// RainTimerGimmick.MinCycleLengthTicks' anti-divide-by-zero floor), above 100% is slower.
+    /// A separate "Disable timer" checkbox (per user request, in place of the originally-discussed
+    /// idea of a special "Unlimited" notch at the end of the numeric range) overrides the percent
+    /// entirely -- checked, rain/the blizzard effectively never arrives (see
+    /// RainTimerGimmick.UnlimitedCycleLengthTicks); the numeric field and its label grey out to
+    /// show they're inert while it's checked, the same "visible but disabled" convention
+    /// NoPassagesGimmick already uses elsewhere in this mod.</summary>
     internal static class RainTimerSettings
     {
         private const int DefaultPercent = 100;
@@ -211,6 +239,7 @@ namespace Primal.Gimmicks
         private const int MaxPercent = 400;
 
         private static readonly Dictionary<string, Configurable<int>> _percent = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, Configurable<bool>> _disabled = new Dictionary<string, Configurable<bool>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why.
@@ -226,13 +255,23 @@ namespace Primal.Gimmicks
                 characterID + "_RainTimer_percent",
                 defaultPercent,
                 new ConfigurableInfo(
-                    "How long rain (or Saint's blizzard) takes to arrive, as a percentage of the normal vanilla timing. 100 = unmodified. Below 100 arrives faster (0 = essentially immediate), above 100 arrives slower.",
+                    "How long rain (or Saint's blizzard) takes to arrive, as a percentage of the normal vanilla timing. 100 = unmodified. Below 100 arrives faster (0 = essentially immediate), above 100 arrives slower. Ignored entirely while \"Disable timer\" is checked.",
                     new ConfigAcceptableRange<int>(MinPercent, MaxPercent)));
+
+            _disabled[characterID] = owner.config.Bind(
+                characterID + "_RainTimer_disabled",
+                false,
+                new ConfigurableInfo("If checked, rain (or Saint's blizzard) effectively never arrives -- the percentage above is ignored while this is checked."));
         }
 
         public static int GetPercent(string characterID)
         {
             return _percent.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultPercent;
+        }
+
+        public static bool IsDisabled(string characterID)
+        {
+            return _disabled.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
         }
 
         public static List<UIelement> BuildUI(string characterID, float topY)
@@ -242,7 +281,8 @@ namespace Primal.Gimmicks
                 return cached;
             }
 
-            if (!_percent.TryGetValue(characterID, out Configurable<int> percent))
+            if (!_percent.TryGetValue(characterID, out Configurable<int> percent) ||
+                !_disabled.TryGetValue(characterID, out Configurable<bool> disabled))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
                 // run for this character yet and a later call could succeed.
@@ -250,8 +290,30 @@ namespace Primal.Gimmicks
             }
 
             var items = new List<UIelement>();
-            items.Add(new OpLabel(20f, topY, "Rain/blizzard speed, as % of normal (100 = vanilla, 0 = immediate):", false));
-            items.Add(new OpUpdown(percent, new Vector2(280f, topY - 6f), 80f));
+
+            var label = new OpLabel(20f, topY, "Timer multiplier (% of normal, 0 = immediate):", false);
+            var updown = new OpUpdown(percent, new Vector2(280f, topY - 6f), 80f);
+            var disableCheckbox = new OpCheckBox(disabled, 380f, topY - 6f);
+            var disableLabel = new OpLabel(416f, topY - 2f, "Disable timer", false);
+
+            // Captured once, right after construction -- the label's own default color, so
+            // "re-enabling" restores exactly what it started as rather than guessing at a
+            // hardcoded "normal" color.
+            Color enabledLabelColor = label.color;
+
+            void ApplyDisabledVisual(bool isDisabled)
+            {
+                updown.greyedOut = isDisabled;
+                label.color = isDisabled ? Color.grey : enabledLabelColor;
+            }
+
+            ApplyDisabledVisual(disabled.Value);
+            disabled.OnChange += () => ApplyDisabledVisual(disabled.Value);
+
+            items.Add(label);
+            items.Add(updown);
+            items.Add(disableCheckbox);
+            items.Add(disableLabel);
 
             _uiCache[characterID] = items;
             return items;

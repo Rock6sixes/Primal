@@ -296,6 +296,23 @@ namespace Primal.Gimmicks
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
         );
 
+        /// <summary>
+        /// Replaces vanilla's own precycle ("shelter failure") decision outright -- both how often
+        /// one happens (a flat 0-100% for this character, in place of vanilla's own per-region
+        /// chance) and how long its head start lasts before the normal rain timer even starts
+        /// counting (a fixed configured number of minutes, in place of vanilla's own random 2-5
+        /// minute roll). See PrecycleTimerGimmick.cs's own header comment for the full trace of
+        /// RainCycle's constructor and exactly which vanilla fields this overrides.
+        /// </summary>
+        public static readonly GimmickDef PrecycleTimer = new GimmickDef(
+            PrecycleTimerGimmick.ID,
+            "Precycle Timer",
+            "Replaces vanilla's own precycle (shelter failure) chance and head-start duration with a flat, configured percentage and a fixed number of minutes for this character.",
+            PrecycleTimerSettings.Bind,
+            PrecycleTimerSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+        );
+
         public static readonly GimmickDef[] All =
         {
             Misery,
@@ -312,6 +329,7 @@ namespace Primal.Gimmicks
             ThreatPanic,
             RainTimer,
             BlizzardTimer,
+            PrecycleTimer,
             CreatureKillList,
         };
     }
