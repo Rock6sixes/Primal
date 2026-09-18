@@ -163,6 +163,10 @@ namespace Primal.Gimmicks
             GimmickSettings,
             AddGimmick,
             AddRequirement,
+            // Added 2026-09-18, mirroring GimmickSettings -- only ever entered for a requirement
+            // whose own HasSettings is true (see the requirement row's OnClick wiring in
+            // RenderSplit).
+            RequirementSettings,
         }
 
         // 2026-09-17 (UI redesign round 4): which category tab the AddGimmick/AddRequirement
@@ -419,6 +423,7 @@ namespace Primal.Gimmicks
         private RequirementPickerCategory _requirementPickerCategory = RequirementPickerCategory.General;
         private string _charID;
         private string _gimmickID;
+        private string _requirementID;
 
         // Backs the character button grid -- also what persists "which character this screen last
         // had selected" across restarts, the same Remix-config mechanism every other setting on
@@ -784,6 +789,11 @@ namespace Primal.Gimmicks
                         new ConfigurableInfo("Track the \"" + requirement.DisplayName + "\" requirement for " + character.DisplayName + "."));
 
                     GimmickAssignments.Register(character.ID, requirement.ID, configurable);
+
+                    // Bind this requirement's own extra settings (if it has any), eagerly, same as
+                    // the plain enabled/disabled flag above and exactly mirroring how gimmicks'
+                    // own BindSettings is invoked in the loop above -- added 2026-09-18.
+                    requirement.BindSettings?.Invoke(this, character.ID);
                 }
             }
         }
@@ -1029,6 +1039,9 @@ namespace Primal.Gimmicks
                 case DetailView.AddRequirement:
                     RenderAddRequirementModal();
                     break;
+                case DetailView.RequirementSettings:
+                    RenderRequirementSettingsModal();
+                    break;
             }
         }
 
@@ -1064,6 +1077,14 @@ namespace Primal.Gimmicks
             _charID = characterID;
             _gimmickID = gimmickID;
             _detailView = DetailView.GimmickSettings;
+            RenderDetail();
+        }
+
+        private void OpenRequirementSettings(string characterID, string requirementID)
+        {
+            _charID = characterID;
+            _requirementID = requirementID;
+            _detailView = DetailView.RequirementSettings;
             RenderDetail();
         }
 
@@ -1274,18 +1295,23 @@ namespace Primal.Gimmicks
 
                 Color? color = GetRequirementColor(requirement);
 
-                // No settings to drill into yet (see this class's own header comment), so this
-                // still isn't wired to anything -- no OnClick is ever attached, so a click plays no
-                // sound and does nothing (confirmed via decompiling OpSimpleButton.Update -- the
-                // click branch only calls PlaySound when OnClick is non-null). Deliberately NOT
-                // greyedOut (that was tried first and reverted per direct feedback: greyedOut routes
-                // color through BumpBehaviour.GetColor, which forces
-                // MenuColorEffect.Greyscale(MidToVeryDark(...)) unconditionally -- confirmed via
-                // decompilation -- so every row read as washed-out grey regardless of colorEdge,
-                // "requirements look greyed out"). A plain, ungreyed OpSimpleButton with no OnClick
-                // renders and colors exactly like a gimmick's own name button -- full color, normal
-                // hover/focus -- while still doing nothing when pressed.
+                // Most requirements still have no settings to drill into, so this keeps its
+                // original, deliberate "click does nothing" behavior for them (no OnClick attached
+                // -- confirmed via decompiling OpSimpleButton.Update that a click only ever calls
+                // PlaySound when OnClick is non-null -- and deliberately NOT greyedOut either,
+                // reverted early on per direct feedback: greyedOut routes color through
+                // BumpBehaviour.GetColor, which forces MenuColorEffect.Greyscale(MidToVeryDark(...))
+                // unconditionally regardless of colorEdge, reading as "requirements look greyed
+                // out"). Added 2026-09-18: a requirement whose own HasSettings is true (see
+                // Requirement.cs) DOES get wired to OpenRequirementSettings now, the same as every
+                // gimmick's own name button already is -- the description also switches so hover
+                // text actually signals "there's more here" instead of staying blank.
                 OpSimpleButton nameButton = new OpSimpleButton(new Vector2(ColumnSidePadding, requirementRowY), new Vector2(ColumnNameButtonW, ColumnRowHeight - 4f), requirement.DisplayName);
+                if (requirement.HasSettings)
+                {
+                    nameButton.OnClick += _ => OpenRequirementSettings(capturedCharID, capturedRequirementID);
+                    nameButton.description = "Configure " + requirement.DisplayName + " for " + character.DisplayName;
+                }
                 if (color.HasValue)
                 {
                     nameButton.colorEdge = color.Value;
@@ -1379,6 +1405,69 @@ namespace Primal.Gimmicks
                 // instead, directly on whatever controls this specific gimmick happens to return.
                 // OpLabel (not a UIfocusable) has no greyedOut and needs none -- it isn't
                 // interactive to begin with.
+                foreach (UIelement element in settingsControls)
+                {
+                    if (element is UIfocusable focusable)
+                    {
+                        focusable.greyedOut = true;
+                    }
+                }
+            }
+            scrollBox.AddItems(settingsControls.ToArray());
+            _detailItems.AddRange(settingsControls);
+        }
+
+        // ---- modal: a specific requirement's own settings sub-view (added 2026-09-18) ----------
+        // Mirrors RenderGimmickSettingsModal above exactly -- see that method's own comments for
+        // the full reasoning (the OpScrollBox wrapping, the read-only greying pass, why
+        // _detailItems has to track the scroll box's own children separately). Only ever reached
+        // for a requirement whose own HasSettings is true (see the requirement row's OnClick
+        // wiring in RenderSplit) -- unlike gimmicks, a requirement with no settings never shows a
+        // "no additional settings" modal at all, since its row was never made clickable to begin
+        // with.
+
+        private void RenderRequirementSettingsModal()
+        {
+            if (!TryFindCharacter(_charID, out CharacterEntry character))
+            {
+                CloseModal();
+                return;
+            }
+
+            Requirement requirement = RequirementRegistry.Find(_requirementID);
+            if (requirement == null || !requirement.HasSettings)
+            {
+                CloseModal();
+                return;
+            }
+
+            var items = new List<UIelement>();
+            AddModalBackdrop(items);
+
+            OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+            back.OnClick += _ => CloseModal();
+            items.Add(back);
+
+            items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, requirement.DisplayName + " settings -- " + character.DisplayName, true));
+
+            float contentHeight = Mathf.Max(ModalListViewportHeight, requirement.SettingsContentHeight);
+            float contentTopY = contentHeight - ModalContentTopPadding;
+
+            OpScrollBox scrollBox = new OpScrollBox(
+                new Vector2(ContentLeft, ModalListViewportBottom),
+                new Vector2(ModalListViewportWidth, ModalListViewportHeight),
+                contentHeight,
+                false,  // horizontal
+                false,  // hasBack
+                true    // hasSlideBar
+            );
+            items.Add(scrollBox);
+
+            ShowDetail(items);
+
+            List<UIelement> settingsControls = requirement.BuildSettingsUI(character.ID, contentTopY);
+            if (IsReadOnly)
+            {
                 foreach (UIelement element in settingsControls)
                 {
                     if (element is UIfocusable focusable)

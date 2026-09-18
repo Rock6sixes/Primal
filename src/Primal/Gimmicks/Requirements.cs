@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using HarmonyLib;
+using Menu.Remix.MixedUI;
 using MoreSlugcats;
 using UnityEngine;
 
@@ -3608,6 +3610,121 @@ namespace Primal.Gimmicks
         private static void Postfix(Player __instance)
         {
             InvHighestPointRequirement.CheckPlayer(__instance);
+        }
+    }
+
+    /// <summary>
+    /// Added 2026-09-18, per direct request: a general "reach the ending" requirement, configurable
+    /// per character to mean either the standard story ending or the void-sea/ascension ending --
+    /// resolving the gap CHARACTER_DESIGN_STATUS.md flagged, where "Story ending"/"Ascend" appeared
+    /// four/two times respectively in the target design table with no shared, untimed requirement
+    /// to point at (the only existing ascension-tracking requirement, AscensionRequirement above,
+    /// is a 38-minute SPEEDRUN challenge -- a different thing entirely, not reused here).
+    ///
+    /// Reuses the exact same `standardVoidSea` flag every other ending-aware requirement in this
+    /// file already reads off SurvivorEvents.OnGameEnding (see PerseveranceRequirement's own doc
+    /// comment for the flag's meaning: true is the separate void-sea/ascension path, false is any
+    /// "standard" story ending). No time limit, unlike AscensionRequirement/
+    /// SpearmasterFastEndingRequirement -- this is the plain, unconditional "did the run end this
+    /// way" check those two timed variants layer extra conditions on top of, not a replacement for
+    /// either of them.
+    ///
+    /// First real consumer of this same day's new Requirement.BindSettings/BuildSettingsUI
+    /// mechanism (see Requirement.cs's own header comment for the "why"). One per-character
+    /// Configurable&lt;string&gt; select ("Story" or "Ascension"), via OpListBox -- the same
+    /// already-shipped, already-working control ChainsSettings' own quick-preset picker uses (its
+    /// constructor signature, decoded from the game assembly's own metadata rather than guessed,
+    /// is documented in that class's own doc comment in ChainsGimmick.cs).
+    /// </summary>
+    internal sealed class ReachEndingRequirement : Requirement
+    {
+        public override string ID => "ReachEnding";
+        public override string DisplayName => "Reach Ending";
+
+        public override Action<OptionInterface, string> BindSettings => ReachEndingSettings.Bind;
+        public override Func<string, float, List<UIelement>> BuildSettingsUI => ReachEndingSettings.BuildUI;
+
+        public override void Register()
+        {
+            SurvivorEvents.OnGameEnding += (game, standardVoidSea) =>
+            {
+                if (game?.Players == null)
+                {
+                    return;
+                }
+
+                foreach (AbstractCreature abstractPlayer in game.Players)
+                {
+                    if (!(abstractPlayer?.realizedCreature is Player player))
+                    {
+                        continue;
+                    }
+                    if (!TryGetEnabledCharacter(player, out string characterID))
+                    {
+                        continue;
+                    }
+
+                    bool wantsAscension = ReachEndingSettings.WantsAscension(characterID);
+                    if (wantsAscension != standardVoidSea)
+                    {
+                        continue;
+                    }
+
+                    ReportCompletion(player, characterID, isLive: false);
+                }
+            };
+        }
+    }
+
+    /// <summary>Per-character setting for ReachEndingRequirement: which ending type satisfies it
+    /// for this character. Defaults to "Story" -- the more commonly reached ending, and the one
+    /// every design-table row that just says "story ending" wants out of the box; a row that
+    /// instead wants "Ascend" (Monk, Hunter) needs this switched to "Ascension" once assigned.</summary>
+    internal static class ReachEndingSettings
+    {
+        private const string StoryValue = "Story";
+        private const string AscensionValue = "Ascension";
+        private static readonly string[] Options = { StoryValue, AscensionValue };
+
+        private static readonly Dictionary<string, Configurable<string>> _endingType = new Dictionary<string, Configurable<string>>();
+
+        // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
+        // BuildSettingsUI doc comment for why.
+        private static readonly Dictionary<string, List<UIelement>> _uiCache = new Dictionary<string, List<UIelement>>();
+
+        public static void Bind(OptionInterface owner, string characterID)
+        {
+            _endingType[characterID] = owner.config.Bind(
+                characterID + "_ReachEnding_endingType",
+                StoryValue,
+                new ConfigurableInfo("Which ending type satisfies this requirement for this character -- the standard story ending, or the separate void-sea/ascension ending."));
+        }
+
+        public static bool WantsAscension(string characterID)
+        {
+            return _endingType.TryGetValue(characterID, out Configurable<string> c) && c.Value == AscensionValue;
+        }
+
+        public static List<UIelement> BuildUI(string characterID, float topY)
+        {
+            if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
+            {
+                return cached;
+            }
+
+            if (!_endingType.TryGetValue(characterID, out Configurable<string> endingType))
+            {
+                // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
+                // run for this character yet and a later call could succeed.
+                return new List<UIelement>();
+            }
+
+            var items = new List<UIelement>();
+            items.Add(new OpLabel(20f, topY, "Ending type that satisfies this requirement:", false));
+            items.Add(new OpListBox(endingType, new Vector2(20f, topY - 40f), 160f, Options, (ushort)Options.Length, true));
+
+            _uiCache[characterID] = items;
+            return items;
         }
     }
 }

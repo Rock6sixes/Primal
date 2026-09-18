@@ -6896,6 +6896,74 @@ BrokenShelterWaterLevel marker still becomes unusable when this checkbox is on, 
 shelter's normal (non-precycle) behavior is completely unaffected when this gimmick isn't assigned
 or the checkbox is off.
 
+## 2026-09-18 (later still): character-design status audit, per-character No Hold defaults, Requirement settings architecture, Reach Ending requirement
+
+Follow-up, same session. User supplied a target character/gimmick/requirement design table (a
+screenshot of a spreadsheet) and asked for a status audit before any new code -- **saved as
+`src/Primal/CHARACTER_DESIGN_STATUS.md`**, its own file, not duplicated here; read that doc for the
+full row-by-row findings. Short version: Monk/Artificer/Gourmand/Spearmaster's gimmick rows were
+already done (including a "double check" on Chains' visual chain placement that turned out to
+already be correct -- `IsPlayerPipe`, used for the visual anchors, already excludes `CreatureHole`
+while `IsSealableExit`, used for the actual door-sealing, correctly still includes it). Two real
+architectural gaps were identified and both are now addressed by this same follow-up (see below);
+a few items (Rivulet's "50% multiplier" Precycle Timer duration, "visit every shelter," Saint's
+delayed-activation No Hold) still need the user's own design decision and weren't touched.
+
+**Per-character default *values* for No Hold, resolved as a clarification, not a rebuild.** The
+user pushed back that this was already supposed to work -- correct: re-reading `NoHoldGimmick.cs`
+confirmed every category's `Configurable<bool>` was ALREADY bound under a
+`characterID + "_NoHold_" + category.Key` key, i.e. Saint and Inv always had their own
+independently-stored checkboxes. The actual (narrower) gap was that the DEFAULT fed into each
+character's first bind came from one global `CategoryDef.DefaultBlocked` array, not a per-character
+lookup. Fixed with `NoHoldSettings.PerCharacterDefaultBlocked` (`Dictionary<string,
+HashSet<string>>`), the same `characterID == X ? ... : ...` pattern `RainTimerSettings`/
+`BlizzardTimerSettings` already used for Saint's own numeric defaults, generalized to a set of
+category keys: Spearmaster -> {Spears} (unchanged in practice), Inv -> {Spears, Yeeks, Squidcadas},
+Saint -> all ten categories plus "Other" (everything). Saint's entry is NOT yet wired into
+`GimmickDefaults.cs` as an actual default assignment -- the user's own design also wants No Hold to
+only activate on Saint after one full cycle, a delayed-activation mechanic that doesn't exist
+anywhere in this codebase yet (flagged, not built, per the audit doc's own open question).
+
+**Requirement settings/config-menu architecture, added from scratch.** `Requirement` (base class,
+`Requirement.cs`) gained `BindSettings`/`BuildSettingsUI`/`SettingsContentHeight`/`HasSettings` --
+virtual properties defaulting to null/0/false, mirroring `GimmickDef`'s own fields exactly (same
+names, same contract, same "build once per character into a cache" requirement since a
+`Configurable<T>` can only ever be bound to one UI element at a time). `PrimalOptions.cs` wired the
+consumer side to match: a new `DetailView.RequirementSettings` case, `_requirementID` field,
+`OpenRequirementSettings`/`RenderRequirementSettingsModal` (the latter a close mirror of
+`RenderGimmickSettingsModal`), and `EnsureConfigBound`'s own per-character Requirements loop now
+calls `requirement.BindSettings?.Invoke(this, character.ID)` alongside the existing plain
+enabled/disabled bind, exactly like the Gimmicks loop already does. The requirement row's own name
+button in the Split view -- previously NEVER wired to an OnClick at all, by deliberate original
+design, since no requirement had settings to show -- now gets `OpenRequirementSettings` wired up
+*only* when `requirement.HasSettings` is true, preserving the original "click does nothing, not
+greyed" behavior for the ~54 requirements that still have none.
+
+**New requirement: Reach Ending**, the first real consumer of the mechanism above, resolving the
+"story ending"/"Ascend" gap that appeared six times across the target table (Gourmand, Spearmaster,
+Rivulet, Saint for "story ending"; Monk, Hunter for "Ascend") with no existing untimed requirement
+to point at -- the only prior ascension-tracking requirement, `AscensionRequirement`, is a
+38-minute SPEEDRUN challenge, a different thing not reused here. `ReachEndingRequirement`
+(`Requirements.cs`, general, no `HomeCharacter`) reuses the same `standardVoidSea` flag off
+`SurvivorEvents.OnGameEnding` every other ending-aware requirement in this file already reads, with
+no time limit. Its own settings sub-view (`ReachEndingSettings`) is one per-character
+`Configurable<string>` ("Story" or "Ascension", default "Story"), rendered via `OpListBox` -- the
+same already-shipped, already-working control `ChainsSettings`' own quick-preset picker uses,
+reused here for its second-ever consumer in this codebase rather than risking an untested new
+control type. A character wanting the "Ascend" reading (Monk, Hunter) needs this switched to
+"Ascension" once assigned -- not automatic from the ID alone.
+
+No default assignments were added for any of these new pieces (Reach Ending itself, or No Hold onto
+Saint) -- per the audit doc, several rows still need the user's own decision first. **Not yet built
+or tested as of this doc** (no `.NET` toolchain in this container). When retesting: (1) confirm a
+requirement WITHOUT settings (e.g. any of the 50 curated Community Challenges) still behaves
+exactly as before -- unclickable name button, no visual change; (2) confirm Reach Ending's own name
+button opens a settings modal showing the Story/Ascension list box; (3) confirm switching that list
+box and reaching the corresponding ending actually reports completion, and reaching the OTHER
+ending does not; (4) confirm No Hold's own per-character defaults now differ correctly for
+Spearmaster/Inv/Saint the first time each is ever assigned (a fresh save, or Remix's own "reset to
+defaults").
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

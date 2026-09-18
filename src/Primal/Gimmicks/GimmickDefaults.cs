@@ -26,11 +26,11 @@ namespace Primal.Gimmicks
 
             // Spearmaster gets OneSpear, TimeLimit, and NoHold by default on the reserved slot:
             // his usually-unlimited spear-pull becomes just one for the whole save file (OneSpear),
-            // he can never pick up a spear from the ground or from anyone else (NoHold -- its
-            // Spears category defaults to blocked, migrated 2026-09-18 from the old NoSpears
-            // gimmick this replaced; his own tail-pull still works, see NoHoldGimmick.cs's doc
-            // comment for why), and the run ends in death after one real-world hour of play
-            // (TimeLimit).
+            // he can never pick up a spear from the ground or from anyone else (NoHold -- his own
+            // entry in NoHoldSettings.PerCharacterDefaultBlocked blocks only Spears, migrated
+            // 2026-09-18 from the old NoSpears gimmick this replaced; his own tail-pull still
+            // works, see NoHoldGimmick.cs's doc comment for why), and the run ends in death after
+            // one real-world hour of play (TimeLimit).
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.OneSpear.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.TimeLimit.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Spear.value, GimmickRegistry.NoHold.ID, true);
@@ -54,7 +54,9 @@ namespace Primal.Gimmicks
 
             // Inv ("Sofanthiel" internally -- see PrimalOptions.cs's AllCharacters comment)
             // gets the same three plus NoHold by default, per explicit request (2026-09-12; NoHold
-            // migrated from NoSpears 2026-09-18, see the Spearmaster comment above).
+            // migrated from NoSpears 2026-09-18, see the Spearmaster comment above). Inv's own
+            // entry in NoHoldSettings.PerCharacterDefaultBlocked (added 2026-09-18, later still)
+            // blocks Spears, Yeeks, and Squidcadas -- per CHARACTER_DESIGN_STATUS.md's design table.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoYeeks.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoCicadas.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, GimmickRegistry.NoMauling.ID, true);

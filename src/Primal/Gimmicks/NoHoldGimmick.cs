@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using Menu.Remix.MixedUI;
+using MoreSlugcats;
 
 namespace Primal.Gimmicks
 {
@@ -89,13 +90,58 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>Per-character settings for NoHoldGimmick: which of the ten categories this
-    /// character currently can't pick up. All default to unblocked EXCEPT Spears, which defaults
-    /// to blocked -- this is what NoSpears itself always defaulted to (every spear sub-type
-    /// unallowed out of the box), preserved here so Spearmaster and Inv's existing default
-    /// assignments (see GimmickDefaults.cs, migrated from NoSpears to NoHold the same day this
-    /// gimmick was written) keep behaving exactly like before once NoSpears is gone.</summary>
+    /// character currently can't pick up. Each character's own checkboxes are already
+    /// independently stored -- every Configurable here is bound under a `characterID + "_NoHold_" +
+    /// category.Key` key, so Saint and Inv have always had their own separate, separately-saved
+    /// values (confirmed 2026-09-18, in response to a direct question about whether this
+    /// architecture actually supports it -- it does). What WAS missing until this same round: the
+    /// DEFAULT value fed into each character's first-ever Bind() call came from one global
+    /// `CategoryDef.DefaultBlocked` per category, the same for every character, instead of a
+    /// per-character lookup. `PerCharacterDefaultBlocked` below fixes that -- the same
+    /// "characterID == X ? SaintDefault : GenericDefault" pattern `RainTimerSettings`/
+    /// `BlizzardTimerSettings` already used for Saint's own numeric defaults, generalized to a
+    /// per-character SET of category keys instead of a single value. A character not listed there
+    /// falls back to each CategoryDef's own DefaultBlocked (currently just Spears) -- the exact
+    /// behavior every character had before this table existed, so nothing changes for anyone not
+    /// explicitly called out below.</summary>
     internal static class NoHoldSettings
     {
+        /// <summary>Not one of the ten real categories -- the key used for the separate "Other"
+        /// toggle (`_blockOther`) inside PerCharacterDefaultBlocked below, so one table can express
+        /// a character's full default picture (all ten categories plus Other) in one place.</summary>
+        private const string OtherKey = "Other";
+
+        /// <summary>Per-character default category sets, per CHARACTER_DESIGN_STATUS.md's own
+        /// design table (2026-09-18). Spearmaster's entry doesn't actually change anything (it
+        /// already matched the generic Spears-only fallback) but is listed explicitly anyway, so
+        /// this table reads as the complete, authoritative picture rather than leaving one
+        /// character's default to an implicit fallback that happens to agree.</summary>
+        private static readonly Dictionary<string, HashSet<string>> PerCharacterDefaultBlocked = new Dictionary<string, HashSet<string>>
+        {
+            [MoreSlugcatsEnums.SlugcatStatsName.Spear.value] = new HashSet<string> { "Spears" },
+            [MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value] = new HashSet<string> { "Spears", "Yeeks", "Squidcadas" },
+            // Saint: "everything checked" -- not yet defaulted onto Saint in GimmickDefaults.cs
+            // (the user's own design also wants this gimmick to only activate after one full
+            // cycle, a delayed-activation mechanic that doesn't exist anywhere in this codebase
+            // yet -- see CHARACTER_DESIGN_STATUS.md's own open question). This entry is ready for
+            // whenever that lands, and equally applies if a player assigns No Hold to Saint
+            // manually via Remix in the meantime.
+            [MoreSlugcatsEnums.SlugcatStatsName.Saint.value] = new HashSet<string>
+            {
+                "Spears", "Rocks", "Bombs", "Lanterns", "Fruits", "Batflies", "Squidcadas", "Yeeks", "Centipedes", OtherKey
+            },
+        };
+
+        /// <summary>The default-blocked value for one category (or OtherKey) for a given
+        /// character -- this character's own entry in PerCharacterDefaultBlocked if it has one,
+        /// else `fallback` (each CategoryDef's own DefaultBlocked, or false for Other).</summary>
+        private static bool DefaultBlockedFor(string characterID, string categoryKey, bool fallback)
+        {
+            return PerCharacterDefaultBlocked.TryGetValue(characterID, out HashSet<string> set)
+                ? set.Contains(categoryKey)
+                : fallback;
+        }
+
         private readonly struct CategoryDef
         {
             public readonly string Key;
@@ -144,14 +190,14 @@ namespace Primal.Gimmicks
             {
                 perCategory[category.Key] = owner.config.Bind(
                     characterID + "_NoHold_" + category.Key,
-                    category.DefaultBlocked,
+                    DefaultBlockedFor(characterID, category.Key, category.DefaultBlocked),
                     new ConfigurableInfo("Checked: this character can no longer pick up " + category.Label + "."));
             }
             _blocked[characterID] = perCategory;
 
             _blockOther[characterID] = owner.config.Bind(
                 characterID + "_NoHold_Other",
-                false,
+                DefaultBlockedFor(characterID, OtherKey, false),
                 new ConfigurableInfo("Checked: this character can no longer pick up anything NOT covered by the categories above -- corpses, unique items, everything else grabbable."));
         }
 
