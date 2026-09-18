@@ -6964,6 +6964,146 @@ ending does not; (4) confirm No Hold's own per-character defaults now differ cor
 Spearmaster/Inv/Saint the first time each is ever assigned (a fresh save, or Remix's own "reset to
 defaults").
 
+## 2026-09-18 (later still): every remaining CHARACTER_DESIGN_STATUS.md gap closed -- Precycle Timer percentage, No Hold inert-until-cycle-N, Ending renamed with Either + per-character defaults, Outlaw/FoodQuest/King renamed and configured, Visit Shelter requirement built
+
+Direct follow-up to the audit round just above, same session: the user answered every "still needs
+your own decision" item from `CHARACTER_DESIGN_STATUS.md` in one message and asked for all of it
+built. That doc's own tables are now updated to match (read it for the per-row status instead of
+duplicating the whole table here) -- this entry covers the mechanism-level "how" for each piece.
+
+**Precycle Timer duration, fixed minutes -> percentage multiplier.** `PrecycleTimerSettings`'
+`DurationMinutes`/`MaxDurationMinutes` are gone, replaced by `DurationPercent` (0-400, default 100,
+same range/default convention `RainTimerSettings` already uses). `PrecycleTimerGimmick.Postfix` now
+draws a THIRD roll (`durationRoll = UnityEngine.Random.value`) inside the same single
+reseed/restore `UnityEngine.Random` bracket that already produces `triggerRoll`/`floodRoll` --
+confirmed via re-reading vanilla's own constructor that its own duration roll
+(`Random.Range(4800f, 12000f)`) happens inside that identical reseeded window too, immediately
+after the trigger roll, so this keeps the same seeding discipline vanilla itself uses. Both of
+vanilla's own bounds (`VanillaMinDurationTicks = 4800`, `VanillaMaxDurationTicks = 12000`) are
+scaled by the percent (`Mathf.RoundToInt(bound * (percent / 100f))`), then `durationTicks` is
+rolled between the two SCALED bounds -- or, "Force max precycle timer" checked, always the scaled
+upper bound with no roll, which is now a much closer analogy to Remix's own
+`MMF.cfgNoRandomCycles` ("always pick `cycleTimeMax`") than the old fixed-999-minutes version was.
+Resolves the audit's own "50% multiplier doesn't map to anything that exists" gap. No specific
+percent/frequency was requested for Rivulet's own default, so Precycle Timer is not yet assigned to
+Rivulet or tuned to any particular values -- fully available by hand via Remix.
+
+**No Hold gains "inert until cycle N," a brand-new mechanic, specific to this one gimmick.**
+`NoHoldSettings` gained a fourth per-character `Configurable<int>` (`_inertUntilCycle`,
+`GetInertUntilCycle`, default 0, range 0-999) alongside the ten category booleans and `_blockOther`
+-- a textbox in its own settings sub-view, below the existing 2x5 category grid. `NoHoldGimmick`'s
+own `Postfix` (on `Player.Grabability`) now reads `GimmickGate.GameFor(player)
+.GetStorySession.saveState.cycleNumber` (the same 0-indexed source `Requirements.cs`'s own
+"starting cycle" checks already use) and returns early -- doing nothing at all, every category
+still unblocked -- whenever that number is below the configured threshold; once it's reached, every
+category behaves exactly as before. 0 (the default) means "no delay," so this is fully
+backward-compatible for every character that doesn't touch the new setting. Saint's own value was
+NOT set to a specific number -- the user introduced this as a new general concept, not as a
+specific requested starting value for Saint, so guessing one would have been assuming scope that
+wasn't there; it stays at the generic default (0) and is fully settable per-character via Remix.
+Saint's own "everything blocked" category defaults (`PerCharacterDefaultBlocked`) were already
+built in the prior round and are now actually wired into `GimmickDefaults.cs` as a real default
+assignment for the first time.
+
+**"Reach Ending" renamed to "Ending," gains a third "Either" option, gains real per-character
+default select values, and gains real default assignments -- resolving the "Ascend"/"story ending"
+gap for all six rows in the design table, not just building the mechanism.** `DisplayName` is now
+"Ending" (ID stays `"ReachEnding"` -- no config keys, save markers, or curated-ID lists exist yet on
+any real save file, so nothing needed to churn just because the display name did).
+`ReachEndingSettings.Satisfies(characterID, standardVoidSea)` replaces the old bare
+`WantsAscension` boolean check: `"Either"` always returns true regardless of which ending type just
+happened; `"Story"`/`"Ascension"` behave exactly as before. The select's own DEFAULT value is now
+per-character (`PerCharacterDefaultEnding`, a `Dictionary<string, string>` -- the same
+"characterID == X ? Special : Generic" idea generalized to a lookup table since there are two
+special cases here, not one): Monk and Hunter default to `"Ascension"`; every other character falls
+back to `"Story"`. `RequirementDefaults.cs` (new file, see below) defaults this requirement onto
+Monk, Hunter, Gourmand, Spearmaster, Rivulet, and Saint -- the exact six rows the original audit
+identified as sharing this same gap.
+
+**A real default-assignment mechanism for Requirements finally exists: `RequirementDefaults.cs`.**
+The Requirements-side counterpart to `GimmickDefaults.cs`, same contract (only ever takes effect on
+the reserved slot, fully overridable per character via Remix) and same reasoning
+(`GimmickAssignments.SetDefault` is genuinely generic over gimmick and requirement IDs, confirmed
+back when `Requirement`/`RequirementRegistry` were first built). Wired into
+`RainWorldHooks.Postfix` right after `GimmickDefaults.Apply()`, same ordering requirement (must run
+before `EnsureConfigBound()`, which reads these as each `Configurable`'s bound default). Covers:
+Ending -> Monk/Hunter/Gourmand/Spearmaster/Rivulet/Saint (above), Outlaw -> Hunter, GourmandFoodQuest
+-> Gourmand, InvHighestPoint (King) -> Inv (Sofanthiel), VisitShelter -> Rivulet.
+**Deliberately not included** (flagged in the file's own header comment rather than silently
+assumed): `SpearmasterFastEndingRequirement` -> Spearmaster and `UniqueKillsRequirement` ->
+Artificer both appear in the original design table too, but neither was explicitly re-requested in
+the message that asked for everything else here.
+
+**Outlaw's score threshold, hardcoded -> configurable, and raised to the requested 100k.**
+`OutlawRequirement`'s old `private const int RequiredScore = 10000` is gone; a new
+`OutlawSettings` class (mirroring every other per-character-settings class in this file) gives it a
+per-character `Configurable<int>` textbox (`OutlawSettings.GetRequiredScore`), defaulting to
+**100,000** -- a real behavior change from the old 10,000 for anyone who doesn't touch the new
+setting, per the explicit "100k points" request. `OutlawScoreScreenHook`'s own detection now reads
+`OutlawSettings.GetRequiredScore(characterID)` instead of the old constant. Defaulted onto Hunter.
+
+**"Food Quest & Save" renamed to "Food Quest."** `GourmandFoodQuestRequirement.DisplayName` is a
+one-line change; `ID` ("GourmandFoodQuest") is untouched. Defaulted onto Gourmand (alongside
+Ending/Story from the section above).
+
+**"Highest Point" renamed to "King," and its four hardcoded conditions became four independent,
+per-character checkboxes.** `InvHighestPointRequirement.DisplayName` is now "King" (`ID`/
+`RequirementID`/`TargetRoom` all unchanged). The four conditions the old `CheckPlayer` hardcoded as
+simultaneously required (standing in the room's own highest screen, wearing the cloak, holding a
+slugpup, carrying a vulture mask) are now four separate `Configurable<bool>` toggles in a new
+`InvHighestPointSettings` class, each gating its own `if` inside `CheckPlayer` rather than one
+combined `&&` chain -- all four default to checked, exactly reproducing the old all-required
+behavior until a player unchecks one. `SettingsContentHeight` overridden to 200f (four checkbox
+rows). Defaulted onto Inv (Sofanthiel).
+
+**New requirement: Visit Shelter, researched and built rather than left unimplemented.** The
+original audit had flagged this as needing new tracking code with an open scope question (one
+region, or the whole game). Found a genuinely buildable path using three pieces of REAL, existing
+vanilla tracking (confirmed via decompilation, nothing here reimplements "has this room been
+visited"):
+  - `World.shelters` (`int[]`, populated by `WorldLoader` from every room tagged SHELTER or
+    ANCIENTSHELTER in that region's own world file) -- a region's complete shelter roster, once
+    that region is loaded.
+  - `RegionState.roomsVisited` (`List<string>`, persisted on the save file, grown by
+    `RegionState.ReportRoomVisited` every time `Player.NewRoom`/`Player.Update` reports a genuinely
+    new room -- the exact same list the game's own map-discovery texture reads) -- a region's own
+    "have I been here" record, reachable off any live `World` as `World.regionState` (a null-safe
+    computed property vanilla itself already defines).
+  - `SlugcatStats.SlugcatStoryRegions(SlugcatStats.Name)` -- the character's own required campaign
+    region list, used to decide when EVERY region is done, not just one.
+
+`VisitShelterRequirement` (`Requirements.cs`, `HomeCharacter` = Rivulet) subscribes to
+`SurvivorEvents.OnPlayerEnteredRoom` (the standard "just arrived" hook, cheaper than a per-tick
+patch since the answer can only change on arrival somewhere new). On each firing: if every shelter
+in the CURRENTLY LOADED region (minus anything `World.DisabledMapRooms` removes for this
+character's own timeline -- the same exclusion vanilla's own pup-spawn placement logic already
+applies to this same list) is now in that region's own `roomsVisited`, this character's own
+"region complete" marker for that region is persisted via `PrimalSaveMarkers`
+(`Marker("PrimalShelterRegionComplete", characterID, world.name)`) -- so this is only ever
+recomputed once per region per save, not every time the player passes back through an
+already-completed one. Completion is reported the moment EVERY one of
+`SlugcatStats.SlugcatStoryRegions(characterID)` has that marker. **Scope resolved as "every shelter
+in every story region"** (the whole game), the more literal reading of "every shelter has been
+visited" with no region qualifier in the request -- flagged in the class's own doc comment as a
+small, contained change to a per-region-only scope if that turns out to be what was actually
+wanted (drop the all-regions check, report as soon as one region's own shelters are done).
+Optional/side regions (`SlugcatOptionalRegions`) are deliberately excluded from the requirement,
+since not every run reaches them and requiring one could make this permanently uncompletable
+through no fault of thoroughness. Defaulted onto Rivulet.
+
+**Not yet built or tested as of this doc** (no `.NET` toolchain in this container, same as every
+other round). When retesting: (1) Precycle Timer's percent scaling at a few different values
+(0%, 100%, 400%, and with "Force max" checked) against the logged duration-vs-bounds line; (2) No
+Hold's inert-until-cycle-N on a character with a nonzero value set by hand, confirming grabs are
+allowed before the threshold cycle and blocked from it onward; (3) Ending's three-option list box
+(including the new "Either" entry) and that Monk/Hunter really do start on "Ascension" on a fresh
+save while everyone else starts on "Story"; (4) Outlaw's textbox actually gates completion at
+whatever value it's set to, not just the old hardcoded 10000; (5) King's four checkboxes
+independently gating completion (uncheck one, confirm the other three alone are no longer
+sufficient); (6) Visit Shelter actually accumulating region-complete markers correctly across a
+multi-region playthrough, and firing only once the LAST region's LAST shelter is reached -- the
+one piece here with no small-scale way to verify short of a long real playthrough.
+
 ## Outstanding items
 
 ### Status at a glance (2026-09-15)

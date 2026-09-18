@@ -2733,7 +2733,14 @@ namespace Primal.Gimmicks
     /// persisted flag.
     ///
     /// Registered via its own Harmony patch (OutlawScoreScreenHook, below) rather than a
-    /// SurvivorEvents subscription, since Register() has nothing gameplay-side to subscribe to.</summary>
+    /// SurvivorEvents subscription, since Register() has nothing gameplay-side to subscribe to.
+    ///
+    /// **Configurable score threshold (added 2026-09-18, later still, explicit request: "Hunter
+    /// 100k points, add config to outlaw requirement with a textbox"):** the old hardcoded
+    /// `RequiredScore = 10000` const is now OutlawSettings' own per-character Configurable&lt;int&gt;
+    /// textbox, defaulting to 100000 (the requested "100k points") rather than the original 10000 --
+    /// a real behavior change for anyone with this requirement assigned who doesn't touch the new
+    /// setting, per the explicit request.</summary>
     internal sealed class OutlawRequirement : Requirement
     {
         // A plain const, not just the ID property, because CheckScreenScreen below is static (no
@@ -2741,7 +2748,8 @@ namespace Primal.Gimmicks
         internal const string RequirementID = "Outlaw";
         public override string ID => RequirementID;
 
-        private const int RequiredScore = 10000;
+        public override Action<OptionInterface, string> BindSettings => OutlawSettings.Bind;
+        public override Func<string, float, List<UIelement>> BuildSettingsUI => OutlawSettings.BuildUI;
 
         public override void Register()
         {
@@ -2766,13 +2774,65 @@ namespace Primal.Gimmicks
             }
 
             int? score = PrimalMenuAccess.GetFinalScore(screen);
-            if (!score.HasValue || score.Value < RequiredScore)
+            if (!score.HasValue || score.Value < OutlawSettings.GetRequiredScore(characterID))
             {
                 return;
             }
 
             DeathPersistentSaveData saveData = PrimalMenuAccess.GetSaveState(screen)?.deathPersistentSaveData;
             RequirementCompletion.ReportForSave(saveData, characterID, RequirementID);
+        }
+    }
+
+    /// <summary>Per-character setting for OutlawRequirement: the score threshold that satisfies it.
+    /// Defaults to 100000 ("100k points"), per explicit request.</summary>
+    internal static class OutlawSettings
+    {
+        private const int DefaultRequiredScore = 100000;
+        private const int MinRequiredScore = 0;
+        private const int MaxRequiredScore = 999999;
+
+        private static readonly Dictionary<string, Configurable<int>> _requiredScore = new Dictionary<string, Configurable<int>>();
+
+        // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
+        // BuildSettingsUI doc comment for why.
+        private static readonly Dictionary<string, List<UIelement>> _uiCache = new Dictionary<string, List<UIelement>>();
+
+        public static void Bind(OptionInterface owner, string characterID)
+        {
+            _requiredScore[characterID] = owner.config.Bind(
+                characterID + "_Outlaw_requiredScore",
+                DefaultRequiredScore,
+                new ConfigurableInfo(
+                    "The final-score-screen score this character needs to reach or exceed to satisfy this requirement.",
+                    new ConfigAcceptableRange<int>(MinRequiredScore, MaxRequiredScore)));
+        }
+
+        public static int GetRequiredScore(string characterID)
+        {
+            return _requiredScore.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultRequiredScore;
+        }
+
+        public static List<UIelement> BuildUI(string characterID, float topY)
+        {
+            if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
+            {
+                return cached;
+            }
+
+            if (!_requiredScore.TryGetValue(characterID, out Configurable<int> requiredScore))
+            {
+                // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
+                // run for this character yet and a later call could succeed.
+                return new List<UIelement>();
+            }
+
+            var items = new List<UIelement>();
+            items.Add(new OpLabel(20f, topY, "Score required (final score screen):", false));
+            items.Add(new OpUpdown(requiredScore, new Vector2(280f, topY - 6f), 100f));
+
+            _uiCache[characterID] = items;
+            return items;
         }
     }
 
@@ -3389,7 +3449,9 @@ namespace Primal.Gimmicks
         // 2026-09-17 (UI redesign round 4): dropped the "Gourmand -- " prefix per direct request --
         // General-category requirement rows no longer print the tied character's name, since the
         // row's own icon+color already carry that (matching how gimmick rows have always worked).
-        public override string DisplayName => "Food Quest & Save";
+        // Renamed again 2026-09-18 (later still), per direct request, from "Food Quest & Save" to
+        // just "Food Quest" -- ID unchanged, this is a display-only rename.
+        public override string DisplayName => "Food Quest";
         public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Gourmand;
 
         public override void Register()
@@ -3488,7 +3550,15 @@ namespace Primal.Gimmicks
     /// (MoreSlugcatsEnums.AbstractObjectType.MoonCloak, the robe the Moon gives) is worn via
     /// SaveState.wearingCloak, a plain persistent bool flag set the moment the object is picked up
     /// (Player.cs) -- NOT a grasp slot, so it costs neither hand. Hence two hands genuinely suffice
-    /// for all three at once.</summary>
+    /// for all three at once.
+    ///
+    /// **Renamed "Highest Point" -&gt; "King", four independently-toggleable condition checkboxes
+    /// added (2026-09-18, later still, explicit request):** the four conditions above (being in the
+    /// room's own highest screen, wearing the cloak, holding a slugpup, carrying a vulture mask)
+    /// were previously all hardcoded as simultaneously required -- InvHighestPointSettings (below)
+    /// now makes each one its own per-character Configurable&lt;bool&gt;, all defaulting to checked
+    /// (true) so nothing changes for anyone until a player unchecks one. ID/TargetRoom/the class
+    /// name itself are unchanged -- this is a display-name and settings-only change.</summary>
     internal sealed class InvHighestPointRequirement : Requirement
     {
         // A plain const, not just the ID property, because CheckPlayer below is static (no `this`
@@ -3496,9 +3566,14 @@ namespace Primal.Gimmicks
         internal const string RequirementID = "InvHighestPoint";
         public override string ID => RequirementID;
         // 2026-09-17 (UI redesign round 4): renamed per direct request, and dropped the
-        // "Inv -- " prefix (see GourmandFoodQuestRequirement's own comment on why).
-        public override string DisplayName => "Highest Point";
+        // "Inv -- " prefix (see GourmandFoodQuestRequirement's own comment on why). Renamed again
+        // 2026-09-18 (later still) from "Highest Point" to "King" -- ID unchanged.
+        public override string DisplayName => "King";
         public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel;
+
+        public override Action<OptionInterface, string> BindSettings => InvHighestPointSettings.Bind;
+        public override Func<string, float, List<UIelement>> BuildSettingsUI => InvHighestPointSettings.BuildUI;
+        public override float SettingsContentHeight => 200f;
 
         internal const string TargetRoom = "LC_highestpoint";
 
@@ -3531,14 +3606,27 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            if (!IsInHighestScreen(player, room))
+            if (InvHighestPointSettings.RequireHighestSpot(characterID) && !IsInHighestScreen(player, room))
             {
                 return;
             }
 
-            bool holdingSlugpup = SurvivorCreatureTracking.FindCarried(player,
-                creature => !creature.dead && creature.abstractCreature?.creatureTemplate?.type == MoreSlugcatsEnums.CreatureTemplateType.SlugNPC) != null;
-            if (!holdingSlugpup || !IsCarryingMask(player) || !IsWearingCloak(player))
+            if (InvHighestPointSettings.RequireSlugpup(characterID))
+            {
+                bool holdingSlugpup = SurvivorCreatureTracking.FindCarried(player,
+                    creature => !creature.dead && creature.abstractCreature?.creatureTemplate?.type == MoreSlugcatsEnums.CreatureTemplateType.SlugNPC) != null;
+                if (!holdingSlugpup)
+                {
+                    return;
+                }
+            }
+
+            if (InvHighestPointSettings.RequireMask(characterID) && !IsCarryingMask(player))
+            {
+                return;
+            }
+
+            if (InvHighestPointSettings.RequireCloak(characterID) && !IsWearingCloak(player))
             {
                 return;
             }
@@ -3599,6 +3687,109 @@ namespace Primal.Gimmicks
         }
     }
 
+    /// <summary>Per-character settings for InvHighestPointRequirement (the "King" requirement):
+    /// four independent Configurable&lt;bool&gt; toggles, one per condition (see
+    /// InvHighestPointRequirement's own doc comment) -- all default to checked (true), reproducing
+    /// exactly the old hardcoded "all four required" behavior until a player unchecks one.</summary>
+    internal static class InvHighestPointSettings
+    {
+        private const bool DefaultRequired = true;
+
+        private static readonly Dictionary<string, Configurable<bool>> _requireHighestSpot = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _requireCloak = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _requireSlugpup = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _requireMask = new Dictionary<string, Configurable<bool>>();
+
+        // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
+        // BuildSettingsUI doc comment for why.
+        private static readonly Dictionary<string, List<UIelement>> _uiCache = new Dictionary<string, List<UIelement>>();
+
+        public static void Bind(OptionInterface owner, string characterID)
+        {
+            _requireHighestSpot[characterID] = owner.config.Bind(
+                characterID + "_InvHighestPoint_requireHighestSpot",
+                DefaultRequired,
+                new ConfigurableInfo("Checked: must be standing in the room's own highest screen."));
+
+            _requireCloak[characterID] = owner.config.Bind(
+                characterID + "_InvHighestPoint_requireCloak",
+                DefaultRequired,
+                new ConfigurableInfo("Checked: must be wearing the Moon's cloak."));
+
+            _requireSlugpup[characterID] = owner.config.Bind(
+                characterID + "_InvHighestPoint_requireSlugpup",
+                DefaultRequired,
+                new ConfigurableInfo("Checked: must be holding a slugpup."));
+
+            _requireMask[characterID] = owner.config.Bind(
+                characterID + "_InvHighestPoint_requireMask",
+                DefaultRequired,
+                new ConfigurableInfo("Checked: must be carrying a vulture mask."));
+        }
+
+        public static bool RequireHighestSpot(string characterID)
+        {
+            return !_requireHighestSpot.TryGetValue(characterID, out Configurable<bool> c) || c.Value;
+        }
+
+        public static bool RequireCloak(string characterID)
+        {
+            return !_requireCloak.TryGetValue(characterID, out Configurable<bool> c) || c.Value;
+        }
+
+        public static bool RequireSlugpup(string characterID)
+        {
+            return !_requireSlugpup.TryGetValue(characterID, out Configurable<bool> c) || c.Value;
+        }
+
+        public static bool RequireMask(string characterID)
+        {
+            return !_requireMask.TryGetValue(characterID, out Configurable<bool> c) || c.Value;
+        }
+
+        public static List<UIelement> BuildUI(string characterID, float topY)
+        {
+            if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
+            {
+                return cached;
+            }
+
+            if (!_requireHighestSpot.TryGetValue(characterID, out Configurable<bool> highestSpot) ||
+                !_requireCloak.TryGetValue(characterID, out Configurable<bool> cloak) ||
+                !_requireSlugpup.TryGetValue(characterID, out Configurable<bool> slugpup) ||
+                !_requireMask.TryGetValue(characterID, out Configurable<bool> mask))
+            {
+                // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
+                // run for this character yet and a later call could succeed.
+                return new List<UIelement>();
+            }
+
+            var items = new List<UIelement>();
+            items.Add(new OpLabel(20f, topY, "Conditions required to satisfy this requirement (checked = required):", false));
+
+            const float rowHeight = 36f;
+            float y = topY - 40f;
+
+            items.Add(new OpCheckBox(highestSpot, 20f, y));
+            items.Add(new OpLabel(56f, y + 4f, "Standing in the room's highest screen", false));
+            y -= rowHeight;
+
+            items.Add(new OpCheckBox(cloak, 20f, y));
+            items.Add(new OpLabel(56f, y + 4f, "Wearing the cloak", false));
+            y -= rowHeight;
+
+            items.Add(new OpCheckBox(slugpup, 20f, y));
+            items.Add(new OpLabel(56f, y + 4f, "Holding a slugpup", false));
+            y -= rowHeight;
+
+            items.Add(new OpCheckBox(mask, 20f, y));
+            items.Add(new OpLabel(56f, y + 4f, "Carrying a vulture mask", false));
+
+            _uiCache[characterID] = items;
+            return items;
+        }
+    }
+
     /// <summary>See InvHighestPointRequirement's own doc comment for why this exists as a
     /// top-level Player.Update patch instead of a SurvivorEvents subscription -- same
     /// TimeLimitGimmick/ChainsGimmick precedent for patching Player.Update(bool) directly, and the
@@ -3631,15 +3822,26 @@ namespace Primal.Gimmicks
     ///
     /// First real consumer of this same day's new Requirement.BindSettings/BuildSettingsUI
     /// mechanism (see Requirement.cs's own header comment for the "why"). One per-character
-    /// Configurable&lt;string&gt; select ("Story" or "Ascension"), via OpListBox -- the same
-    /// already-shipped, already-working control ChainsSettings' own quick-preset picker uses (its
-    /// constructor signature, decoded from the game assembly's own metadata rather than guessed,
-    /// is documented in that class's own doc comment in ChainsGimmick.cs).
+    /// Configurable&lt;string&gt; select ("Story", "Ascension", or "Either"), via OpListBox -- the
+    /// same already-shipped, already-working control ChainsSettings' own quick-preset picker uses
+    /// (its constructor signature, decoded from the game assembly's own metadata rather than
+    /// guessed, is documented in that class's own doc comment in ChainsGimmick.cs).
+    ///
+    /// **Renamed "Reach Ending" -&gt; "Ending", "Either" option added, per-character default select
+    /// value added (2026-09-18, later still, explicit request):** "Either" is satisfied by BOTH
+    /// ending types -- the run simply has to end, no matter which way. ID stays "ReachEnding"
+    /// (config keys, save markers, and Community Challenges' own curated-ID list -- none of which
+    /// exist yet on any real save file -- don't need to churn just because the display name did).
+    /// Default select value is now per-character (RequirementDefaults.cs's own
+    /// ReachEndingSettings.PerCharacterDefaultEnding, same pattern
+    /// NoHoldSettings.PerCharacterDefaultBlocked already established for a per-character default):
+    /// Monk and Hunter default to "Ascension" (per the design table's own "Ascend" rows for both),
+    /// every other character defaults to "Story" (the fallback, unchanged from before this round).
     /// </summary>
     internal sealed class ReachEndingRequirement : Requirement
     {
         public override string ID => "ReachEnding";
-        public override string DisplayName => "Reach Ending";
+        public override string DisplayName => "Ending";
 
         public override Action<OptionInterface, string> BindSettings => ReachEndingSettings.Bind;
         public override Func<string, float, List<UIelement>> BuildSettingsUI => ReachEndingSettings.BuildUI;
@@ -3664,8 +3866,7 @@ namespace Primal.Gimmicks
                         continue;
                     }
 
-                    bool wantsAscension = ReachEndingSettings.WantsAscension(characterID);
-                    if (wantsAscension != standardVoidSea)
+                    if (!ReachEndingSettings.Satisfies(characterID, standardVoidSea))
                     {
                         continue;
                     }
@@ -3677,14 +3878,27 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>Per-character setting for ReachEndingRequirement: which ending type satisfies it
-    /// for this character. Defaults to "Story" -- the more commonly reached ending, and the one
-    /// every design-table row that just says "story ending" wants out of the box; a row that
-    /// instead wants "Ascend" (Monk, Hunter) needs this switched to "Ascension" once assigned.</summary>
+    /// for this character -- "Story", "Ascension", or "Either" (satisfied by both). Default select
+    /// value is per-character (see PerCharacterDefaultEnding below): "Ascension" for Monk/Hunter,
+    /// "Story" (the fallback) for every other character.</summary>
     internal static class ReachEndingSettings
     {
         private const string StoryValue = "Story";
         private const string AscensionValue = "Ascension";
-        private static readonly string[] Options = { StoryValue, AscensionValue };
+        private const string EitherValue = "Either";
+        private static readonly string[] Options = { StoryValue, AscensionValue, EitherValue };
+
+        /// <summary>Per-character default select value, per CHARACTER_DESIGN_STATUS.md's own design
+        /// table (2026-09-18, later still): Monk and Hunter default to "Ascension" -- every other
+        /// character not listed here falls back to "Story" (StoryValue), same
+        /// "characterID == X ? SpecialDefault : GenericDefault" idea NoHoldSettings/RainTimerSettings
+        /// already use for their own per-character defaults, generalized to a lookup table since
+        /// there are two special-cased characters here rather than one.</summary>
+        private static readonly Dictionary<string, string> PerCharacterDefaultEnding = new Dictionary<string, string>
+        {
+            [SlugcatStats.Name.Yellow.value] = AscensionValue, // Monk
+            [SlugcatStats.Name.Red.value] = AscensionValue, // Hunter
+        };
 
         private static readonly Dictionary<string, Configurable<string>> _endingType = new Dictionary<string, Configurable<string>>();
 
@@ -3694,15 +3908,31 @@ namespace Primal.Gimmicks
 
         public static void Bind(OptionInterface owner, string characterID)
         {
+            string defaultValue = PerCharacterDefaultEnding.TryGetValue(characterID, out string overrideValue) ? overrideValue : StoryValue;
             _endingType[characterID] = owner.config.Bind(
                 characterID + "_ReachEnding_endingType",
-                StoryValue,
-                new ConfigurableInfo("Which ending type satisfies this requirement for this character -- the standard story ending, or the separate void-sea/ascension ending."));
+                defaultValue,
+                new ConfigurableInfo("Which ending type satisfies this requirement for this character -- the standard story ending, the separate void-sea/ascension ending, or Either (satisfied by whichever one happens)."));
         }
 
-        public static bool WantsAscension(string characterID)
+        /// <summary>True if this character's configured ending type is satisfied by an ending that
+        /// just happened with this `standardVoidSea` flag (see SurvivorEvents.OnGameEnding -- true
+        /// is the void-sea/ascension path, false is any standard story ending). "Either" always
+        /// returns true here; "Story"/"Ascension" only match their own specific flag value.</summary>
+        public static bool Satisfies(string characterID, bool standardVoidSea)
         {
-            return _endingType.TryGetValue(characterID, out Configurable<string> c) && c.Value == AscensionValue;
+            if (!_endingType.TryGetValue(characterID, out Configurable<string> c))
+            {
+                return false;
+            }
+
+            if (c.Value == EitherValue)
+            {
+                return true;
+            }
+
+            bool wantsAscension = c.Value == AscensionValue;
+            return wantsAscension == standardVoidSea;
         }
 
         public static List<UIelement> BuildUI(string characterID, float topY)
@@ -3725,6 +3955,140 @@ namespace Primal.Gimmicks
 
             _uiCache[characterID] = items;
             return items;
+        }
+    }
+
+    /// <summary>
+    /// "Visit Shelter" -- Rivulet's own design-table requirement (added 2026-09-18, later still,
+    /// explicit request), researched rather than declared infeasible: visit every shelter in every
+    /// one of this character's own story regions (SlugcatStats.SlugcatStoryRegions -- the
+    /// character's REQUIRED campaign path; optional/side regions are deliberately excluded, since
+    /// not every run reaches them, and requiring one could make this permanently uncompletable
+    /// through no fault of thoroughness). CHARACTER_DESIGN_STATUS.md had flagged this scope choice
+    /// as an open question ("every shelter in one region, or literally every shelter in the whole
+    /// game?") -- resolved here as "the whole game" (every story region), the more literal reading
+    /// of "every shelter has been visited" with no region qualifier in the request. If a
+    /// per-region-only scope turns out to be what was actually wanted, this is a small, contained
+    /// change (drop the AllStoryRegionsComplete check below and report completion as soon as one
+    /// region's own shelters are all visited).
+    ///
+    /// Traced entirely to real, existing vanilla tracking, confirmed via decompilation -- nothing
+    /// here reimplements "has this room been visited," it only reads vanilla's own already-kept
+    /// records:
+    ///   - `World.shelters` (an int[] of room indices, populated by WorldLoader from every room
+    ///     tagged SHELTER or ANCIENTSHELTER in that region's own world file -- both tags feed the
+    ///     same list, so ancient shelters count too) is this region's complete shelter roster,
+    ///     minus whatever `World.DisabledMapRooms` removes for this specific character's timeline
+    ///     (the same exclusion vanilla's own pup-spawn placement logic already applies to this same
+    ///     list, in World.cs -- a disabled room was never actually reachable this run, so requiring
+    ///     it would make the requirement impossible rather than merely hard).
+    ///   - `RegionState.roomsVisited` (a List&lt;string&gt; of room names, persisted on the save
+    ///     file itself, added to by `RegionState.ReportRoomVisited` every time
+    ///     `Player.NewRoom`/`Player.Update` reports a genuinely new room -- confirmed via
+    ///     decompilation this is the exact same list the game's own map-discovery texture reads,
+    ///     HUD/Map.cs's CreateDiscoveryTextureFromVisitedRooms) is this region's own "have I been
+    ///     here" record, reachable off the live World as `World.regionState` (a null-safe computed
+    ///     property vanilla itself already defines, resolving to
+    ///     `saveState.regionStates[region.regionNumber]`).
+    ///
+    /// Checked on SurvivorEvents.OnPlayerEnteredRoom (the standard "just arrived in a new room"
+    /// hook every other room-based tracker in this file already uses) rather than a per-tick
+    /// Player.Update patch -- cheaper, and there's no reason to re-check every single tick when the
+    /// only thing that can possibly change this answer is arriving somewhere new. On each firing:
+    /// if every shelter in the CURRENTLY LOADED region is now in that region's own roomsVisited,
+    /// this character's own "region complete" marker for that region is set (persisted via
+    /// PrimalSaveMarkers, so this only ever needs recomputing once per region per save, not every
+    /// time the player passes back through an already-completed region); then, and only then,
+    /// checks whether EVERY one of this character's own SlugcatStoryRegions already has that
+    /// marker -- satisfied the moment the very last region's very last shelter is reached, wherever
+    /// in the playthrough that happens to fall.
+    /// </summary>
+    internal sealed class VisitShelterRequirement : Requirement
+    {
+        public override string ID => "VisitShelter";
+        public override string DisplayName => "Visit Shelter";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Rivulet;
+
+        private const string RegionCompleteMarkerKey = "PrimalShelterRegionComplete";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnPlayerEnteredRoom += (player, eventCharacterID, roomName, region) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                World world = player?.abstractCreature?.world;
+                RegionState regionState = world?.regionState;
+                if (world?.name == null || world.shelters == null || world.shelters.Length == 0 || regionState == null)
+                {
+                    return;
+                }
+
+                if (!AllSheltersVisitedInLoadedRegion(world, regionState))
+                {
+                    return;
+                }
+
+                DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(GimmickGate.GameFor(player));
+                if (saveData == null)
+                {
+                    return;
+                }
+
+                PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, world.name));
+
+                if (!AllStoryRegionsComplete(saveData, player.playerState?.slugcatCharacter, characterID))
+                {
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: true);
+            };
+        }
+
+        // True if every shelter in the currently-loaded region (minus anything this character's
+        // own timeline has disabled -- see this class's own doc comment) is already in that
+        // region's own roomsVisited record.
+        private static bool AllSheltersVisitedInLoadedRegion(World world, RegionState regionState)
+        {
+            foreach (int shelterIndex in world.shelters)
+            {
+                AbstractRoom shelterRoom = world.GetAbstractRoom(shelterIndex);
+                if (shelterRoom == null)
+                {
+                    continue;
+                }
+                if (world.DisabledMapRooms != null && world.DisabledMapRooms.Contains(shelterRoom.name))
+                {
+                    continue;
+                }
+                if (!regionState.roomsVisited.Contains(shelterRoom.name))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // True once every one of this character's own required story regions has its own
+        // "region complete" marker set (see Register() above).
+        private static bool AllStoryRegionsComplete(DeathPersistentSaveData saveData, SlugcatStats.Name slugcatName, string characterID)
+        {
+            if (slugcatName == null)
+            {
+                return false;
+            }
+            foreach (string regionAcronym in SlugcatStats.SlugcatStoryRegions(slugcatName))
+            {
+                if (!PrimalSaveMarkers.Has(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, regionAcronym)))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 }

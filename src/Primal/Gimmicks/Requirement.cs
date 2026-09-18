@@ -222,6 +222,11 @@ namespace Primal.Gimmicks
             // General, non-character-specific, with its own per-character settings sub-view
             // (2026-09-18) -- see ReachEndingRequirement's own doc comment.
             new ReachEndingRequirement(),
+
+            // Character-specific (Rivulet), added 2026-09-18 (later still) -- researched and found
+            // feasible rather than left unimplemented, see VisitShelterRequirement's own doc
+            // comment for the full trace.
+            new VisitShelterRequirement(),
         };
 
         private static bool _registered;

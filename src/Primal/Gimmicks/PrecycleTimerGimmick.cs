@@ -38,11 +38,14 @@ namespace Primal.Gimmicks
     /// RainTimerGimmick already Postfixes (touches entirely disjoint fields, so the two coexist
     /// with no ordering dependency), re-deciding "does a precycle happen" with the configured
     /// FrequencyPercent (0-100, a flat, character-wide replacement for the per-region vanilla
-    /// chance) and, if so, "how long" with the configured DurationMinutes (or, with "Force max
-    /// precycle timer" checked, always the longest configurable duration -- see below) -- setting
-    /// up exactly the same fields vanilla's own trigger path does (`maxPreTimer`, `preTimer`, the
-    /// three `preCycleRainPulse_Wave*` floats, and `globalRain.preCycleRainPulse_Scale = 1f`) when
-    /// it decides yes, or zeroing `maxPreTimer`/`preTimer` back out when it decides no (overriding
+    /// chance) and, if so, "how long" with the configured DurationPercent -- NOT a fixed value,
+    /// same idea as RainTimerGimmick's own percent: it multiplies BOTH of vanilla's own bounds
+    /// (4800 and 12000 ticks) by the percent, then rolls between the two SCALED bounds exactly like
+    /// vanilla rolls between its own unscaled ones (or, with "Force max precycle timer" checked,
+    /// always the scaled upper bound with no roll at all -- see below) -- setting up exactly the
+    /// same fields vanilla's own trigger path does (`maxPreTimer`, `preTimer`, the three
+    /// `preCycleRainPulse_Wave*` floats, and `globalRain.preCycleRainPulse_Scale = 1f`) when it
+    /// decides yes, or zeroing `maxPreTimer`/`preTimer` back out when it decides no (overriding
     /// whatever vanilla's own roll, which already ran earlier in the same constructor, had already
     /// set).
     ///
@@ -152,6 +155,10 @@ namespace Primal.Gimmicks
             game.GetStorySession.SetRandomSeedToCycleSeed(1);
             float triggerRoll = UnityEngine.Random.Range(0, 100);
             float floodRoll = UnityEngine.Random.value;
+            // Vanilla's own duration roll (`Random.Range(4800f, 12000f)`) happens inside this same
+            // reseeded window too, immediately after the trigger roll -- drawn here in the same spot
+            // so this gimmick's replacement roll is seeded identically to vanilla's own.
+            float durationRoll = UnityEngine.Random.value;
             UnityEngine.Random.state = savedState;
 
             if (triggerRoll >= frequencyPercent)
@@ -164,9 +171,13 @@ namespace Primal.Gimmicks
                 return;
             }
 
+            int durationPercent = PrecycleTimerSettings.GetDurationPercent(characterID);
+            int scaledMinTicks = Mathf.RoundToInt(PrecycleTimerSettings.VanillaMinDurationTicks * (durationPercent / 100f));
+            int scaledMaxTicks = Mathf.RoundToInt(PrecycleTimerSettings.VanillaMaxDurationTicks * (durationPercent / 100f));
+            scaledMaxTicks = Mathf.Max(scaledMinTicks, scaledMaxTicks);
             int durationTicks = PrecycleTimerSettings.ForceMaxDuration(characterID)
-                ? PrecycleTimerSettings.MaxDurationMinutes * 60 * TimeLimitGimmick.TicksPerSecond
-                : PrecycleTimerSettings.GetDurationMinutes(characterID) * 60 * TimeLimitGimmick.TicksPerSecond;
+                ? scaledMaxTicks
+                : scaledMinTicks + Mathf.RoundToInt(durationRoll * (scaledMaxTicks - scaledMinTicks));
             __instance.maxPreTimer = durationTicks;
             __instance.preTimer = durationTicks;
             __instance.preCycleRainPulse_WaveA = 0f;
@@ -182,7 +193,7 @@ namespace Primal.Gimmicks
                 game.globalRain.drainWorldFlood = suppressOnMS ? 0f : 99000f;
             }
 
-            Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: precycle triggered (roll {triggerRoll:F1} < {frequencyPercent}%), duration {durationTicks} ticks, flood roll {floodRoll * 100f:F1} vs {floodChancePercent}%");
+            Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: precycle triggered (roll {triggerRoll:F1} < {frequencyPercent}%), duration {durationTicks} ticks ({durationPercent}% of vanilla's {PrecycleTimerSettings.VanillaMinDurationTicks}-{PrecycleTimerSettings.VanillaMaxDurationTicks} range), flood roll {floodRoll * 100f:F1} vs {floodChancePercent}%");
         }
     }
 
@@ -265,14 +276,16 @@ namespace Primal.Gimmicks
     }
 
     /// <summary>Per-character settings for PrecycleTimerGimmick: FrequencyPercent (0-100, replacing
-    /// vanilla's own per-region chance outright), DurationMinutes/ForceMaxDuration (replacing
-    /// vanilla's own 2-5-minute random roll with either a fixed value or, "Force max precycle
-    /// timer" checked, always the longest configurable duration -- the same "always pick the
-    /// maximum instead of rolling" idea as Remix's own `MMF.cfgNoRandomCycles`, which pins the
-    /// normal cycle's own length to `cycleTimeMax` instead of rolling between
-    /// `cycleTimeMin`/`cycleTimeMax`), and FloodChancePercent (0-100, replacing vanilla's own
-    /// per-region `earlyCycleFloodChance`). See PrecycleTimerGimmick's own header comment for
-    /// exactly what each vanilla mechanism being replaced looked like.</summary>
+    /// vanilla's own per-region chance outright), DurationPercent/ForceMaxDuration (a percentage
+    /// multiplier on BOTH of vanilla's own 4800/12000-tick roll bounds -- same idea as
+    /// RainTimerGimmick's own percent setting, not a fixed replacement value -- rolling between the
+    /// two SCALED bounds every time a precycle triggers, or, "Force max precycle timer" checked,
+    /// always the scaled upper bound with no roll at all -- the same "always pick the maximum
+    /// instead of rolling" idea as Remix's own `MMF.cfgNoRandomCycles`, which pins the normal
+    /// cycle's own length to `cycleTimeMax` instead of rolling between `cycleTimeMin`/
+    /// `cycleTimeMax`), and FloodChancePercent (0-100, replacing vanilla's own per-region
+    /// `earlyCycleFloodChance`). See PrecycleTimerGimmick's own header comment for exactly what
+    /// each vanilla mechanism being replaced looked like.</summary>
     internal static class PrecycleTimerSettings
     {
         /// <summary>Roughly matches vanilla's own commonly-cited baseline (the user's own "2%
@@ -283,21 +296,26 @@ namespace Primal.Gimmicks
         private const int MinFrequencyPercent = 0;
         private const int MaxFrequencyPercent = 100;
 
-        /// <summary>The middle of vanilla's own 2-5 minute (4800-12000 tick) random range, as a
-        /// fixed default once assigned.</summary>
-        private const int DefaultDurationMinutes = 3;
+        /// <summary>Vanilla's own precycle-duration roll bounds, in ticks (`Random.Range(4800f,
+        /// 12000f)` -- 2 to 5 real minutes at 40 ticks/second). DurationPercent multiplies both of
+        /// these, so 100% reproduces vanilla's own range exactly, 0% always gives a 0-tick head
+        /// start, and above 100% scales past vanilla's own longest possible roll.</summary>
+        internal const int VanillaMinDurationTicks = 4800;
+        internal const int VanillaMaxDurationTicks = 12000;
 
-        private const int MinDurationMinutes = 0;
+        /// <summary>100% reproduces vanilla's own unscaled range as this gimmick's default once
+        /// assigned, matching RainTimerGimmick's own DefaultPercent convention.</summary>
+        private const int DefaultDurationPercent = 100;
 
-        /// <summary>Also what "Force max precycle timer" pins duration to when checked -- see this
-        /// class's own header comment.</summary>
-        internal const int MaxDurationMinutes = 999;
+        private const int MinDurationPercent = 0;
+
+        /// <summary>Matches RainTimerGimmick's own MaxPercent -- 4x vanilla's own longest roll.</summary>
+        private const int MaxDurationPercent = 400;
 
         /// <summary>Vanilla itself defaults to "not forced" (a real random roll every time a
-        /// precycle happens) -- this gimmick's own duration is already a fixed, non-random value by
-        /// default (DefaultDurationMinutes), so this checkbox only matters as a convenient
-        /// "whatever the number is, always use this gimmick's own maximum instead" override, not as
-        /// a way to reintroduce vanilla's own randomness.</summary>
+        /// precycle happens) -- this checkbox is a convenient "always use this gimmick's own scaled
+        /// upper bound instead of rolling" override, not a way to reintroduce vanilla's own
+        /// randomness by default.</summary>
         private const bool DefaultForceMaxDuration = false;
 
         /// <summary>Vanilla's own default is per-region and usually small (the user's "2% chance in
@@ -321,7 +339,7 @@ namespace Primal.Gimmicks
         private const bool DefaultForceShelterUnavailable = false;
 
         private static readonly Dictionary<string, Configurable<int>> _frequencyPercent = new Dictionary<string, Configurable<int>>();
-        private static readonly Dictionary<string, Configurable<int>> _durationMinutes = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, Configurable<int>> _durationPercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceMaxDuration = new Dictionary<string, Configurable<bool>>();
         private static readonly Dictionary<string, Configurable<int>> _floodChancePercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceSubmergedSuperstructure = new Dictionary<string, Configurable<bool>>();
@@ -340,17 +358,17 @@ namespace Primal.Gimmicks
                     "Chance, out of 100, that a precycle (shelter failure -- storm already brewing at the start of the next cycle) happens. Replaces vanilla's own per-region chance entirely for this character.",
                     new ConfigAcceptableRange<int>(MinFrequencyPercent, MaxFrequencyPercent)));
 
-            _durationMinutes[characterID] = owner.config.Bind(
-                characterID + "_PrecycleTimer_durationMinutes",
-                DefaultDurationMinutes,
+            _durationPercent[characterID] = owner.config.Bind(
+                characterID + "_PrecycleTimer_durationPercent",
+                DefaultDurationPercent,
                 new ConfigurableInfo(
-                    "Minutes of head start added before the normal rain timer begins counting, when a precycle happens. Replaces vanilla's own random 2-5 minute roll with this fixed value. Ignored entirely while \"Force max precycle timer\" is checked.",
-                    new ConfigAcceptableRange<int>(MinDurationMinutes, MaxDurationMinutes)));
+                    $"Percentage multiplier on BOTH bounds of vanilla's own random head-start roll ({VanillaMinDurationTicks}-{VanillaMaxDurationTicks} ticks, i.e. 2-5 real minutes). 100% rolls within vanilla's own unscaled range; 0% always gives no head start at all. Ignored entirely while \"Force max precycle timer\" is checked.",
+                    new ConfigAcceptableRange<int>(MinDurationPercent, MaxDurationPercent)));
 
             _forceMaxDuration[characterID] = owner.config.Bind(
                 characterID + "_PrecycleTimer_forceMaxDuration",
                 DefaultForceMaxDuration,
-                new ConfigurableInfo($"If checked, a precycle's head start always uses the longest configurable duration ({MaxDurationMinutes} minutes) instead of the minutes above."));
+                new ConfigurableInfo("If checked, a precycle's head start always uses the scaled upper bound (the percent above times vanilla's own longest roll) instead of rolling between the scaled bounds."));
 
             _floodChancePercent[characterID] = owner.config.Bind(
                 characterID + "_PrecycleTimer_floodChancePercent",
@@ -375,9 +393,9 @@ namespace Primal.Gimmicks
             return _frequencyPercent.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultFrequencyPercent;
         }
 
-        public static int GetDurationMinutes(string characterID)
+        public static int GetDurationPercent(string characterID)
         {
-            return _durationMinutes.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultDurationMinutes;
+            return _durationPercent.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultDurationPercent;
         }
 
         public static bool ForceMaxDuration(string characterID)
@@ -408,7 +426,7 @@ namespace Primal.Gimmicks
             }
 
             if (!_frequencyPercent.TryGetValue(characterID, out Configurable<int> frequency) ||
-                !_durationMinutes.TryGetValue(characterID, out Configurable<int> duration) ||
+                !_durationPercent.TryGetValue(characterID, out Configurable<int> duration) ||
                 !_forceMaxDuration.TryGetValue(characterID, out Configurable<bool> forceMax) ||
                 !_floodChancePercent.TryGetValue(characterID, out Configurable<int> flood) ||
                 !_forceSubmergedSuperstructure.TryGetValue(characterID, out Configurable<bool> forceSubmerged) ||
@@ -424,7 +442,7 @@ namespace Primal.Gimmicks
             items.Add(new OpLabel(20f, topY, "Precycle chance, out of 100:", false));
             items.Add(new OpUpdown(frequency, new Vector2(280f, topY - 6f), 80f));
 
-            var durationLabel = new OpLabel(20f, topY - 44f, "Precycle head start, in minutes:", false);
+            var durationLabel = new OpLabel(20f, topY - 44f, "Precycle head start, percent of vanilla:", false);
             var durationUpdown = new OpUpdown(duration, new Vector2(280f, topY - 50f), 80f);
             var forceMaxCheckbox = new OpCheckBox(forceMax, 380f, topY - 50f);
             var forceMaxLabel = new OpLabel(416f, topY - 46f, "Force max precycle timer", false);

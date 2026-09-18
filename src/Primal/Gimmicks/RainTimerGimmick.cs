@@ -229,11 +229,16 @@ namespace Primal.Gimmicks
     {
         private const int DefaultPercent = 100;
 
-        /// <summary>Saint's own default (see GimmickDefaults.cs) -- rain/the blizzard should start
-        /// essentially immediately, per explicit request. 0% clamps to
-        /// RainTimerGimmick.MinCycleLengthTicks (40 ticks, 1 second) rather than a literal instant
-        /// zero, since a true 0 would divide-by-zero elsewhere in RainCycle's own math.</summary>
-        private const int SaintDefaultPercent = 0;
+        /// <summary>Per-character overrides (see GimmickDefaults.cs for the matching default
+        /// assignments) -- rain/the blizzard should start essentially immediately for both Saint
+        /// and Rivulet, per explicit request. 0% clamps to RainTimerGimmick.MinCycleLengthTicks (40
+        /// ticks, 1 second) rather than a literal instant zero, since a true 0 would divide-by-zero
+        /// elsewhere in RainCycle's own math.</summary>
+        private static readonly Dictionary<string, int> PerCharacterDefaultPercent = new Dictionary<string, int>
+        {
+            [MoreSlugcatsEnums.SlugcatStatsName.Saint.value] = 0,
+            [MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value] = 0,
+        };
 
         private const int MinPercent = 0;
         private const int MaxPercent = 400;
@@ -247,8 +252,8 @@ namespace Primal.Gimmicks
 
         public static void Bind(OptionInterface owner, string characterID)
         {
-            int defaultPercent = characterID == MoreSlugcatsEnums.SlugcatStatsName.Saint.value
-                ? SaintDefaultPercent
+            int defaultPercent = PerCharacterDefaultPercent.TryGetValue(characterID, out int overridePercent)
+                ? overridePercent
                 : DefaultPercent;
 
             _percent[characterID] = owner.config.Bind(

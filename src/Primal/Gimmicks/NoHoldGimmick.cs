@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using HarmonyLib;
 using Menu.Remix.MixedUI;
 using MoreSlugcats;
+using UnityEngine;
 
 namespace Primal.Gimmicks
 {
@@ -61,6 +62,17 @@ namespace Primal.Gimmicks
     /// comment, preserved in git history, for why -- SlugcatGrab bypasses Grabability entirely) --
     /// a character with both OneSpear and NoHold's Spears category blocked (Spearmaster's own
     /// default, migrated from NoSpears below) can still complete their tail-pull(s).
+    ///
+    /// **"Inert until cycle N" (added 2026-09-18, later still):** a brand new concept, specific to
+    /// this gimmick only -- a per-character `InertUntilCycle` setting (0 by default, meaning "no
+    /// delay, active from the very first cycle" -- unchanged behavior for every character that
+    /// doesn't touch it) that keeps every category's blocking OFF entirely until
+    /// `SaveState.cycleNumber` reaches that value, then behaves completely normally from then on.
+    /// Reads the same `SaveState.cycleNumber` source Requirements.cs's own "starting cycle" checks
+    /// already use (0-indexed -- cycle 0 is the character's first cycle), via
+    /// `GimmickGate.GameFor(player).GetStorySession.saveState.cycleNumber`. This is a gate on the
+    /// gimmick's OWN effect, not on GimmickAssignments/GimmickGate itself, so it's local to this one
+    /// gimmick and doesn't need any new shared architecture.
     /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.Grabability), new Type[] { typeof(PhysicalObject) })]
     internal static class NoHoldGimmick
@@ -78,6 +90,19 @@ namespace Primal.Gimmicks
             if (!GimmickGate.IsActiveFor(__instance, ID, out string characterID))
             {
                 return;
+            }
+
+            int inertUntilCycle = NoHoldSettings.GetInertUntilCycle(characterID);
+            if (inertUntilCycle > 0)
+            {
+                // Same cycleNumber source Requirements.cs's own "starting cycle" checks already
+                // use -- 0-indexed, so a value of N here means "inert for cycles 0..N-1, active
+                // from cycle N onward."
+                int cycleNumber = GimmickGate.GameFor(__instance)?.GetStorySession?.saveState?.cycleNumber ?? 0;
+                if (cycleNumber < inertUntilCycle)
+                {
+                    return;
+                }
             }
 
             if (!NoHoldSettings.IsBlocked(characterID, obj))
@@ -120,12 +145,13 @@ namespace Primal.Gimmicks
         {
             [MoreSlugcatsEnums.SlugcatStatsName.Spear.value] = new HashSet<string> { "Spears" },
             [MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value] = new HashSet<string> { "Spears", "Yeeks", "Squidcadas" },
-            // Saint: "everything checked" -- not yet defaulted onto Saint in GimmickDefaults.cs
-            // (the user's own design also wants this gimmick to only activate after one full
-            // cycle, a delayed-activation mechanic that doesn't exist anywhere in this codebase
-            // yet -- see CHARACTER_DESIGN_STATUS.md's own open question). This entry is ready for
-            // whenever that lands, and equally applies if a player assigns No Hold to Saint
-            // manually via Remix in the meantime.
+            // Saint: "everything checked" -- defaulted onto Saint in GimmickDefaults.cs (2026-09-18,
+            // later still). InertUntilCycle itself (see this class's own Bind()/GetInertUntilCycle)
+            // stays at its own generic default (0, no delay) for Saint same as everyone else -- the
+            // user introduced "inert until cycle N" as a new general NoHold setting rather than
+            // asking for a specific nonzero starting value for Saint, so nothing here assumes one;
+            // it's fully available to set per-character via Remix whenever a specific value is
+            // wanted.
             [MoreSlugcatsEnums.SlugcatStatsName.Saint.value] = new HashSet<string>
             {
                 "Spears", "Rocks", "Bombs", "Lanterns", "Fruits", "Batflies", "Squidcadas", "Yeeks", "Centipedes", OtherKey
@@ -175,8 +201,17 @@ namespace Primal.Gimmicks
             new CategoryDef("Centipedes", "Centipedes", false, obj => obj is Centipede),
         };
 
+        /// <summary>0 = active from the very first cycle (unchanged default behavior). See
+        /// NoHoldGimmick.cs's own header comment for the "inert until cycle N" mechanic this
+        /// drives.</summary>
+        private const int DefaultInertUntilCycle = 0;
+
+        private const int MinInertUntilCycle = 0;
+        private const int MaxInertUntilCycle = 999;
+
         private static readonly Dictionary<string, Dictionary<string, Configurable<bool>>> _blocked = new Dictionary<string, Dictionary<string, Configurable<bool>>>();
         private static readonly Dictionary<string, Configurable<bool>> _blockOther = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<int>> _inertUntilCycle = new Dictionary<string, Configurable<int>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why (Configurable<T> can only ever be bound to one
@@ -199,6 +234,13 @@ namespace Primal.Gimmicks
                 characterID + "_NoHold_Other",
                 DefaultBlockedFor(characterID, OtherKey, false),
                 new ConfigurableInfo("Checked: this character can no longer pick up anything NOT covered by the categories above -- corpses, unique items, everything else grabbable."));
+
+            _inertUntilCycle[characterID] = owner.config.Bind(
+                characterID + "_NoHold_inertUntilCycle",
+                DefaultInertUntilCycle,
+                new ConfigurableInfo(
+                    "This gimmick does nothing at all until this cycle number is reached (0 = no delay, active from the very first cycle). Every category above still behaves completely normally once that cycle arrives.",
+                    new ConfigAcceptableRange<int>(MinInertUntilCycle, MaxInertUntilCycle)));
         }
 
         /// <summary>True if this character currently has the category obj belongs to blocked. An
@@ -222,6 +264,12 @@ namespace Primal.Gimmicks
             return _blockOther.TryGetValue(characterID, out Configurable<bool> other) && other.Value;
         }
 
+        /// <summary>0 if unbound or unset -- matches DefaultInertUntilCycle, "no delay."</summary>
+        public static int GetInertUntilCycle(string characterID)
+        {
+            return _inertUntilCycle.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultInertUntilCycle;
+        }
+
         public static List<UIelement> BuildUI(string characterID, float topY)
         {
             if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
@@ -230,7 +278,8 @@ namespace Primal.Gimmicks
             }
 
             if (!_blocked.TryGetValue(characterID, out Dictionary<string, Configurable<bool>> perCategory) ||
-                !_blockOther.TryGetValue(characterID, out Configurable<bool> other))
+                !_blockOther.TryGetValue(characterID, out Configurable<bool> other) ||
+                !_inertUntilCycle.TryGetValue(characterID, out Configurable<int> inertUntilCycle))
             {
                 // Not bound yet -- don't cache an incomplete/empty result (see ChainsSettings for
                 // the same guard and why).
@@ -267,6 +316,10 @@ namespace Primal.Gimmicks
             float otherY = gridTop - (rowsPerColumn * rowHeight) - 8f;
             items.Add(new OpCheckBox(other, columnAX, otherY));
             items.Add(new OpLabel(columnALabelX, otherY + 4f, "Other (everything else grabbable)", false));
+
+            float inertY = otherY - 40f;
+            items.Add(new OpLabel(20f, inertY + 6f, "Inert until cycle number (0 = active immediately):", false));
+            items.Add(new OpUpdown(inertUntilCycle, new Vector2(340f, inertY), 80f));
 
             _uiCache[characterID] = items;
             return items;

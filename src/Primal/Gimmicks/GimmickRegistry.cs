@@ -95,15 +95,18 @@ namespace Primal.Gimmicks
         /// always used; still doesn't block OneSpear's own tail-pull (a different, lower-level
         /// vanilla method that bypasses Grabability entirely). Unlike NoSpears, individual spear
         /// sub-types (plain/explosive/electric) are no longer separately configurable -- Spears is
-        /// now a single category, per explicit request when this gimmick was generalized.
+        /// now a single category, per explicit request when this gimmick was generalized. Also has
+        /// an "inert until cycle N" setting (default 0, no delay) that keeps the whole gimmick
+        /// switched off until that cycle number is reached -- see NoHoldGimmick.cs's own header
+        /// comment.
         /// </summary>
         public static readonly GimmickDef NoHold = new GimmickDef(
             NoHoldGimmick.ID,
             "No Hold",
-            "Blocks picking up whichever categories are checked in this gimmick's settings -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, and/or Other (everything else grabbable).",
+            "Blocks picking up whichever categories are checked in this gimmick's settings -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, and/or Other (everything else grabbable) -- optionally inert until a configured cycle number.",
             NoHoldSettings.Bind,
             NoHoldSettings.BuildUI,
-            settingsContentHeight: 300f,
+            settingsContentHeight: 340f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
@@ -300,14 +303,15 @@ namespace Primal.Gimmicks
         /// Replaces vanilla's own precycle ("shelter failure") decision outright -- both how often
         /// one happens (a flat 0-100% for this character, in place of vanilla's own per-region
         /// chance) and how long its head start lasts before the normal rain timer even starts
-        /// counting (a fixed configured number of minutes, in place of vanilla's own random 2-5
-        /// minute roll). See PrecycleTimerGimmick.cs's own header comment for the full trace of
-        /// RainCycle's constructor and exactly which vanilla fields this overrides.
+        /// counting (a percentage multiplier on BOTH bounds of vanilla's own random 4800-12000 tick
+        /// roll, same idea as Rain Timer's own percent, in place of a fixed value). See
+        /// PrecycleTimerGimmick.cs's own header comment for the full trace of RainCycle's
+        /// constructor and exactly which vanilla fields this overrides.
         /// </summary>
         public static readonly GimmickDef PrecycleTimer = new GimmickDef(
             PrecycleTimerGimmick.ID,
             "Precycle Timer",
-            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (or always the longest configurable one), and flood chance with flat, configured values for this character -- with options to also force flooding on Submerged Superstructure and force the current shelter unusable.",
+            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (a percentage multiplier on vanilla's own roll bounds, or always the scaled upper bound), and flood chance with configured values for this character -- with options to also force flooding on Submerged Superstructure and force the current shelter unusable.",
             PrecycleTimerSettings.Bind,
             PrecycleTimerSettings.BuildUI,
             // Five rows now (frequency; duration+force-max; flood; force-submerged; force-shelter-

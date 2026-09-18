@@ -71,12 +71,26 @@ namespace Primal.Gimmicks
             // Saint gets Rain Timer and Blizzard Timer by default (2026-09-18, explicit request:
             // "set the rain timer to be 0 - it needs to start immediately... blizzard timer set to
             // 1 hour"). The actual 0%/60-minute values are each gimmick's own per-character setting
-            // default (RainTimerSettings.SaintDefaultPercent, BlizzardTimerSettings
+            // default (RainTimerSettings.PerCharacterDefaultPercent, BlizzardTimerSettings
             // .SaintDefaultMinutes), not something SetDefault itself carries -- this call only makes
             // the gimmicks assigned to Saint out of the box; see those two classes' own Bind()
             // methods for the character-specific default values.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, GimmickRegistry.RainTimer.ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, GimmickRegistry.BlizzardTimer.ID, true);
+
+            // Saint also gets No Hold by default (2026-09-18, later still) -- its own entry in
+            // NoHoldSettings.PerCharacterDefaultBlocked blocks everything (all ten categories plus
+            // Other). NoHold's own "inert until cycle N" setting (see NoHoldGimmick.cs's header
+            // comment) stays at its generic default (0, active immediately) for Saint -- the user
+            // introduced that setting as a new general NoHold concept, not as a specific requested
+            // starting value for Saint, so no cycle count is assumed here; it's fully available to
+            // set per-character via Remix.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, GimmickRegistry.NoHold.ID, true);
+
+            // Rivulet gets Rain Timer by default too (2026-09-18, later still, explicit request) --
+            // its own entry in RainTimerSettings.PerCharacterDefaultPercent is 0%, same "starts
+            // essentially immediately" treatment as Saint.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.RainTimer.ID, true);
         }
     }
 }
