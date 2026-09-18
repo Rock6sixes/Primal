@@ -8,7 +8,9 @@ namespace Primal.Gimmicks
     /// Runs the mod's own setup that has to wait until the game itself is further along than
     /// BepInEx's plugin-load stage (Plugin.OnEnable) allows:
     ///
-    ///  - GimmickDefaults.Apply(), which reads MoreSlugcatsEnums.SlugcatStatsName.Gourmand/Spear
+    ///  - GimmickDefaults.Apply() and RequirementDefaults.Apply() (added 2026-09-18, same reasoning
+    ///    and same ordering requirement as GimmickDefaults.Apply() -- see that class's own doc
+    ///    comment), which read MoreSlugcatsEnums.SlugcatStatsName.Gourmand/Spear
     ///    (and, via PrimalOptions below, WatcherEnums.SlugcatStatsName.Watcher) directly.
     ///    Those aren't plain compiled-in constants -- they're ExtEnum values the game registers
     ///    itself (RegisterValues()) during its own startup, and calling Plugin.OnEnable's timing
@@ -53,6 +55,18 @@ namespace Primal.Gimmicks
             catch (Exception ex)
             {
                 Plugin.Log?.LogError($"GimmickDefaults.Apply() threw -- default gimmick assignments may be missing (still fully assignable by hand in Remix): {ex}");
+            }
+
+            try
+            {
+                // Same reasoning as GimmickDefaults.Apply() just above -- must run before
+                // EnsureConfigBound() below, which reads these as each Configurable's bound
+                // default, same ordering requirement GimmickDefaults.Apply() already has.
+                RequirementDefaults.Apply();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"RequirementDefaults.Apply() threw -- default requirement assignments may be missing (still fully assignable by hand in Remix): {ex}");
             }
 
             var options = new PrimalOptions();

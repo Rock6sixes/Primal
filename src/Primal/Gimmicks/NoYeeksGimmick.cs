@@ -8,14 +8,15 @@ namespace Primal.Gimmicks
     /// campaign -- MoreSlugcats.Yeek, extends AirBreatherCreature, confirmed via TypeDef in the
     /// real game assembly) become impossible to pick up for the character it's assigned to.
     ///
-    /// This is the exact same mechanism as NoSpearsGimmick (see that file's own doc comment for
+    /// This is the exact same mechanism as NoHoldGimmick (see that file's own doc comment for
     /// the full trace of Player.Grabability(PhysicalObject) and why Postfixing it is safe and
-    /// scoped to one character): if the object being asked about "is Yeek" and the asking player
-    /// has this gimmick active, the result is forced to Player.ObjectGrabability.CantGrab,
-    /// overriding whatever vanilla would have said.
+    /// scoped to one character; NoHoldGimmick's own Yeeks category uses this exact same "is Yeek"
+    /// check): if the object being asked about "is Yeek" and the asking player has this gimmick
+    /// active, the result is forced to Player.ObjectGrabability.CantGrab, overriding whatever
+    /// vanilla would have said.
     ///
-    /// No settings -- unlike NoSpears (three sub-types to individually re-allow), there's only one
-    /// Yeek class, so this is a plain on/off gimmick (same shape as Misery/Slugpup in GimmickDef).
+    /// No settings -- there's only one Yeek class, so this is a plain on/off gimmick (same shape
+    /// as Misery/Slugpup in GimmickDef).
     /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.Grabability), new Type[] { typeof(PhysicalObject) })]
     internal static class NoYeeksGimmick

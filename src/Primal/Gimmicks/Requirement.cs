@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Menu.Remix.MixedUI;
 
 namespace Primal.Gimmicks
 {
@@ -77,6 +78,42 @@ namespace Primal.Gimmicks
         /// Community Challenges all leave this null and get their own plain white treatment
         /// instead (see PrimalOptions.GetRequirementColor).</summary>
         public virtual SlugcatStats.Name HomeCharacter => null;
+
+        /// <summary>
+        /// Optional, added 2026-09-18 (per direct request: "we need config menus on Requirements").
+        /// Mirrors GimmickDef.BindSettings exactly, down to the calling contract: called once per
+        /// real vanilla character during PrimalOptions.EnsureConfigBound (right after this
+        /// requirement's own plain enabled/disabled Configurable is bound for that character),
+        /// regardless of whether the requirement is currently enabled for them -- so any extra
+        /// per-character Configurable&lt;T&gt; values this requirement's own settings need exist
+        /// before the settings sub-view is ever opened, same reasoning as every gimmick's own
+        /// BindSettings. Leave null (the default) for a requirement with no settings -- true for
+        /// every requirement except the ones that explicitly override it.
+        /// </summary>
+        public virtual Action<OptionInterface, string> BindSettings => null;
+
+        /// <summary>
+        /// Optional, added 2026-09-18, same day as BindSettings above. Mirrors
+        /// GimmickDef.BuildSettingsUI exactly -- same signature, same caching contract (a
+        /// Configurable&lt;T&gt; can only ever be bound to ONE UIconfig element at a time; build
+        /// once per character into a cache and return the same instances on every later call for
+        /// that character, never fresh ones -- see GimmickDef.cs's own doc comment for the full
+        /// "why," identical here). Leave null (the default) for a requirement with no settings.
+        /// </summary>
+        public virtual Func<string, float, List<UIelement>> BuildSettingsUI => null;
+
+        /// <summary>Optional, same meaning as GimmickDef.SettingsContentHeight -- minimum virtual
+        /// content height (Remix screen units) this requirement's settings sub-view needs. 0 (the
+        /// default) means "fits the plain viewport already, nothing extra needed."</summary>
+        public virtual float SettingsContentHeight => 0f;
+
+        /// <summary>Whether this requirement has a settings sub-view at all. PrimalOptions uses
+        /// this to decide whether a requirement's row in the Requirements column is clickable at
+        /// all -- a requirement with no settings keeps its previous, deliberate "click does nothing"
+        /// behavior (see PrimalOptions.cs's own comment on why that row is plain-colored, not
+        /// greyed, despite having no OnClick) rather than newly popping open a "no settings" modal
+        /// for all fifty-plus requirements that never needed one.</summary>
+        public bool HasSettings => BuildSettingsUI != null;
 
         /// <summary>Called once, at mod startup (RequirementRegistry.RegisterAll, called from
         /// RainWorldHooks.Postfix alongside this mod's other one-shot setup steps) -- subscribe to
@@ -181,6 +218,15 @@ namespace Primal.Gimmicks
             // General, non-character-specific (2026-09-17, UI redesign round 4) -- split off from
             // the character-specific group above; see UniqueKillsRequirement's own doc comment.
             new UniqueKillsRequirement(),
+
+            // General, non-character-specific, with its own per-character settings sub-view
+            // (2026-09-18) -- see ReachEndingRequirement's own doc comment.
+            new ReachEndingRequirement(),
+
+            // Character-specific (Rivulet), added 2026-09-18 (later still) -- researched and found
+            // feasible rather than left unimplemented, see VisitShelterRequirement's own doc
+            // comment for the full trace.
+            new VisitShelterRequirement(),
         };
 
         private static bool _registered;

@@ -134,11 +134,19 @@ was tried twice and rejected both times for good reasons (see History).
   `player.playerState.slugcatCharacter.value` (the player's **real, unfaked** vanilla identity) and
   `GimmickAssignments.IsEnabled(characterID, gimmickID)`, and only then modifies behavior. In
   practice every patch does that through **`GimmickGate`** (see below) rather than open-coding it.
-- `GimmickRegistry` lists the known gimmicks — currently 13: `Misery`, `Slugpup`, `OneSpear` (shown
-  in the UI as "Master Spear"), `TimeLimit`, `NoSpears`, `Chains`, `NoYeeks`, `NoCicadas`,
-  `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`, `CreatureKillList` (shown as "Kill
-  List"). Each `GimmickDef` takes its ID from the owning patch class's own `ID` const rather than
-  re-typing the string, so the two can't drift apart silently.
+- `GimmickRegistry` lists the known gimmicks — as of 2026-09-18, 16: `Misery`, `Slugpup`, `OneSpear`
+  (shown in the UI as "Master Spear"), `TimeLimit`, `NoHold` (shown as "No Hold" -- generalized
+  2026-09-18 from the old single-purpose `NoSpears`, which no longer exists; see NoHoldGimmick.cs),
+  `Chains`, `NoYeeks`, `NoCicadas`, `NoMauling`, `NoPassages`, `ThreatSlowdown`, `ThreatPanic`,
+  `CreatureKillList` (shown as "Kill List"), `RainTimer` (new 2026-09-18; see RainTimerGimmick.cs),
+  `BlizzardTimer` (new 2026-09-18; see BlizzardTimerGimmick.cs), `PrecycleTimer` (new 2026-09-18,
+  later still; see PrecycleTimerGimmick.cs). Each `GimmickDef` takes its ID from
+  the owning patch class's own `ID` const rather than re-typing
+  the string, so the two can't drift apart silently. (Note: this mod also grew a large, separate
+  "Requirements"/Community Challenges architecture in a later 2026-09-16/17 session, generalized
+  onto its own Remix tab -- see "the Requirements architecture" and the Community Challenges
+  sections much further down this doc; this bullet only tracks the original per-character
+  GimmickRegistry list, which is still a live, separate system from Requirements.)
   `GimmickAssignments` is the runtime enabled/disabled lookup (Remix-configured override, falling
   back to a hardcoded default from `GimmickDefaults`). `PrimalOptions` builds the Remix menu
   screen as a **permanent character grid with a detail panel appended below it** — see "Config menu
@@ -335,14 +343,30 @@ was tried twice and rejected both times for good reasons (see History).
   warning/game-over screen yet — just an immediate `self.Die()`, guarded by a `ConditionalWeakTable`
   so it only fires once per player. See **Gotcha #3** for how direct access to `.clock`/`.timer`
   and `.Die()` was verified safe. **Untested by the user as of this doc.**
-- `Gimmicks/NoSpearsGimmick.cs` — makes spears (`obj is Spear`) ungrabbable for the assigned
-  character, by Postfixing `Player.Grabability(PhysicalObject)` (a per-player method, so it can
-  single out one character) and forcing the result to `Player.ObjectGrabability.CantGrab` — unless
-  that spear's specific type is individually re-allowed in `NoSpearsSettings` (same file: three
-  independent toggles, plain/explosive/electric, all default to "not allowed" — matching the
-  gimmick's original blanket behavior). Does not interfere with `OneSpearGimmick`'s tail-pull,
-  which attaches its spear via `Player.SlugcatGrab(...)` — a different, lower-level method that
-  never calls `Grabability`. **Untested by the user as of this doc.**
+- `Gimmicks/NoHoldGimmick.cs` (new, 2026-09-18, replacing the deleted `NoSpearsGimmick.cs` --
+  generalization requested directly: "No Hold - generalization of the No Spear gimmick... The
+  config inside should allow to toggle Spears, Rocks, Bombs, Lanterns, Fruits, Batflies,
+  Squidcadas, Yeeks, Centipedes, Other") — makes any of ten categories of object ungrabbable for
+  the assigned character, by Postfixing `Player.Grabability(PhysicalObject)` (same mechanism
+  `NoSpearsGimmick`/`NoYeeksGimmick`/`NoCicadasGimmick` already used) and forcing the result to
+  `Player.ObjectGrabability.CantGrab` for any object matching a category this character currently
+  has checked in `NoHoldSettings` (same file: one `Configurable<bool>` per category, plus a tenth
+  "Other" toggle for everything not covered by the first nine). Category membership is a plain C#
+  `is` check against the real vanilla class, confirmed class-by-class against `reference/GameSource`
+  rather than guessed — see the file's own header comment for the full category-to-class mapping
+  and the reasoning behind each judgment call (e.g. why `WaterNut` falls under Rocks not Fruits,
+  why `PuffBall`/`FirecrackerPlant` fall under Other not Bombs). Unlike the old `NoSpears`, the
+  three individual spear sub-types (plain/explosive/electric) are no longer separately
+  configurable — Spears is now one category, per the user's own explicit "we wont be needing this
+  anymore." Spears defaults to blocked (matching `NoSpears`' own old default); the other nine
+  default unblocked. `GimmickDefaults.cs`'s two old `NoSpears` default assignments (Spearmaster,
+  Inv) were migrated to `NoHold` in place, preserving their existing behavior exactly (both
+  characters still can't pick up spears by default; nothing else changed for them). Does not
+  interfere with `OneSpearGimmick`'s tail-pull, which attaches its spear via
+  `Player.SlugcatGrab(...)` — a different, lower-level method that never calls `Grabability`.
+  **Not yet built or tested as of this doc** (no `.NET` toolchain in this container — see
+  "Container environment notes"; written by close analogy to `ChainsSettings`' own already-shipped
+  checkbox-grid UI pattern, but genuinely unverified).
 - `Gimmicks/ChainsGimmick.cs` (new, 2026-09-12) — the Chains gimmick: entering a room with any
   living, non-banned creature in it seals every one of that room's exits shut (flips every
   `ShortcutData.Type.RoomExit` in `Room.shortcuts` to `DeadEnd`) and traps the player there,
@@ -402,6 +426,124 @@ was tried twice and rejected both times for good reasons (see History).
   whose own `TerrainImpact` override applies lethal damage, and slow spear-stab kills outlasting
   `killTag`'s own decay window). **Brand new, never built or
   tested as of this doc.**
+- `Gimmicks/RainTimerGimmick.cs` (new, 2026-09-18; render-bug fix and Saint defaults added later
+  same day) — the Rain Timer gimmick: rescales how long rain (or, on Saint, the region-wide
+  blizzard) takes to arrive each cycle, as a configurable percentage of vanilla's own normal timing
+  (`RainTimerSettings`, same file: one `Configurable<int>` percent, 0-400%, default 100 =
+  unmodified, 0 = essentially immediate). Postfixes `RainCycle`'s constructor (the *only* place vanilla
+  itself ever computes `cycleLength`, confirmed via `GetDesiredCycleLength` having exactly one
+  caller) and rescales the `cycleLength` it already computed, plus `sunDownStartTime` by the same
+  ratio so day/night lighting doesn't drift out of sync with how fast the actual rain/blizzard
+  danger is arriving. This is the same pair of fields a real, already-installed third-party mod
+  (MMF) scales for its own "rain time multiplier" config — confirmed by reading `RainCycle.cs`'s
+  own `ModManager.MMF`-gated lines rather than guessing, so this gimmick mirrors an
+  already-working approach instead of inventing a new one. **Works identically for Saint's blizzard
+  with no extra plumbing**, because `BlizzardWorldActive` (true only on Saint) is read *inside*
+  `GetDesiredCycleLength` itself, before this gimmick's own Postfix ever runs — Saint's blizzard
+  isn't a separate timer, it's the same `RainCycle`, just pre-shortened to 70% of normal by
+  vanilla's own code before this gimmick's percentage multiplies on top of that.
+  **The known "blizzard doesn't render" bug — root-caused AND FIXED (2026-09-18, later same day),
+  not just floored around:** the user reported that an earlier, non-mod attempt at this same
+  feature found the blizzard stopped rendering once the timer dropped below roughly 13% of its
+  normal length, and asked this to actually be resolved rather than just avoided. Root-caused by
+  reading `MoreSlugcats.BlizzardGraphics.CycleUpdate` directly: for Saint's own home-region ambient
+  blizzard (the "glacial wasteland" branch — `AerieBlizzard`-flagged rooms use fixed absolute-tick
+  thresholds instead and were never at risk), blizzard intensity is
+  `Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`; once `cycleLength` drops below
+  `3000 / 0.932 ≈ 3220` ticks (~80.5 seconds), `Mathf.InverseLerp`'s two bounds invert and the ramp
+  runs BACKWARDS instead of clamping flat — a small nonzero intensity right at cycle start,
+  collapsing to a clamped 0 well BEFORE rain/blizzard actually hits (worked out by hand, not
+  guessed — see the file's own header comment, "The known 'blizzard doesn't render' bug," for the
+  full arithmetic). **The actual fix is `BlizzardVisualCycleLengthHook`**, a separate, unconditional
+  Prefix+Postfix pair directly on `BlizzardGraphics.CycleUpdate` (not gated on any gimmick) that
+  temporarily substitutes a safe floor (4200 ticks) for `cycleLength` for the span of that one call
+  — confirmed to be the *only* method anywhere that reads `cycleLength` for rendering — then
+  restores the real value immediately after. This has zero effect on unmodified vanilla and only
+  ever engages once something has pushed the real gameplay `cycleLength` below the safe rendering
+  threshold. With the real bug fixed, `RainTimerGimmick.MinCycleLengthTicks` (the gameplay-side
+  floor) dropped from 4200 down to 40 ticks (1 second) — now purely an anti-division-by-zero guard,
+  not a render-bug workaround, so `RainTimerSettings.MinPercent` could drop from 10 to 0 too. **Now
+  defaulted to Saint at 0%** (`RainTimerSettings.SaintDefaultPercent`, special-cased inside `Bind()`)
+  and assigned to Saint by default in `GimmickDefaults.cs`, per explicit request ("it needs to
+  start immediately"). **Not yet built or tested as of this doc** (no `.NET` toolchain in this
+  container) — the render-bug fix in particular has never been seen in-game.
+- `Gimmicks/BlizzardTimerGimmick.cs` (new, 2026-09-18) — the Blizzard Timer gimmick: controls how
+  many minutes into the cycle (from the cycle's own start, not from whenever rain/blizzard actually
+  hits) the blizzard's heat-drain mechanic suddenly jumps from a gentle background rate to its
+  maximum severity. Traced to `Creature.HypothermiaUpdate()`: vanilla computes a threshold tick
+  `num3 = cycleLength + RainWorldGame.BlizzardHardEndTimer(storyMode)` (the latter a hardcoded
+  32000-tick/13m20s constant in story mode), and the instant `rainCycle.timer` (which keeps counting
+  up even after rain/blizzard has already hit) crosses `num3`, per-tick cold gain jumps from a
+  gentle ramp straight to the method's own hard ceiling (`Mathf.Clamp(..., 0.0055f)`) -- effectively
+  instant, matching the user's own "suddenly gets significantly harsher" framing exactly. **Unit,
+  per the user's own explicit choice after being shown this mechanism: "Total minutes into the
+  cycle"** (`BlizzardTimerSettings`, same file: one `Configurable<int>` minutes, default 25,
+  approximating -- not reproducing exactly, vanilla has no single constant for this -- the vanilla
+  feel the user described). Implementation is a Postfix on `RainWorldGame.BlizzardHardEndTimer`
+  (confirmed via full-codebase grep to have exactly one call site anywhere in the game, so patching
+  it can't affect anything else) that overrides its return value to `(configured total ticks) -
+  cycleLength`, clamped to never go negative. Since that static method takes no Player/Creature
+  parameter at all, a second Prefix+Postfix pair on `Creature.HypothermiaUpdate()` itself
+  (`BlizzardTimerHypothermiaGateHook`) stashes/clears which Creature is currently mid-call in a
+  shared static field (`BlizzardTimerGimmick.CurrentCreature`) so the `BlizzardHardEndTimer` Postfix
+  can resolve "which player, if any, is asking" despite the method it's patching having no such
+  context -- safe because Rain World's simulation is single-threaded and this method never
+  recurses. Deliberately does NOT touch `cycleLength` directly (the more obvious-looking approach):
+  that field is read a second time a few lines later in the same vanilla method for an unrelated
+  wind-chill sub-term, so temporarily substituting it would have silently thrown that off too.
+  Composes correctly with Rain Timer above -- both resolve against the character's actual live
+  `cycleLength` at the moment they're asked, so assigning both to the same character means exactly
+  what each one's own setting independently says, no double-counting. **Now defaulted to Saint at 60
+  minutes** (`BlizzardTimerSettings.SaintDefaultMinutes`, special-cased inside `Bind()`, 2026-09-18
+  later same day) and assigned to Saint by default in `GimmickDefaults.cs`, per explicit request.
+  **Not yet built or tested as of this doc** (no `.NET` toolchain in this container) -- also genuinely the
+  riskiest of today's three gimmicks to verify by inspection alone, since it hooks a Postfix on a
+  method with no natural per-call context and relies on a stashed-static-field handoff between two
+  separate patches; test this one particularly carefully once a build is available (assign it to a
+  character, confirm the cold-gain spike now happens at the configured total-cycle-minute mark
+  instead of vanilla's own regionally-varying default, and confirm nothing else that reads
+  `RainWorldGame.BlizzardHardEndTimer` or `Creature.HypothermiaUpdate` regressed for a character
+  that does NOT have this gimmick assigned). **Later same day:** both this gimmick and Rain Timer
+  gained a "Disable timer" checkbox next to their numeric field (greys out the field+label when
+  checked, substitutes a large-but-bounded sentinel instead of the normal math) -- see the "Disable
+  timer checkboxes... Precycle Timer" dated section further down for the full account.
+- `Gimmicks/PrecycleTimerGimmick.cs` (new, 2026-09-18, later still; flood chance and "Force max
+  precycle timer" added in a further follow-up the same day) — the Precycle Timer gimmick: replaces
+  vanilla's own precycle ("shelter failure") decision outright -- frequency (a flat 0-100% for the
+  assigned character, replacing vanilla's own per-region `earlyCycleChance`), head-start duration
+  (a fixed configured number of minutes, replacing vanilla's own random 2-5 minute roll -- or,
+  "Force max precycle timer" checked, always the longest configurable duration instead, modeled on
+  Remix's own `MMF.cfgNoRandomCycles`), and flood chance (a flat 0-100%, replacing vanilla's own
+  per-region `earlyCycleFloodChance`, faithfully preserving vanilla's one MS-region/Rivulet
+  exception -- see the file's own header comment for why that one exception was kept rather than
+  folded into the "full override" treatment). A Postfix on the same `RainCycle` constructor
+  `RainTimerGimmick` already Postfixes, touching entirely disjoint fields
+  (`maxPreTimer`/`preTimer`/`preCycleRainPulse_Wave*`/`globalRain.drainWorldFlood` vs
+  `cycleLength`/`sunDownStartTime`), so the two compose with no ordering dependency. See the file's
+  own header comment for the full trace, including region-coverage findings checked directly rather
+  than assumed (the timer mechanism itself is confirmed region-agnostic; the flood's VISUAL effect
+  is not -- it's additionally gated on each room's own level-design `RoomRain.DangerType`, a genuine
+  vanilla limitation this gimmick can't route around), and the "Precycle Timer gains flood chance...
+  region coverage confirmed" dated section further down for the full account, including the vanilla
+  variance numbers (400-800 second base cycle length, 4800-12000 tick precycle duration) this
+  gimmick's own design was checked against. No default assignment to any character. **Not yet built
+  or tested as of this doc** (no `.NET` toolchain in this container) — genuinely novel among this
+  mod's gimmicks in that it re-derives and overrides vanilla RNG rolls rather than just reading or
+  gating on existing state, so treat it with extra scrutiny once a build is available: confirm
+  precycles actually stop happening at 0% even in a normally precycle-prone region, confirm they
+  happen (eventually) at 100% even in a region that normally never has them, confirm the configured
+  duration (or, with force-max checked, always the longest one) is what actually shows up as the
+  pre-rain head start in-game, and confirm flood chance actually raises water in a room known to
+  have a flood-capable `DangerType` while having no visible effect in one that doesn't.
+  **Later still the same day:** two more settings -- "Force Submerged Superstructure Precycles"
+  (skips the MS/Rivulet flood exception for everyone) and "Force shelter unavailable" (forces
+  `World.brokenShelters`/`brokenShelterIndexDueToPrecycle` directly via a brand new second Harmony
+  patch, `PrecycleForceShelterUnavailableHook`, a Prefix on `ShelterDoor`'s own constructor --
+  completely separate from this gimmick's `RainCycle`-constructor Postfix, since it needed a
+  different hook point entirely). See the "Precycle Timer gains Force Submerged Superstructure...
+  shelter unavailable" dated section further down for the full account, including why a real vanilla
+  mechanic already existed for this (just scoped to only the shelters a region's own level design
+  specifically marked) and how this hook forces it everywhere instead.
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -6451,6 +6593,531 @@ resolves const-to-const references across the whole class regardless of textual 
 reordering is purely for readability, not required for it to compile).
 
 Not yet seen in-game -- compiled clean and redeployed.
+
+## 2026-09-18: Saint gameplay mechanics, round 1 -- No Hold, Rain Timer, and Blizzard Timer
+
+New session, continuing past the 2026-09-17 UI-polish batch above. User asked to work through "the
+rest of the gameplay altering mechanics before testing" and started with three items scoped to
+Saint: No Hold (generalizing No Spears), Rain Timer, and Blizzard Timer. Also confirmed this
+session's own container has no `.NET` toolchain (same limitation documented throughout this file's
+older "Container environment notes" section below -- the 2026-09-15 "sessions now run on the user's
+own Windows machine" note near the top of this doc does NOT hold for this particular session; check
+`dotnet --version` fresh each time rather than trusting that note).
+
+**All three are now implemented** — see their own file-map bullets above (`NoHoldGimmick.cs`,
+`RainTimerGimmick.cs`, `BlizzardTimerGimmick.cs`) for the full account of each. None has been built
+or tested yet (no toolchain here). Short summary:
+- **No Hold** replaces `NoSpearsGimmick.cs` outright (deleted) with a 10-category picker (Spears,
+  Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, Other), reusing the exact
+  `Player.Grabability` Postfix mechanism every other No* gimmick already used. `GimmickDefaults.cs`
+  updated in place (Spearmaster/Inv's old `NoSpears` defaults now point at `NoHold`, unchanged
+  behavior). `GimmickRegistry.cs`, `PrimalOptions.cs`, `ChainsGimmick.cs`, `NoYeeksGimmick.cs`,
+  `NoCicadasGimmick.cs` all had small comment-only updates to stop referencing the now-deleted class.
+- **Rain Timer** rescales `RainCycle.cycleLength`/`sunDownStartTime` by a configurable percentage,
+  via a Postfix on `RainCycle`'s constructor -- confirmed to control Saint's blizzard automatically
+  (same underlying timer, see the file-map bullet for the full trace) with a hard floor specifically
+  designed around a real vanilla math bug the user flagged from a prior non-mod attempt (see that
+  bullet for the exact derivation of the ~3220-tick breaking point in
+  `MoreSlugcats.BlizzardGraphics.CycleUpdate`). No default assignment to Saint yet -- ask/wait for a
+  starting percentage rather than guessing one.
+
+- **Blizzard Timer** — mechanism researched first, then the user was asked which unit to expose
+  (per their own explicit instruction: "let me know first how the timer works and then ask me"),
+  and answered **"Total minutes into the cycle."** Implemented as a Postfix on
+  `RainWorldGame.BlizzardHardEndTimer` (its one and only call site anywhere in the game) that
+  overrides the hardcoded post-rain delay to whatever makes `cycleLength + result` equal the
+  configured total-cycle-minute mark, via a stashed-current-creature handoff from a second Prefix/
+  Postfix pair on `Creature.HypothermiaUpdate` (see the file-map bullet and this gimmick's own
+  header comment for exactly why that indirection is needed, and why `cycleLength` itself was
+  deliberately NOT touched directly). Full mechanism trace, preserved below for reference:
+```
+float num3 = (float)room.world.rainCycle.cycleLength + (float)RainWorldGame.BlizzardHardEndTimer(room.game.IsStorySession);
+HypothermiaGain = Mathf.Lerp(0f, RainWorldGame.DefaultHeatSourceWarmth * 0.1f, Mathf.InverseLerp(0.1f, 0.95f, room.world.rainCycle.CycleProgression));
+HypothermiaGain += Mathf.Lerp(0f, RainWorldGame.BlizzardMaxColdness, Mathf.InverseLerp(0f, num3, room.world.rainCycle.timer));
+HypothermiaGain += Mathf.Lerp(0f, 50f, Mathf.InverseLerp(num3, num3 * 5f, room.world.rainCycle.timer));
+...
+HypothermiaGain = Mathf.Clamp(HypothermiaGain, -1f, 0.0055f);
+```
+`RainWorldGame.BlizzardHardEndTimer(storyMode)` returns a hardcoded **32000 ticks** (800 real
+seconds, 13m20s) in story mode. `num3 = cycleLength + 32000` is the real "harshening" threshold:
+below it, per-tick Hypothermia gain ramps gently (capped near `BlizzardMaxColdness ≈ 0.0016`/tick);
+the instant `room.world.rainCycle.timer` (which keeps counting up even *after* rain/blizzard has
+already hit -- `RainCycle.Update()`'s `timer++` is unconditional, not gated on `timer < cycleLength`)
+crosses `num3`, the third line's `+50` term dwarfs everything else and the whole expression
+immediately saturates at its hard ceiling, `0.0055`/tick -- i.e. an effectively-instant jump from
+"gentle background cold" to "the maximum possible cold gain the game allows," exactly matching the
+user's own description ("suddenly gets significantly harsher"). Since `timer` only starts counting
+toward this AFTER `cycleLength` ticks have already passed (rain/blizzard onset), the real
+wall-clock delay the player experiences is `cycleLength + 32000 ticks` measured from cycle START,
+which for a plausible Saint cycle length comfortably lands in the user's own observed "20-30
+minutes" window -- this is almost certainly the exact mechanic being described, not a guess.
+
+**Resolved:** the user picked "Total minutes into the cycle" over the alternatives offered (raw
+post-onset minutes/ticks matching `TimeLimitSettings`' own convention, or a percent-of-vanilla
+slider matching Rain Timer's own style) -- see `BlizzardTimerSettings` in
+`BlizzardTimerGimmick.cs` for the resulting single `Configurable<int>` (default 25 minutes).
+
+## 2026-09-18 (later): Rain Timer's blizzard-render bug actually fixed, not just floored around; Saint gets real defaults
+
+Follow-up, same session. User asked two things: (1) look into the ~3220-tick "blizzard doesn't
+render" bug Rain Timer's first pass only floored around, and actually fix it if possible; (2) give
+Saint real default values -- Rain Timer at 0% ("it needs to start immediately") and Blizzard Timer
+at 60 minutes.
+
+**The render bug is now fixed at its actual source**, not just avoided. Re-derived the exact
+breakdown by hand (not just re-stating the earlier "13%" finding): `BlizzardGraphics.CycleUpdate`'s
+"glacial wasteland" branch (Saint's own home region's normal ambient blizzard, as opposed to the
+separate `AerieBlizzard`-flagged-room case, which was never at risk -- it uses fixed absolute-tick
+thresholds, not `cycleLength`-relative ones) computes
+`BlizzardIntensity = Mathf.InverseLerp(cycleLength * 0.932f, 3000f, TimeUntilRain)`. Worked the
+actual arithmetic for `cycleLength` under ~3220 ticks (3000/0.932): the ramp doesn't just clamp to a
+flat 0 -- `Mathf.InverseLerp` still returns a valid fraction with the bounds inverted, so the ramp
+runs BACKWARDS -- a small nonzero intensity right at cycle START, collapsing to a clamped 0 well
+BEFORE rain/blizzard actually hits. That's the real mechanism behind "the blizzard not visually
+appearing": it's not invisible the whole cycle, it fades out exactly when it should be most intense.
+
+**Fix:** `BlizzardVisualCycleLengthHook` (new, same file as `RainTimerGimmick`, `RainTimerGimmick.cs`)
+-- a *separate*, *unconditional* Harmony patch (Prefix+Postfix) directly on
+`BlizzardGraphics.CycleUpdate` itself, not gated on any gimmick or PrimalSlot. It temporarily
+substitutes a safe floor (4200 ticks, the same margin-above-3220 value the old gameplay floor used
+to be) for `RainCycle.cycleLength` for the exact duration of one `CycleUpdate` call -- confirmed to
+be the ONLY method in the whole game that ever reads `cycleLength` for a rendering purpose -- then
+restores the real value immediately after. Because this is a correctness fix for a genuine vanilla
+bug rather than a gimmick effect, it deliberately has no gate at all: it only ever changes anything
+once `cycleLength` is already abnormally short, which never happens in untouched vanilla, so it's
+inert everywhere except when this mod's own Rain Timer (or, in principle, any other mod) has pushed
+the timer that low.
+
+With the actual bug fixed, `RainTimerGimmick`'s own gameplay-side floor
+(`RainTimerGimmick.MinCycleLengthTicks`) could be dropped from the old 4200 down to 40 ticks (1
+second) -- now purely an anti-division-by-zero guard (`RainCycle.CycleProgression`, `AmountLeft`,
+etc. all divide directly by `cycleLength`; a literal 0 would produce NaN/Infinity there), not a
+render-bug guard anymore. `RainTimerSettings.MinPercent` correspondingly dropped from 10 to 0, so
+"0%" is now a reachable, safe config value that clamps to that 1-second floor rather than a true
+instant zero.
+
+**Saint's real defaults**, in `GimmickDefaults.cs`: Rain Timer and Blizzard Timer are now both
+assigned to Saint by default (`GimmickAssignments.SetDefault(..., true)` for both IDs). The actual
+VALUES (0% / 60 minutes) aren't something `SetDefault` itself carries -- each gimmick's own settings
+class special-cases Saint's default inside its own `Bind()` (`RainTimerSettings.SaintDefaultPercent
+= 0`, `BlizzardTimerSettings.SaintDefaultMinutes = 60`), the same per-character-default pattern
+introduced for this. Every other character still gets each gimmick's generic default (100% / 25
+min) if ever assigned it manually via Remix.
+
+**Not yet built or tested as of this doc** (no `.NET` toolchain in this container). When retesting,
+in addition to Rain/Blizzard Timer's own existing checklists (see their file-map bullets above):
+(1) confirm Saint's Remix panel shows Rain Timer and Blizzard Timer both already assigned, at 0%
+and 60 min respectively, on a fresh save; (2) confirm rain/blizzard onset is now near-instant for
+Saint at the 0% default, AND the blizzard still visually renders (this is the one that would have
+failed before today's fix); (3) as an extra check beyond what's already flagged, try Rain Timer at
+0% on some OTHER blizzard-affected setup if one exists, to confirm the render fix isn't somehow
+Saint-specific despite being written to be character-agnostic.
+
+## 2026-09-18 (later still): "Disable timer" checkboxes for Rain/Blizzard Timer, and a new Precycle Timer gimmick
+
+Follow-up, same session. User asked for two things: (1) a way to make Rain Timer's and Blizzard
+Timer's numeric setting mean "unlimited" (originally floated as a special slider notch, then
+resolved to a simpler design after a clarifying question -- see below); (2) a brand new gimmick,
+Precycle Timer, controlling vanilla's "shelter failure"/precycle mechanic.
+
+**The slider+textbox UI question, and why it was asked rather than guessed:** the user's exact ask
+("add a textbox to input the slider value") assumed there wasn't already a way to type a number
+directly. Checked the actual decompiled Remix source first rather than assuming either way:
+`OpUpdown` (what this mod's "sliders" have always actually been, confirmed via grep -- there's no
+`OpSlider` anywhere in this codebase) already extends `OpTextBox` and is directly typable, click and
+type a number, no separate box needed. But `Menu.Remix.MixedUI.UIconfig`'s own constructor throws
+`MultiuseConfigurableException` if a second UI element ever tries to bind the same `Configurable`
+that's already bound to a live one (`config.BoundUIconfig != null` check, confirmed by reading
+`UIconfig.cs` directly) -- so a REAL drag-slider (`OpSlider`) next to a genuinely separate typable
+box, both pointing at the same literal stored value, isn't possible without a second, manually
+synced `Configurable` and reentrancy-guarded `OnChange` wiring on both sides. Given no compiler in
+this container to catch a mistake in that sync logic, asked the user to pick between keeping the
+already-typable `OpUpdown` (lower risk) or building the real synced pair (more risk, closer to a
+literal "slider"). **User's answer superseded both options with a third, simpler one:** keep the
+`OpUpdown`, and add a plain `OpCheckBox` to its right labeled "Disable timer" that greys out the
+number field and its label when checked.
+
+**Implemented for both `RainTimerGimmick.cs` and `BlizzardTimerGimmick.cs`** (`RainTimerSettings`/
+`BlizzardTimerSettings`, same files): a new `Configurable<bool>` per character (`_disabled`),
+`IsDisabled(characterID)` getter, and `BuildUI` now constructs the `OpCheckBox` + its own `OpLabel`
+alongside the existing `OpUpdown` + label, wiring the checkbox's `OnChange` to set
+`opUpdown.greyedOut` (a plain public field on `UIfocusable`, confirmed via the decompiled source --
+`OpUpdown` already checks it in its own `Update()`) and swap the numeric label's color to grey (the
+label's own *original* color is captured once at construction and restored on uncheck, rather than
+hardcoding a "normal" color guess). Checked, each gimmick's own Postfix skips its normal
+percent/minutes math entirely and substitutes a large-but-bounded sentinel instead of trying to
+truly disable the underlying mechanic (which would mean patching yet another, separate vanilla
+method for each): `RainTimerGimmick.UnlimitedCycleLengthTicks` (100 million ticks, ~29 days) is
+set directly as `cycleLength` (deliberately WITHOUT also scaling `sunDownStartTime` the way the
+normal percent branch does, so day/night keeps behaving like vanilla while only rain/the blizzard
+is pushed out to practically-never); `BlizzardHardEndTimerHook.UnlimitedExtraTicks` (also 100
+million) is returned directly, independent of `cycleLength`, so it can't overflow when later added
+to it in `Creature.HypothermiaUpdate`'s own float-space arithmetic. Saint's own defaults (0% / 60
+min from the previous entry) are unaffected -- the new checkbox defaults to unchecked for every
+character, including Saint. **Not yet built or tested.**
+
+**New gimmick: Precycle Timer** (`PrecycleTimerGimmick.cs`, new file). Traced vanilla's own precycle
+("shelter failure") decision to `RainCycle`'s constructor -- the same method `RainTimerGimmick`
+already Postfixes, touching entirely disjoint fields so the two coexist with no ordering dependency.
+Two independent vanilla rolls, both now overridden: (1) **whether** a precycle happens --
+vanilla rolls `Random.Range(0,100) < region.regionParams.earlyCycleChance * 100` (a PER-REGION
+value, not one constant -- matches the user's own "2% in certain regions," but every region defines
+its own; Rivulet/Sofanthiel/Watcher get special-cased overrides instead), reseeded deterministically
+off the cycle's own seed and saved/restored around the roll so it doesn't disturb any other
+`UnityEngine.Random` use in the same constructor. This gimmick re-derives that exact same kind of
+roll (same seeding call, `StoryGameSession.SetRandomSeedToCycleSeed(1)`) but compares it against the
+character's own flat `FrequencyPercent` (0-100) instead, fully overriding vanilla's decision either
+way (0% truly never triggers regardless of the region's own chance; 100% always does). (2) **how
+long** the head start lasts if one triggers -- vanilla rolls `Random.Range(4800f, 12000f)` ticks
+(120-300 seconds, 2-5 minutes) fresh every time, stored in `maxPreTimer`/`preTimer`; this gimmick
+replaces that with a fixed, configured `DurationMinutes` instead. When triggering, sets up the exact
+same fields vanilla's own trigger path does (`maxPreTimer`, `preTimer`, the three
+`preCycleRainPulse_Wave*` floats, `globalRain.preCycleRainPulse_Scale = 1f`); when not, zeros
+`maxPreTimer`/`preTimer` back out, overriding whatever vanilla's own per-region roll (which already
+ran earlier in the same constructor call) had already decided. **"Periodic rains" and "different
+creatures spawn" needed no new code at all** -- both read `RainCycle.preTimer`/`maxPreTimer` live
+wherever they actually happen (confirmed via `preTimer` references in `Room.cs`/`GlobalRain.cs`),
+not a separately-cached decision, and this gimmick's Postfix runs well before any room lazily loads
+and reads those fields. **One deliberate, flagged scope gap:** vanilla's own SEPARATE "early cycle
+flood" roll (`region.regionParams.earlyCycleFloodChance`, gated on `maxPreTimer > 0`) already
+consumes its own random value using vanilla's own precycle decision, before this gimmick's Postfix
+ever runs -- so a precycle this gimmick forces on (that vanilla itself wouldn't have rolled) never
+gets a chance at that flood interaction, and vice versa. Left as-is since flood-on-precycle wasn't
+part of what the user asked this gimmick to control; noted here in case a future session is asked to
+close that gap too. No default assignment to any character (not requested with a specific value, same
+reasoning as Rain/Blizzard Timer before Saint's own defaults were given) -- `homeCharacter: Saint`
+for the Remix color tag only, since it was raised in the same Saint-focused conversation. **Not yet
+built or tested.**
+
+**Variance question, answered directly from the source rather than guessed (see the chat reply
+itself for the full numbers):** vanilla's own `cycleLength`, BEFORE Rain Timer's percentage ever
+touches it, already re-rolls every single cycle -- `Lerp(cycleTimeMin, cycleTimeMax, Random.value)`
+seconds, defaulting to a 400-800 second (6m40s-13m20s) range that's itself changeable in vanilla's
+own Options menu (traced to `World.cs`'s constructor and `RainWorld.cs`'s own default values, lines
+1682-1683: `cycleTimeMin = 400; cycleTimeMax = 800;`). Rivulet/Gourmand/Saint get a biased roll
+instead (`0.35 + 0.65 * Random.value^1.2`, never sampling the bottom 35% of that range). Rain
+Timer's percent multiplies whatever that already-random per-cycle base comes out to, every cycle
+independently -- it doesn't replace vanilla's own randomness, it scales it. Precycle's own duration
+(`maxPreTimer`) is vanilla's own separate 4800-12000 tick (2-5 minute) roll, rerolled fresh every
+time a precycle actually triggers -- now replaced outright by Precycle Timer's fixed
+`DurationMinutes` rather than preserving that randomness (a design choice, not forced by anything
+technical -- flagged in case the user would rather keep some randomness around a configured
+midpoint instead of a perfectly fixed value).
+
+## 2026-09-18 (later still): Precycle Timer gains flood chance + "Force max precycle timer"; region coverage confirmed
+
+Follow-up, same session. User asked for two more `PrecycleTimerGimmick.cs` configs and an explicit
+double-check on region coverage.
+
+**Region coverage, checked directly (not assumed):**
+- **The timer mechanism itself is region-agnostic, confirmed.** Read `RainCycle.Update()`'s
+  precycle gating and `RainWorldGame.AllowRainCounterToTick()` in full -- both key only on
+  `ModManager.PrecycleModule`, story/arena session state, ghost-mode cameras, gate transitions, and
+  a couple of Watcher/MSC session flags. Zero region-specific code anywhere in that path. So yes:
+  Precycle Timer's `FrequencyPercent` at 100 forces a head-start in literally any real playable
+  region -- the gimmick's own `world.region == null` guard only excludes non-gameplay single-room
+  worlds (menus, dream sequences), never a real region.
+- **The flood effect is NOT universally visible, and that's a genuine vanilla limitation, not a gap
+  here.** `Room.cs`'s own water-adding code additionally gates on that specific room's
+  `RoomRain.DangerType` being `Flood`/`FloodAndRain` -- level-design data baked per-room by each
+  region, not something togglable from C#. Setting `drainWorldFlood` still always happens the same
+  way vanilla itself does it, but it will only ever produce visible rising water in rooms the
+  region's own designers already tagged that way. This is presumably exactly why vanilla's own
+  `earlyCycleFloodChance` is per-region in the first place.
+
+**Flood chance (0-100%), new `FloodChancePercent` config.** Vanilla rolls a SEPARATE
+`earlyCycleFloodChance` a few lines after the precycle decision, gated on vanilla's OWN
+`maxPreTimer > 0` (i.e. whether vanilla's own roll, not this gimmick's, triggered) -- since that
+roll already ran using vanilla's decision before this gimmick's Postfix executes, it's re-rolled
+independently here too (same seeded-and-restored `UnityEngine.Random` pattern as the trigger roll),
+gated on THIS gimmick's own trigger decision instead. On success, sets
+`globalRain.drainWorldFlood = 99000f` -- except on the "MS" region (Submerged Superstructure) for
+any character other than Rivulet, where it's forced to `0f` instead, faithfully preserving vanilla's
+own one exception (MS already manages its own water state; Rivulet alone has some special
+interaction with it -- read as a real compatibility guard, not a balance choice, so kept exactly as
+vanilla has it rather than folded into the "full override" treatment everything else here gets).
+
+**"Force max precycle timer" checkbox, new `ForceMaxDuration` config.** Modeled directly on
+`MMF.cfgNoRandomCycles` (found earlier in `World.cs` -- when checked, that config pins the NORMAL
+cycle's own length straight to `cycleTimeMax` instead of rolling between `cycleTimeMin`/`cycleTimeMax`).
+Same idea here: checked, a triggered precycle's head start always uses
+`PrecycleTimerSettings.MaxDurationMinutes` (999) instead of the configured `DurationMinutes` --
+using the same checkbox-greys-out-the-numeric-field UI pattern `RainTimerSettings`'s own "Disable
+timer" established two rounds ago (`durationUpdown.greyedOut`, the label's own original color
+captured and restored). `PrecycleTimerGimmick.Postfix` picks between the two at the point it
+computes `durationTicks`.
+
+All three new UI rows built in `PrecycleTimerSettings.BuildUI` alongside the two already there
+(frequency; duration + the new force-max checkbox on one row; flood on a new third row) -- content
+still comfortably fits the plain settings viewport, no `settingsContentHeight` override needed.
+**Not yet built or tested.**
+
+## 2026-09-18 (later still): Precycle Timer gains Force Submerged Superstructure + Force shelter unavailable
+
+Follow-up, same session. User asked for one more checkbox (skip the MS/Rivulet flood exception for
+everyone) and asked a direct question: can a shelter be forced unusable during a precycle
+independent of the (region/room-limited) visual flood the previous round established?
+
+**"Force Submerged Superstructure Precycles"** — straightforward: a new `Configurable<bool>`
+(`PrecycleTimerSettings.ForceSubmergedSuperstructure`) that, when checked, skips the
+`world.region.name == "MS" && !isRivulet` suppression already in the flood-roll code, so the flood
+chance applies on MS too, for any character.
+
+**"Force shelter unavailable"** — answered the question by finding vanilla ALREADY has almost
+exactly this mechanic, just scoped far narrower than "any shelter, any region." Traced to
+`ShelterDoor`'s own constructor (root namespace): when the room being constructed is the player's
+current den and `rainCycle.preTimer > 0`, vanilla checks whether that SPECIFIC room's own
+`roomSettings.placedObjects` contains a `PlacedObject.Type.BrokenShelterWaterLevel` marker -- a
+level-design object only some regions' shelters were built with -- and only then sets
+`World.brokenShelters[shelterIndex] = true` (plus `brokenShelterIndexDueToPrecycle`). Confirmed by
+grepping every other place `brokenShelters` is read (`Room.cs`'s danger-type gating,
+`HUD/FoodMeter.cs`, `Player.cs`, `Menu/FastTravelScreen.cs`, `Watcher/Sandstorm.cs`,
+`ShelterDoor.Broken` itself) that NONE of them additionally check for visible water -- the flag
+alone, not the flood, is what actually makes a shelter non-functional. So: **yes, answered directly
+-- any shelter can be forced unavailable, independent of visuals**, by setting that same flag
+without needing the room to ever have had the placed-object marker. Implemented as
+`PrecycleForceShelterUnavailableHook`, a SEPARATE new Harmony Prefix on `ShelterDoor`'s own
+constructor (not folded into `PrecycleTimerGimmick`'s existing `RainCycle`-constructor Postfix,
+since this needs a completely different hook point) that sets `brokenShelters`/
+`brokenShelterIndexDueToPrecycle` directly, gated on this gimmick being assigned, a new
+`ForceShelterUnavailable` checkbox being checked, and vanilla's own same two preconditions
+(current den, active precycle). Used a Prefix rather than Postfix specifically so vanilla's own
+later `if (Broken) { ... }` block in the same constructor (which randomizes the broken door's visual
+segment/flap offsets) picks up the forced value too -- the door's own broken-door visual should play
+correctly; only the room-wide water level remains the separate, DangerType-gated system from the
+previous round.
+
+Five settings rows now on `PrecycleTimerGimmick`'s own screen (frequency; duration + force-max;
+flood; force-submerged; force-shelter-unavailable) -- `GimmickRegistry.cs`'s own `PrecycleTimer`
+entry picked up `settingsContentHeight: 260f` to give the scroll box room, matching Chains' own
+precedent for a settings view that outgrew the plain viewport. **Not yet built or tested** -- this
+round is a second, genuinely novel kind of intervention for this mod (forcing a vanilla mechanic
+that's normally level-design-gated, via a brand new hook point on a constructor nothing else in this
+mod has touched before), so test deliberately once a build exists: confirm a shelter with NO
+BrokenShelterWaterLevel marker still becomes unusable when this checkbox is on, and confirm a
+shelter's normal (non-precycle) behavior is completely unaffected when this gimmick isn't assigned
+or the checkbox is off.
+
+## 2026-09-18 (later still): character-design status audit, per-character No Hold defaults, Requirement settings architecture, Reach Ending requirement
+
+Follow-up, same session. User supplied a target character/gimmick/requirement design table (a
+screenshot of a spreadsheet) and asked for a status audit before any new code -- **saved as
+`src/Primal/CHARACTER_DESIGN_STATUS.md`**, its own file, not duplicated here; read that doc for the
+full row-by-row findings. Short version: Monk/Artificer/Gourmand/Spearmaster's gimmick rows were
+already done (including a "double check" on Chains' visual chain placement that turned out to
+already be correct -- `IsPlayerPipe`, used for the visual anchors, already excludes `CreatureHole`
+while `IsSealableExit`, used for the actual door-sealing, correctly still includes it). Two real
+architectural gaps were identified and both are now addressed by this same follow-up (see below);
+a few items (Rivulet's "50% multiplier" Precycle Timer duration, "visit every shelter," Saint's
+delayed-activation No Hold) still need the user's own design decision and weren't touched.
+
+**Per-character default *values* for No Hold, resolved as a clarification, not a rebuild.** The
+user pushed back that this was already supposed to work -- correct: re-reading `NoHoldGimmick.cs`
+confirmed every category's `Configurable<bool>` was ALREADY bound under a
+`characterID + "_NoHold_" + category.Key` key, i.e. Saint and Inv always had their own
+independently-stored checkboxes. The actual (narrower) gap was that the DEFAULT fed into each
+character's first bind came from one global `CategoryDef.DefaultBlocked` array, not a per-character
+lookup. Fixed with `NoHoldSettings.PerCharacterDefaultBlocked` (`Dictionary<string,
+HashSet<string>>`), the same `characterID == X ? ... : ...` pattern `RainTimerSettings`/
+`BlizzardTimerSettings` already used for Saint's own numeric defaults, generalized to a set of
+category keys: Spearmaster -> {Spears} (unchanged in practice), Inv -> {Spears, Yeeks, Squidcadas},
+Saint -> all ten categories plus "Other" (everything). Saint's entry is NOT yet wired into
+`GimmickDefaults.cs` as an actual default assignment -- the user's own design also wants No Hold to
+only activate on Saint after one full cycle, a delayed-activation mechanic that doesn't exist
+anywhere in this codebase yet (flagged, not built, per the audit doc's own open question).
+
+**Requirement settings/config-menu architecture, added from scratch.** `Requirement` (base class,
+`Requirement.cs`) gained `BindSettings`/`BuildSettingsUI`/`SettingsContentHeight`/`HasSettings` --
+virtual properties defaulting to null/0/false, mirroring `GimmickDef`'s own fields exactly (same
+names, same contract, same "build once per character into a cache" requirement since a
+`Configurable<T>` can only ever be bound to one UI element at a time). `PrimalOptions.cs` wired the
+consumer side to match: a new `DetailView.RequirementSettings` case, `_requirementID` field,
+`OpenRequirementSettings`/`RenderRequirementSettingsModal` (the latter a close mirror of
+`RenderGimmickSettingsModal`), and `EnsureConfigBound`'s own per-character Requirements loop now
+calls `requirement.BindSettings?.Invoke(this, character.ID)` alongside the existing plain
+enabled/disabled bind, exactly like the Gimmicks loop already does. The requirement row's own name
+button in the Split view -- previously NEVER wired to an OnClick at all, by deliberate original
+design, since no requirement had settings to show -- now gets `OpenRequirementSettings` wired up
+*only* when `requirement.HasSettings` is true, preserving the original "click does nothing, not
+greyed" behavior for the ~54 requirements that still have none.
+
+**New requirement: Reach Ending**, the first real consumer of the mechanism above, resolving the
+"story ending"/"Ascend" gap that appeared six times across the target table (Gourmand, Spearmaster,
+Rivulet, Saint for "story ending"; Monk, Hunter for "Ascend") with no existing untimed requirement
+to point at -- the only prior ascension-tracking requirement, `AscensionRequirement`, is a
+38-minute SPEEDRUN challenge, a different thing not reused here. `ReachEndingRequirement`
+(`Requirements.cs`, general, no `HomeCharacter`) reuses the same `standardVoidSea` flag off
+`SurvivorEvents.OnGameEnding` every other ending-aware requirement in this file already reads, with
+no time limit. Its own settings sub-view (`ReachEndingSettings`) is one per-character
+`Configurable<string>` ("Story" or "Ascension", default "Story"), rendered via `OpListBox` -- the
+same already-shipped, already-working control `ChainsSettings`' own quick-preset picker uses,
+reused here for its second-ever consumer in this codebase rather than risking an untested new
+control type. A character wanting the "Ascend" reading (Monk, Hunter) needs this switched to
+"Ascension" once assigned -- not automatic from the ID alone.
+
+No default assignments were added for any of these new pieces (Reach Ending itself, or No Hold onto
+Saint) -- per the audit doc, several rows still need the user's own decision first. **Not yet built
+or tested as of this doc** (no `.NET` toolchain in this container). When retesting: (1) confirm a
+requirement WITHOUT settings (e.g. any of the 50 curated Community Challenges) still behaves
+exactly as before -- unclickable name button, no visual change; (2) confirm Reach Ending's own name
+button opens a settings modal showing the Story/Ascension list box; (3) confirm switching that list
+box and reaching the corresponding ending actually reports completion, and reaching the OTHER
+ending does not; (4) confirm No Hold's own per-character defaults now differ correctly for
+Spearmaster/Inv/Saint the first time each is ever assigned (a fresh save, or Remix's own "reset to
+defaults").
+
+## 2026-09-18 (later still): every remaining CHARACTER_DESIGN_STATUS.md gap closed -- Precycle Timer percentage, No Hold inert-until-cycle-N, Ending renamed with Either + per-character defaults, Outlaw/FoodQuest/King renamed and configured, Visit Shelter requirement built
+
+Direct follow-up to the audit round just above, same session: the user answered every "still needs
+your own decision" item from `CHARACTER_DESIGN_STATUS.md` in one message and asked for all of it
+built. That doc's own tables are now updated to match (read it for the per-row status instead of
+duplicating the whole table here) -- this entry covers the mechanism-level "how" for each piece.
+
+**Precycle Timer duration, fixed minutes -> percentage multiplier.** `PrecycleTimerSettings`'
+`DurationMinutes`/`MaxDurationMinutes` are gone, replaced by `DurationPercent` (0-400, default 100,
+same range/default convention `RainTimerSettings` already uses). `PrecycleTimerGimmick.Postfix` now
+draws a THIRD roll (`durationRoll = UnityEngine.Random.value`) inside the same single
+reseed/restore `UnityEngine.Random` bracket that already produces `triggerRoll`/`floodRoll` --
+confirmed via re-reading vanilla's own constructor that its own duration roll
+(`Random.Range(4800f, 12000f)`) happens inside that identical reseeded window too, immediately
+after the trigger roll, so this keeps the same seeding discipline vanilla itself uses. Both of
+vanilla's own bounds (`VanillaMinDurationTicks = 4800`, `VanillaMaxDurationTicks = 12000`) are
+scaled by the percent (`Mathf.RoundToInt(bound * (percent / 100f))`), then `durationTicks` is
+rolled between the two SCALED bounds -- or, "Force max precycle timer" checked, always the scaled
+upper bound with no roll, which is now a much closer analogy to Remix's own
+`MMF.cfgNoRandomCycles` ("always pick `cycleTimeMax`") than the old fixed-999-minutes version was.
+Resolves the audit's own "50% multiplier doesn't map to anything that exists" gap. No specific
+percent/frequency was requested for Rivulet's own default, so Precycle Timer is not yet assigned to
+Rivulet or tuned to any particular values -- fully available by hand via Remix.
+
+**No Hold gains "inert until cycle N," a brand-new mechanic, specific to this one gimmick.**
+`NoHoldSettings` gained a fourth per-character `Configurable<int>` (`_inertUntilCycle`,
+`GetInertUntilCycle`, default 0, range 0-999) alongside the ten category booleans and `_blockOther`
+-- a textbox in its own settings sub-view, below the existing 2x5 category grid. `NoHoldGimmick`'s
+own `Postfix` (on `Player.Grabability`) now reads `GimmickGate.GameFor(player)
+.GetStorySession.saveState.cycleNumber` (the same 0-indexed source `Requirements.cs`'s own
+"starting cycle" checks already use) and returns early -- doing nothing at all, every category
+still unblocked -- whenever that number is below the configured threshold; once it's reached, every
+category behaves exactly as before. 0 (the default) means "no delay," so this is fully
+backward-compatible for every character that doesn't touch the new setting. Saint's own value was
+NOT set to a specific number -- the user introduced this as a new general concept, not as a
+specific requested starting value for Saint, so guessing one would have been assuming scope that
+wasn't there; it stays at the generic default (0) and is fully settable per-character via Remix.
+Saint's own "everything blocked" category defaults (`PerCharacterDefaultBlocked`) were already
+built in the prior round and are now actually wired into `GimmickDefaults.cs` as a real default
+assignment for the first time.
+
+**"Reach Ending" renamed to "Ending," gains a third "Either" option, gains real per-character
+default select values, and gains real default assignments -- resolving the "Ascend"/"story ending"
+gap for all six rows in the design table, not just building the mechanism.** `DisplayName` is now
+"Ending" (ID stays `"ReachEnding"` -- no config keys, save markers, or curated-ID lists exist yet on
+any real save file, so nothing needed to churn just because the display name did).
+`ReachEndingSettings.Satisfies(characterID, standardVoidSea)` replaces the old bare
+`WantsAscension` boolean check: `"Either"` always returns true regardless of which ending type just
+happened; `"Story"`/`"Ascension"` behave exactly as before. The select's own DEFAULT value is now
+per-character (`PerCharacterDefaultEnding`, a `Dictionary<string, string>` -- the same
+"characterID == X ? Special : Generic" idea generalized to a lookup table since there are two
+special cases here, not one): Monk and Hunter default to `"Ascension"`; every other character falls
+back to `"Story"`. `RequirementDefaults.cs` (new file, see below) defaults this requirement onto
+Monk, Hunter, Gourmand, Spearmaster, Rivulet, and Saint -- the exact six rows the original audit
+identified as sharing this same gap.
+
+**A real default-assignment mechanism for Requirements finally exists: `RequirementDefaults.cs`.**
+The Requirements-side counterpart to `GimmickDefaults.cs`, same contract (only ever takes effect on
+the reserved slot, fully overridable per character via Remix) and same reasoning
+(`GimmickAssignments.SetDefault` is genuinely generic over gimmick and requirement IDs, confirmed
+back when `Requirement`/`RequirementRegistry` were first built). Wired into
+`RainWorldHooks.Postfix` right after `GimmickDefaults.Apply()`, same ordering requirement (must run
+before `EnsureConfigBound()`, which reads these as each `Configurable`'s bound default). Covers:
+Ending -> Monk/Hunter/Gourmand/Spearmaster/Rivulet/Saint (above), Outlaw -> Hunter, GourmandFoodQuest
+-> Gourmand, InvHighestPoint (King) -> Inv (Sofanthiel), VisitShelter -> Rivulet.
+**Deliberately not included** (flagged in the file's own header comment rather than silently
+assumed): `SpearmasterFastEndingRequirement` -> Spearmaster and `UniqueKillsRequirement` ->
+Artificer both appear in the original design table too, but neither was explicitly re-requested in
+the message that asked for everything else here.
+
+**Outlaw's score threshold, hardcoded -> configurable, and raised to the requested 100k.**
+`OutlawRequirement`'s old `private const int RequiredScore = 10000` is gone; a new
+`OutlawSettings` class (mirroring every other per-character-settings class in this file) gives it a
+per-character `Configurable<int>` textbox (`OutlawSettings.GetRequiredScore`), defaulting to
+**100,000** -- a real behavior change from the old 10,000 for anyone who doesn't touch the new
+setting, per the explicit "100k points" request. `OutlawScoreScreenHook`'s own detection now reads
+`OutlawSettings.GetRequiredScore(characterID)` instead of the old constant. Defaulted onto Hunter.
+
+**"Food Quest & Save" renamed to "Food Quest."** `GourmandFoodQuestRequirement.DisplayName` is a
+one-line change; `ID` ("GourmandFoodQuest") is untouched. Defaulted onto Gourmand (alongside
+Ending/Story from the section above).
+
+**"Highest Point" renamed to "King," and its four hardcoded conditions became four independent,
+per-character checkboxes.** `InvHighestPointRequirement.DisplayName` is now "King" (`ID`/
+`RequirementID`/`TargetRoom` all unchanged). The four conditions the old `CheckPlayer` hardcoded as
+simultaneously required (standing in the room's own highest screen, wearing the cloak, holding a
+slugpup, carrying a vulture mask) are now four separate `Configurable<bool>` toggles in a new
+`InvHighestPointSettings` class, each gating its own `if` inside `CheckPlayer` rather than one
+combined `&&` chain -- all four default to checked, exactly reproducing the old all-required
+behavior until a player unchecks one. `SettingsContentHeight` overridden to 200f (four checkbox
+rows). Defaulted onto Inv (Sofanthiel).
+
+**New requirement: Visit Shelter, researched and built rather than left unimplemented.** The
+original audit had flagged this as needing new tracking code with an open scope question (one
+region, or the whole game). Found a genuinely buildable path using three pieces of REAL, existing
+vanilla tracking (confirmed via decompilation, nothing here reimplements "has this room been
+visited"):
+  - `World.shelters` (`int[]`, populated by `WorldLoader` from every room tagged SHELTER or
+    ANCIENTSHELTER in that region's own world file) -- a region's complete shelter roster, once
+    that region is loaded.
+  - `RegionState.roomsVisited` (`List<string>`, persisted on the save file, grown by
+    `RegionState.ReportRoomVisited` every time `Player.NewRoom`/`Player.Update` reports a genuinely
+    new room -- the exact same list the game's own map-discovery texture reads) -- a region's own
+    "have I been here" record, reachable off any live `World` as `World.regionState` (a null-safe
+    computed property vanilla itself already defines).
+  - `SlugcatStats.SlugcatStoryRegions(SlugcatStats.Name)` -- the character's own required campaign
+    region list, used to decide when EVERY region is done, not just one.
+
+`VisitShelterRequirement` (`Requirements.cs`, `HomeCharacter` = Rivulet) subscribes to
+`SurvivorEvents.OnPlayerEnteredRoom` (the standard "just arrived" hook, cheaper than a per-tick
+patch since the answer can only change on arrival somewhere new). On each firing: if every shelter
+in the CURRENTLY LOADED region (minus anything `World.DisabledMapRooms` removes for this
+character's own timeline -- the same exclusion vanilla's own pup-spawn placement logic already
+applies to this same list) is now in that region's own `roomsVisited`, this character's own
+"region complete" marker for that region is persisted via `PrimalSaveMarkers`
+(`Marker("PrimalShelterRegionComplete", characterID, world.name)`) -- so this is only ever
+recomputed once per region per save, not every time the player passes back through an
+already-completed one. Completion is reported the moment EVERY one of
+`SlugcatStats.SlugcatStoryRegions(characterID)` has that marker. **Scope resolved as "every shelter
+in every story region"** (the whole game), the more literal reading of "every shelter has been
+visited" with no region qualifier in the request -- flagged in the class's own doc comment as a
+small, contained change to a per-region-only scope if that turns out to be what was actually
+wanted (drop the all-regions check, report as soon as one region's own shelters are done).
+Optional/side regions (`SlugcatOptionalRegions`) are deliberately excluded from the requirement,
+since not every run reaches them and requiring one could make this permanently uncompletable
+through no fault of thoroughness. Defaulted onto Rivulet.
+
+**Follow-up needed later: which shelters actually get required has NOT been playtested and needs
+future review.** `AllSheltersVisitedInLoadedRegion` (`VisitShelterRequirement`, `Requirements.cs`)
+takes `World.shelters` as ground truth minus only `World.DisabledMapRooms` -- both ANCIENTSHELTER
+and SU_S05 (a shelter the vanilla pup-spawn code specifically excludes for its OWN unrelated
+reasons, see that code's own comment) are currently left IN the required set, on the reasoning that
+a real player probably still can walk into either. That reasoning is untested. Revisit once a real
+playthrough is available: if either turns out to be unreachable, decorative-only, or otherwise not
+meant to be "visited" in the way this requirement intends, exclude it explicitly the same way
+`DisabledMapRooms` already is. Also worth re-checking then whether `world.shelters` ever includes a
+shelter that's real but permanently inaccessible for a structural reason this doc comment's own
+research didn't surface (region-specific dev/cut content, a shelter behind a permanently-locked
+gate for this character's own timeline, etc.).
+
+**Not yet built or tested as of this doc** (no `.NET` toolchain in this container, same as every
+other round). When retesting: (1) Precycle Timer's percent scaling at a few different values
+(0%, 100%, 400%, and with "Force max" checked) against the logged duration-vs-bounds line; (2) No
+Hold's inert-until-cycle-N on a character with a nonzero value set by hand, confirming grabs are
+allowed before the threshold cycle and blocked from it onward; (3) Ending's three-option list box
+(including the new "Either" entry) and that Monk/Hunter really do start on "Ascension" on a fresh
+save while everyone else starts on "Story"; (4) Outlaw's textbox actually gates completion at
+whatever value it's set to, not just the old hardcoded 10000; (5) King's four checkboxes
+independently gating completion (uncheck one, confirm the other three alone are no longer
+sufficient); (6) Visit Shelter actually accumulating region-complete markers correctly across a
+multi-region playthrough, and firing only once the LAST region's LAST shelter is reached -- the
+one piece here with no small-scale way to verify short of a long real playthrough.
 
 ## Outstanding items
 
