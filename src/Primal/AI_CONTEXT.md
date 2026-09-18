@@ -505,25 +505,34 @@ was tried twice and rejected both times for good reasons (see History).
   gained a "Disable timer" checkbox next to their numeric field (greys out the field+label when
   checked, substitutes a large-but-bounded sentinel instead of the normal math) -- see the "Disable
   timer checkboxes... Precycle Timer" dated section further down for the full account.
-- `Gimmicks/PrecycleTimerGimmick.cs` (new, 2026-09-18, later still) — the Precycle Timer gimmick:
-  replaces vanilla's own precycle ("shelter failure") decision outright, both frequency (a flat
-  0-100% for the assigned character, replacing vanilla's own per-region `earlyCycleChance`) and
-  head-start duration (a fixed configured number of minutes, replacing vanilla's own random 2-5
-  minute roll). A Postfix on the same `RainCycle` constructor `RainTimerGimmick` already Postfixes,
-  touching entirely disjoint fields (`maxPreTimer`/`preTimer`/`preCycleRainPulse_Wave*` vs
+- `Gimmicks/PrecycleTimerGimmick.cs` (new, 2026-09-18, later still; flood chance and "Force max
+  precycle timer" added in a further follow-up the same day) — the Precycle Timer gimmick: replaces
+  vanilla's own precycle ("shelter failure") decision outright -- frequency (a flat 0-100% for the
+  assigned character, replacing vanilla's own per-region `earlyCycleChance`), head-start duration
+  (a fixed configured number of minutes, replacing vanilla's own random 2-5 minute roll -- or,
+  "Force max precycle timer" checked, always the longest configurable duration instead, modeled on
+  Remix's own `MMF.cfgNoRandomCycles`), and flood chance (a flat 0-100%, replacing vanilla's own
+  per-region `earlyCycleFloodChance`, faithfully preserving vanilla's one MS-region/Rivulet
+  exception -- see the file's own header comment for why that one exception was kept rather than
+  folded into the "full override" treatment). A Postfix on the same `RainCycle` constructor
+  `RainTimerGimmick` already Postfixes, touching entirely disjoint fields
+  (`maxPreTimer`/`preTimer`/`preCycleRainPulse_Wave*`/`globalRain.drainWorldFlood` vs
   `cycleLength`/`sunDownStartTime`), so the two compose with no ordering dependency. See the file's
-  own header comment for the full trace (including a deliberately-flagged scope gap around
-  vanilla's separate "early cycle flood" roll, which already ran before this gimmick's Postfix and
-  isn't retroactively adjusted) and the "Disable timer checkboxes... Precycle Timer" dated section
-  further down for the full account, including the vanilla variance numbers (400-800 second base
-  cycle length, 4800-12000 tick precycle duration) this gimmick's own design was checked against.
-  No default assignment to any character. **Not yet built or tested as of this doc** (no `.NET`
-  toolchain in this container) — genuinely novel among this mod's gimmicks in that it re-derives and
-  overrides a vanilla RNG roll rather than just reading or gating on existing state, so treat it
-  with extra scrutiny once a build is available: confirm precycles actually stop happening at 0%
-  even in a normally precycle-prone region, confirm they happen (eventually) at 100% even in a
-  region that normally never has them, and confirm the configured duration (not vanilla's own
-  2-5 minute random range) is what actually shows up as the pre-rain head start in-game.
+  own header comment for the full trace, including region-coverage findings checked directly rather
+  than assumed (the timer mechanism itself is confirmed region-agnostic; the flood's VISUAL effect
+  is not -- it's additionally gated on each room's own level-design `RoomRain.DangerType`, a genuine
+  vanilla limitation this gimmick can't route around), and the "Precycle Timer gains flood chance...
+  region coverage confirmed" dated section further down for the full account, including the vanilla
+  variance numbers (400-800 second base cycle length, 4800-12000 tick precycle duration) this
+  gimmick's own design was checked against. No default assignment to any character. **Not yet built
+  or tested as of this doc** (no `.NET` toolchain in this container) — genuinely novel among this
+  mod's gimmicks in that it re-derives and overrides vanilla RNG rolls rather than just reading or
+  gating on existing state, so treat it with extra scrutiny once a build is available: confirm
+  precycles actually stop happening at 0% even in a normally precycle-prone region, confirm they
+  happen (eventually) at 100% even in a region that normally never has them, confirm the configured
+  duration (or, with force-max checked, always the longest one) is what actually shows up as the
+  pre-rain head start in-game, and confirm flood chance actually raises water in a room known to
+  have a flood-capable `DangerType` while having no visible effect in one that doesn't.
 
 ### Deployment layout (all on the user's Windows machine, not this container)
 
@@ -6783,6 +6792,54 @@ time a precycle actually triggers -- now replaced outright by Precycle Timer's f
 `DurationMinutes` rather than preserving that randomness (a design choice, not forced by anything
 technical -- flagged in case the user would rather keep some randomness around a configured
 midpoint instead of a perfectly fixed value).
+
+## 2026-09-18 (later still): Precycle Timer gains flood chance + "Force max precycle timer"; region coverage confirmed
+
+Follow-up, same session. User asked for two more `PrecycleTimerGimmick.cs` configs and an explicit
+double-check on region coverage.
+
+**Region coverage, checked directly (not assumed):**
+- **The timer mechanism itself is region-agnostic, confirmed.** Read `RainCycle.Update()`'s
+  precycle gating and `RainWorldGame.AllowRainCounterToTick()` in full -- both key only on
+  `ModManager.PrecycleModule`, story/arena session state, ghost-mode cameras, gate transitions, and
+  a couple of Watcher/MSC session flags. Zero region-specific code anywhere in that path. So yes:
+  Precycle Timer's `FrequencyPercent` at 100 forces a head-start in literally any real playable
+  region -- the gimmick's own `world.region == null` guard only excludes non-gameplay single-room
+  worlds (menus, dream sequences), never a real region.
+- **The flood effect is NOT universally visible, and that's a genuine vanilla limitation, not a gap
+  here.** `Room.cs`'s own water-adding code additionally gates on that specific room's
+  `RoomRain.DangerType` being `Flood`/`FloodAndRain` -- level-design data baked per-room by each
+  region, not something togglable from C#. Setting `drainWorldFlood` still always happens the same
+  way vanilla itself does it, but it will only ever produce visible rising water in rooms the
+  region's own designers already tagged that way. This is presumably exactly why vanilla's own
+  `earlyCycleFloodChance` is per-region in the first place.
+
+**Flood chance (0-100%), new `FloodChancePercent` config.** Vanilla rolls a SEPARATE
+`earlyCycleFloodChance` a few lines after the precycle decision, gated on vanilla's OWN
+`maxPreTimer > 0` (i.e. whether vanilla's own roll, not this gimmick's, triggered) -- since that
+roll already ran using vanilla's decision before this gimmick's Postfix executes, it's re-rolled
+independently here too (same seeded-and-restored `UnityEngine.Random` pattern as the trigger roll),
+gated on THIS gimmick's own trigger decision instead. On success, sets
+`globalRain.drainWorldFlood = 99000f` -- except on the "MS" region (Submerged Superstructure) for
+any character other than Rivulet, where it's forced to `0f` instead, faithfully preserving vanilla's
+own one exception (MS already manages its own water state; Rivulet alone has some special
+interaction with it -- read as a real compatibility guard, not a balance choice, so kept exactly as
+vanilla has it rather than folded into the "full override" treatment everything else here gets).
+
+**"Force max precycle timer" checkbox, new `ForceMaxDuration` config.** Modeled directly on
+`MMF.cfgNoRandomCycles` (found earlier in `World.cs` -- when checked, that config pins the NORMAL
+cycle's own length straight to `cycleTimeMax` instead of rolling between `cycleTimeMin`/`cycleTimeMax`).
+Same idea here: checked, a triggered precycle's head start always uses
+`PrecycleTimerSettings.MaxDurationMinutes` (999) instead of the configured `DurationMinutes` --
+using the same checkbox-greys-out-the-numeric-field UI pattern `RainTimerSettings`'s own "Disable
+timer" established two rounds ago (`durationUpdown.greyedOut`, the label's own original color
+captured and restored). `PrecycleTimerGimmick.Postfix` picks between the two at the point it
+computes `durationTicks`.
+
+All three new UI rows built in `PrecycleTimerSettings.BuildUI` alongside the two already there
+(frequency; duration + the new force-max checkbox on one row; flood on a new third row) -- content
+still comfortably fits the plain settings viewport, no `settingsContentHeight` override needed.
+**Not yet built or tested.**
 
 ## Outstanding items
 

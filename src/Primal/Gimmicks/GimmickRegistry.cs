@@ -307,7 +307,7 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef PrecycleTimer = new GimmickDef(
             PrecycleTimerGimmick.ID,
             "Precycle Timer",
-            "Replaces vanilla's own precycle (shelter failure) chance and head-start duration with a flat, configured percentage and a fixed number of minutes for this character.",
+            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (or always the longest configurable one), and flood chance with flat, configured values for this character.",
             PrecycleTimerSettings.Bind,
             PrecycleTimerSettings.BuildUI,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
