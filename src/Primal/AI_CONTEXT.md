@@ -7091,6 +7091,19 @@ Optional/side regions (`SlugcatOptionalRegions`) are deliberately excluded from 
 since not every run reaches them and requiring one could make this permanently uncompletable
 through no fault of thoroughness. Defaulted onto Rivulet.
 
+**Follow-up needed later: which shelters actually get required has NOT been playtested and needs
+future review.** `AllSheltersVisitedInLoadedRegion` (`VisitShelterRequirement`, `Requirements.cs`)
+takes `World.shelters` as ground truth minus only `World.DisabledMapRooms` -- both ANCIENTSHELTER
+and SU_S05 (a shelter the vanilla pup-spawn code specifically excludes for its OWN unrelated
+reasons, see that code's own comment) are currently left IN the required set, on the reasoning that
+a real player probably still can walk into either. That reasoning is untested. Revisit once a real
+playthrough is available: if either turns out to be unreachable, decorative-only, or otherwise not
+meant to be "visited" in the way this requirement intends, exclude it explicitly the same way
+`DisabledMapRooms` already is. Also worth re-checking then whether `world.shelters` ever includes a
+shelter that's real but permanently inaccessible for a structural reason this doc comment's own
+research didn't surface (region-specific dev/cut content, a shelter behind a permanently-locked
+gate for this character's own timeline, etc.).
+
 **Not yet built or tested as of this doc** (no `.NET` toolchain in this container, same as every
 other round). When retesting: (1) Precycle Timer's percent scaling at a few different values
 (0%, 100%, 400%, and with "Force max" checked) against the logged duration-vs-bounds line; (2) No
