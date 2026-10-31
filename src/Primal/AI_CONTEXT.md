@@ -7931,3 +7931,12 @@ If diagnosing a "silently doesn't work" report: stage and read, in this order,
 loop swallows without crashing, invisible to BepInEx's log) — **before** re-reading this mod's own
 code looking for the bug. Both prior major "invisible" bugs in this mod (Gotchas #1 and #2) were
 found this way, not by code review.
+
+#HUMAN WRITTEN ISSUES FOUND DURING TESTING
+Gourmands Misery gimmick also implements spawning yeeks on room entrance - this is not how it should work, only the exhaustion should be a part of the gimmick
+Gourmand does not grow up after visit to OE ending
+New Gimmick - Food. Sets how much food you the character needs to eat - one value sets minimum, other maximum. Give to gourmand, default min to 7, max to 11
+Spearmaster by default has the death timer set to per run, but after sleeping in a shelter and waiting for a minute with a minute death timer, I died after a minute. And after that, respawning didn't instantly kill me, had to wait another minute - seems cycle based, not whole run, including deaths, based
+Saint does not need the inert until cycle 1 gimmick anymore - default to 0, but keep the functionality, since it works
+No Yeeks and No Squidcadas gimmicks are now useless, superceded by No Hold
+Chains shouldn't have visuals coming from creature dens - only from slugcat enterable pipes and shortcuts
