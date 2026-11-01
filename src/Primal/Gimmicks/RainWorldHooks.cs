@@ -8,7 +8,9 @@ namespace Primal.Gimmicks
     /// Runs the mod's own setup that has to wait until the game itself is further along than
     /// BepInEx's plugin-load stage (Plugin.OnEnable) allows:
     ///
-    ///  - GimmickDefaults.Apply(), which reads MoreSlugcatsEnums.SlugcatStatsName.Gourmand/Spear
+    ///  - GimmickDefaults.Apply() and RequirementDefaults.Apply() (added 2026-09-18, same reasoning
+    ///    and same ordering requirement as GimmickDefaults.Apply() -- see that class's own doc
+    ///    comment), which read MoreSlugcatsEnums.SlugcatStatsName.Gourmand/Spear
     ///    (and, via PrimalOptions below, WatcherEnums.SlugcatStatsName.Watcher) directly.
     ///    Those aren't plain compiled-in constants -- they're ExtEnum values the game registers
     ///    itself (RegisterValues()) during its own startup, and calling Plugin.OnEnable's timing
@@ -55,6 +57,18 @@ namespace Primal.Gimmicks
                 Plugin.Log?.LogError($"GimmickDefaults.Apply() threw -- default gimmick assignments may be missing (still fully assignable by hand in Remix): {ex}");
             }
 
+            try
+            {
+                // Same reasoning as GimmickDefaults.Apply() just above -- must run before
+                // EnsureConfigBound() below, which reads these as each Configurable's bound
+                // default, same ordering requirement GimmickDefaults.Apply() already has.
+                RequirementDefaults.Apply();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"RequirementDefaults.Apply() threw -- default requirement assignments may be missing (still fully assignable by hand in Remix): {ex}");
+            }
+
             var options = new PrimalOptions();
             MachineConnector.SetRegisteredOI(Primal.PluginInfo.GUID, options);
 
@@ -70,6 +84,55 @@ namespace Primal.Gimmicks
             catch (Exception ex)
             {
                 Plugin.Log?.LogError($"PrimalOptions.EnsureConfigBound() threw -- gimmick assignments may not persist across game restarts this session (still fully assignable by hand in Remix): {ex}");
+            }
+
+            try
+            {
+                // Plain C# event subscriptions, not Harmony patches -- PatchAll (Plugin.cs) has no
+                // reason to ever touch these types, so unlike an ordinary [HarmonyPatch] class they
+                // need an explicit call site somewhere that's guaranteed to run once at mod setup.
+                // See SurvivorRegionMarkers.Init()'s own doc comment.
+                SurvivorRegionMarkers.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"SurvivorRegionMarkers.Init() threw -- Survivor community-challenge tracking may be incomplete this session: {ex}");
+            }
+
+            try
+            {
+                // Same reasoning as SurvivorRegionMarkers.Init() just above -- each Requirement
+                // subscribes to SurvivorEvents/mechanism callbacks from its own Register(), a plain
+                // method call PatchAll has no way to discover on its own.
+                RequirementRegistry.RegisterAll();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"RequirementRegistry.RegisterAll() threw -- one or more requirements may not be active this session: {ex}");
+            }
+
+            try
+            {
+                // Same reasoning again -- a plain event subscription (RequirementCompletion.OnSatisfied),
+                // not a Harmony patch, needs its own explicit one-shot call site.
+                CommunityChallengesNotifications.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"CommunityChallengesNotifications.Init() threw -- the live challenge-complete popup may not fire this session: {ex}");
+            }
+
+            try
+            {
+                // Same reasoning again -- another plain RequirementCompletion.OnSatisfied
+                // subscription, needed so the Primal-mode character-select portrait override
+                // (PrimalPortraitOverride.cs) has an up-to-date "has this character completed
+                // everything assigned to it" marker to read at menu time.
+                RequirementCompletionSummary.Init();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"RequirementCompletionSummary.Init() threw -- the Primal-mode character-select portrait override may not reflect real completion state this session: {ex}");
             }
         }
     }

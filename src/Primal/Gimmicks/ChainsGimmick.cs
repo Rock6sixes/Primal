@@ -92,25 +92,25 @@ namespace Primal.Gimmicks
     // user's own, given directly after seeing the first fix still wasn't complete, and is what's
     // actually implemented now:
     //   room-to-room PIPES              -> LOCKED   (RoomExit, RegionTransportation)
-    //   within-room SHORTCUTS           -> unlocked (Normal)
+    //   within-room SHORTCUTS           -> unlocked (Normal) -- for BOTH player and creatures
     //   creature DENS                   -> LOCKED   (CreatureHole)
-    //   within-room TRANSPORT for creatures -> unlocked (NPCTransportation)
+    //   within-room TRANSPORT for creatures -> not room-sealed, but forbidden to creatures anyway
+    //                                          while locked (NPCTransportation; see 2026-09-15 below)
     // Dumped ShortcutData's nested Type enum directly from the game's own metadata (Field/Constant
     // tables, not guessed) to get the real, complete 6-value list (the fifth, DeadEnd, is the sealed
     // state itself and is never an input to this decision). Normal never leaves the room (a purely
     // in-room shortcut connecting two points inside the same room, used to travel across a big room
     // faster), so sealing it would do nothing for containment and would needlessly break ordinary
-    // in-room traversal while locked. RegionTransportation is Rain World's long-distance pipe/tube
-    // system -- the "internal-looking pipe that actually leaves the room" the user was pointing at
-    // -- and does need sealing, same as an ordinary RoomExit door. NPCTransportation, despite the
-    // similar name, is the *within-room* creature-transport variant (never leaves the room, purely
-    // an AI/pathing convenience) and correctly stays open, same reasoning as Normal. CreatureHole is
-    // a den entrance and DOES need sealing: relying only on UpdateLock's per-tick creature-state
-    // belt-and-suspenders (doesNotUseDens, enteringShortCut cancellation, force-death on InDen) only
-    // protects creatures already in state.CreatureList -- sealing the shortcut itself at the room
-    // level closes the den to every creature in the room, tracked or not, the same "flip the type,
-    // then also defend at the point of entry" redundancy this file already uses for RoomExit/player
-    // shortcuts. IsSealableExit (below) now gates LockNow's seal loop on
+    // in-room traversal while locked -- the one shortcut type both the player and tracked creatures
+    // can still use freely. RegionTransportation is Rain World's long-distance pipe/tube system --
+    // the "internal-looking pipe that actually leaves the room" the user was pointing at -- and does
+    // need sealing, same as an ordinary RoomExit door. CreatureHole is a den entrance and DOES need
+    // sealing: relying only on UpdateLock's per-tick creature-state belt-and-suspenders
+    // (doesNotUseDens, enteringShortCut cancellation, force-death on InDen) only protects creatures
+    // already in state.CreatureList -- sealing the shortcut itself at the room level closes the den
+    // to every creature in the room, tracked or not, the same "flip the type, then also defend at
+    // the point of entry" redundancy this file already uses for RoomExit/player shortcuts.
+    // IsSealableExit (below) now gates LockNow's seal loop on
     // RoomExit/RegionTransportation/CreatureHole. FreePlayer no longer hardcodes every restored
     // shortcut back to RoomExit either (that was only ever correct while RoomExit was the only type
     // ever sealed) -- ChainState remembers each sealed index's own original Type
@@ -120,6 +120,24 @@ namespace Primal.Gimmicks
     // MultiChain's own anchor placement) is purely geometric -- four-direction wall/terrain probing
     // around a tile, no ShortcutData.Type check anywhere in its own disassembly -- so sealing these
     // additional types carries no risk of breaking either call site.
+    //
+    // 2026-09-15 correction: NPCTransportation was originally left open for creatures on the theory
+    // that it "never leaves the room, purely an AI/pathing convenience" the same way Normal does --
+    // reasonable-sounding, but wrong per the user's own direct report and correction: "creatures
+    // seemed to be able to go through their creature only pipes, either dens or in room shortcuts
+    // for them - they shouldnt be able to do that. they can only go through pipes and shortcuts, the
+    // same ones slugcat can go through." The player never has access to NPCTransportation at all
+    // (nor to CreatureHole), so "the same ones slugcat can go through" leaves exactly one shortcut
+    // type creatures may freely use while a room is locked: Normal. NPCTransportation itself is
+    // still deliberately NOT added to IsSealableExit/room-level sealing (it was never a real
+    // room-to-room exit to begin with, so there's nothing to restore on unlock either) -- instead
+    // IsRestrictedForCreature (below) forbids a tracked creature from actually ENTERING one while
+    // locked, the same per-tick belt-and-suspenders check already guarding the sealed types. This
+    // also closes the mechanism behind a second report from the same session -- a room (LC_SUBWAY02)
+    // unlocking before every creature was dead: a creature that rode an unguarded NPCTransportation
+    // or CreatureHole shortcut into its own den got force-killed by the existing InDen check
+    // (UpdateLock, below), silently emptying state.CreatureList early while other tracked creatures
+    // in the room were still alive and well.
     //
     // 2026-09-12 addition: creatures arriving after the room is already being tracked. The user
     // reported the exact gap this file originally documented as a deliberate omission -- a room
@@ -203,6 +221,19 @@ namespace Primal.Gimmicks
             /// file's 2026-09-13 header note: that assumption stopped holding the moment
             /// RegionTransportation pipes and CreatureHole dens became sealable too).</summary>
             public readonly Dictionary<int, ShortcutData.Type> ChainedShortcutOriginalTypes = new Dictionary<int, ShortcutData.Type>();
+
+            /// <summary>Subset of ChainedShortcuts that are actual room-to-room pipes (RoomExit /
+            /// RegionTransportation) -- the ones the PLAYER could physically walk through. Used only
+            /// to pick where MultiChain anchors its visual chains; see LockNow (where this is built
+            /// alongside ChainedShortcuts) and MultiChain's own constructor. Deliberately excludes
+            /// CreatureHole dens -- sealed and defended the same as any other exit (see
+            /// ChainedShortcuts/IsRestrictedForCreature), just never drawn as a "pipe you could
+            /// walk through," since a den is not that. 2026-09-15 fix: requested directly ("the
+            /// graphics for chains should not come from creature only pipes - it should come only
+            /// from pipes slugcat can enter to travel between rooms") after a den's own chain
+            /// visual looked wrong being anchored at a hole the player can't use in the first
+            /// place.</summary>
+            public readonly List<int> PipeShortcuts = new List<int>();
             public bool Triggered;
             public int ActiveTime;
 
@@ -332,6 +363,34 @@ namespace Primal.Gimmicks
                 || type == ShortcutData.Type.CreatureHole;
         }
 
+        /// <summary>True for a shortcut type the PLAYER could actually walk through to travel
+        /// between rooms -- RoomExit doors and the RegionTransportation pipe system. Used to pick
+        /// which sealed exits get a chain-visual anchor (see PipeShortcuts/MultiChain) -- deliberately
+        /// excludes CreatureHole, which is a den entrance nothing but a creature ever uses.</summary>
+        private static bool IsPlayerPipe(ShortcutData.Type type)
+        {
+            return type == ShortcutData.Type.RoomExit || type == ShortcutData.Type.RegionTransportation;
+        }
+
+        /// <summary>True for a shortcut type a CREATURE should be forbidden from using while a room
+        /// is locked. 2026-09-15 fix, requested directly ("creatures... can only go through pipes
+        /// and shortcuts, the same ones slugcat can go through"): everything IsPlayerPipe already
+        /// blocks (the sealed room-to-room pipes), PLUS CreatureHole (a den -- never something the
+        /// player could use in the first place) and NPCTransportation (the within-room
+        /// creature-transport shortcut this file used to leave open on purpose). Before this fix,
+        /// NPCTransportation was never sealed at the room level AND never guarded here either, so a
+        /// tracked creature could freely ride one out of a "locked" room's reach the whole time --
+        /// and a creature that slipped into its own den this way got force-killed by the InDen
+        /// check below, silently emptying state.CreatureList and unlocking the room while other
+        /// creatures were still alive (reported directly: a room "opened prematurely, before all
+        /// creatures were killed"). Only Normal (a purely in-room shortcut) is left unrestricted for
+        /// creatures now -- exactly mirroring what's available to the player once RoomExit/
+        /// RegionTransportation are sealed.</summary>
+        private static bool IsRestrictedForCreature(ShortcutData.Type type)
+        {
+            return IsSealableExit(type) || type == ShortcutData.Type.NPCTransportation;
+        }
+
         /// <summary>
         /// Seals every exit-like shortcut in the room (IsSealableExit, above), assigns chain
         /// visuals, plays the lock stinger, marks the room triggered, and confuses the tracked
@@ -345,6 +404,7 @@ namespace Primal.Gimmicks
         {
             state.ChainedShortcuts.Clear();
             state.ChainedShortcutOriginalTypes.Clear();
+            state.PipeShortcuts.Clear();
             for (int i = 0; i < room.shortcuts.Length; i++)
             {
                 ShortcutData.Type type = room.shortcuts[i].shortCutType;
@@ -353,6 +413,10 @@ namespace Primal.Gimmicks
                     state.ChainedShortcuts.Add(i);
                     state.ChainedShortcutOriginalTypes[i] = type;
                     room.shortcuts[i].shortCutType = ShortcutData.Type.DeadEnd;
+                    if (IsPlayerPipe(type))
+                    {
+                        state.PipeShortcuts.Add(i);
+                    }
                 }
             }
 
@@ -533,42 +597,65 @@ namespace Primal.Gimmicks
         {
             foreach (AbstractCreature creature in state.CreatureList)
             {
-                if (creature.abstractAI != null && creature.abstractAI.destination.room != room.abstractRoom.index)
-                {
-                    creature.abstractAI.SetDestination(room.ToWorldCoordinate(room.RandomPos()));
-                }
-
-                Creature realized = creature.realizedCreature;
-                if (realized != null
-                    && creature.spawnDen.room == room.abstractRoom.index
-                    && realized.enteringShortCut.HasValue)
-                {
-                    // About to flee into a shortcut back toward its own den -- cancel the
-                    // transition so it stays in the room instead of despawning out of reach.
-                    realized.enteringShortCut = null;
-                }
+                ConfuseCreature(room, creature);
             }
         }
 
-        /// <summary>True if `tile` is the entrance tile of a shortcut this gimmick has sealed
-        /// (i.e. its index is in state.ChainedShortcuts). Needed because Creature.enteringShortCut
-        /// is a Nullable&lt;IntVector2&gt; -- the tile the body is entering through -- not an index
-        /// into room.shortcuts (confirmed by dumping Creature's own field signature straight from
-        /// the game assembly's metadata after `state.ChainedShortcuts.Contains(enteringShortCut
-        /// .Value)` failed to compile with "cannot convert from IntVector2 to int": ChainedShortcuts
-        /// is a List&lt;int&gt; of indices, a type mismatch the compiler caught immediately).
-        /// ShortcutData.StartTile (also IntVector2, confirmed the same way) is the matching
-        /// half -- same tile MultiChain already anchors its chain-visual off of for these same
-        /// indices, just above.</summary>
-        private static bool IsSealedShortcutTile(Room room, ChainState state, IntVector2 tile)
+        /// <summary>Redirects one creature away from leaving the room/heading for its den. Originally
+        /// only ever ran once, at the moment a room locked (ConfuseCreatures, above) -- 2026-09-15
+        /// fix: also called every tick from UpdateLock now, for every still-tracked creature, not
+        /// just at lock time. A creature that hadn't decided to flee/den-seek yet when the lock
+        /// first triggered could freely make that decision a moment later and this one-shot call
+        /// would never see it -- exactly the gap that let a creature wander into its own den well
+        /// after a room had already locked (reported directly: a room "opened prematurely, before
+        /// all creatures were killed", traced to a creature reaching InDen this way and getting
+        /// force-killed, silently emptying the tracked list early).</summary>
+        private static void ConfuseCreature(Room room, AbstractCreature creature)
         {
-            foreach (int index in state.ChainedShortcuts)
+            if (creature.abstractAI != null && creature.abstractAI.destination.room != room.abstractRoom.index)
             {
-                if (index >= 0 && index < room.shortcuts.Length && room.shortcuts[index].StartTile == tile)
+                creature.abstractAI.SetDestination(room.ToWorldCoordinate(room.RandomPos()));
+            }
+
+            Creature realized = creature.realizedCreature;
+            if (realized != null
+                && creature.spawnDen.room == room.abstractRoom.index
+                && realized.enteringShortCut.HasValue)
+            {
+                // About to flee into a shortcut back toward its own den -- cancel the
+                // transition so it stays in the room instead of despawning out of reach.
+                realized.enteringShortCut = null;
+            }
+        }
+
+        /// <summary>Resolves `tile` (an entrance tile, per Creature.enteringShortCut/
+        /// ShortcutData.StartTile -- see the original version of this method's own comment, kept
+        /// below, for why it's a tile and not an index) to the shortcut's own EFFECTIVE type: its
+        /// remembered original type if this gimmick has sealed it (ChainedShortcutOriginalTypes),
+        /// otherwise whatever room.shortcuts itself currently says. Replaces the old
+        /// IsSealedShortcutTile, which only ever answered "is this one of the tiles WE sealed" --
+        /// too narrow once creatures also needed to be blocked from types that were never sealed at
+        /// the room level at all (NPCTransportation; see IsRestrictedForCreature).
+        ///
+        /// (Original comment, still true of why this is a tile lookup at all: Creature
+        /// .enteringShortCut is a Nullable&lt;IntVector2&gt; -- the tile the body is entering
+        /// through -- not an index into room.shortcuts, confirmed by dumping Creature's own field
+        /// signature straight from the game assembly's metadata after
+        /// `state.ChainedShortcuts.Contains(enteringShortCut.Value)` failed to compile with "cannot
+        /// convert from IntVector2 to int".)</summary>
+        private static bool TryGetShortcutTypeAtTile(Room room, ChainState state, IntVector2 tile, out ShortcutData.Type type)
+        {
+            for (int index = 0; index < room.shortcuts.Length; index++)
+            {
+                if (room.shortcuts[index].StartTile == tile)
                 {
+                    type = state.ChainedShortcutOriginalTypes.TryGetValue(index, out ShortcutData.Type original)
+                        ? original
+                        : room.shortcuts[index].shortCutType;
                     return true;
                 }
             }
+            type = ShortcutData.Type.Normal;
             return false;
         }
 
@@ -582,7 +669,7 @@ namespace Primal.Gimmicks
                 {
                     continue;
                 }
-                state.Chains[creature] = new MultiChain(creature, room, state.ChainedShortcuts);
+                state.Chains[creature] = new MultiChain(creature, room, state.PipeShortcuts);
             }
         }
 
@@ -599,17 +686,22 @@ namespace Primal.Gimmicks
             // a room connection, but does not stop the player's body from physically entering the
             // hole trigger first -- so every tick, forcibly cancel a shortcut entry currently in
             // progress and shove the player back into the room instead. Ported as-is from
-            // CustomHRGuardManager.Update (see this file's header comment) EXCEPT for the
-            // IsSealedShortcutTile guard just below, which the source mod's own equivalent line
-            // doesn't have: the source only ever seals RoomExit, so in its world "the player is
-            // entering *a* shortcut" and "the player is entering *a sealed* shortcut" were the same
-            // thing. That stopped being true here the moment Normal and NPCTransportation shortcuts
-            // stayed open on purpose (2026-09-13 fix) -- without this guard, this cancelled EVERY
-            // shortcut entry in a locked room indiscriminately, including the still-unlocked
-            // within-room ones, which is why the user reported "normal shortcuts" (and,
-            // symmetrically, NPCTransportation) staying unusable while locked even though
-            // IsSealableExit correctly left them untouched at the room level.
-            if (self.enteringShortCut.HasValue && IsSealedShortcutTile(room, state, self.enteringShortCut.Value))
+            // CustomHRGuardManager.Update (see this file's header comment) EXCEPT for the type
+            // check just below, which the source mod's own equivalent line doesn't have: the source
+            // only ever seals RoomExit, so in its world "the player is entering *a* shortcut" and
+            // "the player is entering *a sealed* shortcut" were the same thing. That stopped being
+            // true here the moment Normal shortcuts stayed open on purpose (2026-09-13 fix) --
+            // without this check, this cancelled EVERY shortcut entry in a locked room
+            // indiscriminately, including the still-unlocked within-room ones, which is why the
+            // user reported "normal shortcuts" staying unusable while locked even though
+            // IsSealableExit correctly left them untouched at the room level. IsSealableExit is the
+            // right check here (not IsRestrictedForCreature) -- the player never has a legitimate
+            // reason to be mid-transition into a CreatureHole or NPCTransportation shortcut at all,
+            // but if it ever happened this still correctly blocks it too, since IsSealableExit's
+            // three types are a subset of IsRestrictedForCreature's four.
+            if (self.enteringShortCut.HasValue
+                && TryGetShortcutTypeAtTile(room, state, self.enteringShortCut.Value, out ShortcutData.Type playerShortcutType)
+                && IsSealableExit(playerShortcutType))
             {
                 IntVector2 holeDirection = room.ShorcutEntranceHoleDirection(self.enteringShortCut.Value);
                 self.firstChunk.vel = holeDirection.ToVector2() * 4f;
@@ -644,19 +736,34 @@ namespace Primal.Gimmicks
                     // own AI from choosing to path toward a den in the first place.
                     creature.creatureTemplate.doesNotUseDens = true;
 
-                    // Same IsSealedShortcutTile guard as the player's own cancellation above, and
-                    // for the same reason (see that comment): cancel a creature's shortcut entry
-                    // ONLY when it's mid-way through one this gimmick actually sealed. Without this
-                    // guard every tracked creature's use of a still-open Normal or NPCTransportation
-                    // shortcut got cancelled every single tick too, same bug as the player's, just
-                    // less visible since it reads as "stuck AI" rather than "can't leave through an
-                    // obviously-still-open hole."
+                    // 2026-09-15 fix, requested directly: "creatures seemed to be able to go
+                    // through their creature only pipes, either dens or in room shortcuts for
+                    // them... they can only go through pipes and shortcuts, the same ones slugcat
+                    // can go through." Uses IsRestrictedForCreature (not IsSealableExit, which is
+                    // what the player check above uses) -- a strictly wider set that also forbids
+                    // CreatureHole and NPCTransportation, since neither is something the player
+                    // could ever use either. Before this fix, cancellation here only fired for a
+                    // tile this gimmick had sealed at the ROOM level, and NPCTransportation was
+                    // never sealed there on purpose (it's not a real exit) -- so a tracked creature
+                    // could freely ride one out from under this room-level seal the whole time,
+                    // untouched by any guard at all. That's the mechanism behind both the "creature
+                    // escaped its own den/creature-transport shortcut" report and the "room opened
+                    // prematurely" one (LC_SUBWAY02): an escaped creature that reached InDen this
+                    // way got force-killed by the check just below, silently emptying
+                    // state.CreatureList early while other creatures in the room were still alive.
                     if (creature.realizedCreature != null
                         && creature.realizedCreature.enteringShortCut.HasValue
-                        && IsSealedShortcutTile(room, state, creature.realizedCreature.enteringShortCut.Value))
+                        && TryGetShortcutTypeAtTile(room, state, creature.realizedCreature.enteringShortCut.Value, out ShortcutData.Type creatureShortcutType)
+                        && IsRestrictedForCreature(creatureShortcutType))
                     {
                         creature.realizedCreature.enteringShortCut = null;
                     }
+
+                    // Re-run the same redirect LockNow's own ConfuseCreatures already does once at
+                    // the moment a room locks -- every tick now, not just that one time (see
+                    // ConfuseCreature's own doc comment for why the one-shot version missed a
+                    // creature that decided to flee/den-seek only after the initial lock).
+                    ConfuseCreature(room, creature);
 
                     if (creature.InDen)
                     {
@@ -734,6 +841,7 @@ namespace Primal.Gimmicks
             state.CreatureList.Clear();
             state.ChainedShortcuts.Clear();
             state.ChainedShortcutOriginalTypes.Clear();
+            state.PipeShortcuts.Clear();
             state.Triggered = false;
             state.ActiveTime = 0;
         }
@@ -1253,7 +1361,7 @@ namespace Primal.Gimmicks
                 !_typeBans.TryGetValue(characterID, out Dictionary<string, Configurable<bool>> bans))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
-                // run for this character yet (see NoSpearsSettings for the same guard and why).
+                // run for this character yet (see NoHoldSettings for the same guard and why).
                 return items;
             }
 

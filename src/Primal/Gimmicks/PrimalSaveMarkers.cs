@@ -52,6 +52,16 @@ namespace Primal.Gimmicks
         private static readonly ConditionalWeakTable<DeathPersistentSaveData, MarkerCache> _caches =
             new ConditionalWeakTable<DeathPersistentSaveData, MarkerCache>();
 
+        /// <summary>The DeathPersistentSaveData for this game's current story session, or null off
+        /// story mode (Arena, or too early/late in a session's life for a save state to exist).
+        /// SlugpupGimmick and OneSpearGimmick each already had their own private copy of this exact
+        /// one-liner before the 2026-09-16 Survivor shared-mechanisms pass added a third caller
+        /// (SurvivorEvents' consumers) -- pulled up here rather than adding a fourth.</summary>
+        public static DeathPersistentSaveData SaveDataFor(RainWorldGame game)
+        {
+            return game?.GetStorySession?.saveState?.deathPersistentSaveData;
+        }
+
         /// <summary>Builds a marker string. Allocates, so callers on a hot path should build theirs
         /// once and hold onto it (see SlugpupEndingMarker) rather than calling this per frame.</summary>
         public static string Marker(string key, string part)
