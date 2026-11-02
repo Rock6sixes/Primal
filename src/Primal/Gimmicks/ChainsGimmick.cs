@@ -186,6 +186,21 @@ namespace Primal.Gimmicks
     //    generous timer occasionally letting the player off easy. See AI_CONTEXT.md's own running
     //    skepticism about every gimmick in this codebase staying unconfirmed until the user has
     //    actually tested it in-game.
+    //
+    // 2026-11-02 bug, found via real in-game BepInEx log: this safety net's own default (90
+    // seconds, ON) is exactly the "unlocks periodically even with creatures still alive" bug
+    // reported in testing. LogOutput.log showed "[Chains] ...: escape timer elapsed -- freeing
+    // room LC_SUBWAY02 unfinished" firing roughly every 90 seconds, repeatedly, each time with
+    // double-digit creature counts (up to 29) still tracked and alive -- the room then instantly
+    // relocked with whatever was left, then freed again 90 seconds later, on and on. That's a real
+    // divergence from the source mod's own actual default behavior (timer=-1, i.e. never
+    // auto-releases -- confirmed both by this file's own pre-existing disassembly trace below and
+    // by the literal "timer" identifier present in the source DLL's own string heap), not a
+    // deliberate design choice anyone asked for -- the paragraph above only ever justified adding
+    // the ESCAPE TIMER FEATURE itself as a soft-lock safety net, not defaulting it to always-on.
+    // Fixed by changing DefaultEscapeTimerSeconds to 0 (off) below, matching the source's real
+    // default -- the feature itself (and its Remix updown control) stays exactly as before for
+    // anyone who explicitly wants a timed release.
     [HarmonyPatch(typeof(Player), nameof(Player.Update), new Type[] { typeof(bool) })]
     internal static class ChainsGimmick
     {
@@ -1095,7 +1110,7 @@ namespace Primal.Gimmicks
     /// </summary>
     internal static class ChainsSettings
     {
-        private const int DefaultEscapeTimerSeconds = 90;
+        private const int DefaultEscapeTimerSeconds = 0;
         private const int MinEscapeTimerSeconds = 0;
         private const int MaxEscapeTimerSeconds = 600;
 

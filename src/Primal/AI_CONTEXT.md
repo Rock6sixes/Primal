@@ -1884,6 +1884,52 @@ in LC_SUBWAY02 (or any multi-creature room), the room stays locked until every t
 actually dead, not just until one of them reaches a den; (4) the escape timer and manual
 kill-everything unlock paths still both work normally, since neither was touched.
 
+**Update (2026-11-02): "it should lock the room until all creatures are killed, but it unlocks
+seemingly periodically even while there are still creatures in the room" -- root-caused and
+fixed.** User-reported directly, with the explicit ask to find the source mod again, check its own
+logs for the same issue, and diff this port against it for any gameplay-affecting difference.
+Checked real evidence before touching any code: the live `BepInEx\LogOutput.log` showed
+`[Chains] Artificer: escape timer elapsed -- freeing room LC_SUBWAY02 unfinished` firing roughly
+every 90 seconds, repeatedly, over and over across the whole session -- including instances where
+13-29 creatures were still in `state.CreatureList` the moment it fired (one case: a "Scavenger
+entered... added (29 total)" line immediately followed by the room being freed "unfinished"). The
+room then instantly relocked with whatever creatures remained and the same cycle repeated roughly
+every 90 seconds for the rest of the play session. That is the escape timer
+(`ChainsSettings.GetEscapeTimerSeconds`/`UpdateLock`'s `escapeTimerSeconds > 0 &&
+state.ActiveTime >= escapeTimerSeconds * 40` check) working exactly as coded -- not a hidden logic
+bug in the lock/unlock state machine itself.
+
+Re-opened `artificer_rubicon_hell_bonanza.dll` (same path as every previous round,
+`...\mods\artificerhell\plugins\`) to diff against the source rather than trust this file's own
+years-old disassembly notes blindly. No decompiler was available this session either (same
+container-style restriction as ever, just now on the user's own machine instead of a cloud
+container -- `dotnet`/`ilspycmd`/any `.exe` launch and even `mkdir`/`sed -i`/`python3 <script>`
+were all refused outright by this session's own tooling for most of the investigation, with only
+read-only operations going through; resolved once the user switched the session out of auto mode).
+Grepped the DLL's raw string heap directly instead: confirmed a literal `timer` identifier really
+does exist in the source's own metadata (case-sensitive exact match, easy to miss with too high a
+minimum-run-length filter the first pass), consistent with this file's pre-existing claim that the
+source's own `timer` field defaults to **-1 (disabled)**, range -1..600 -- i.e. the source mod, out
+of the box, has **no time-based release at all**, matching the user's own expectation ("should lock
+... until all creatures are killed"). Also re-confirmed `DoRedundancyCreatureCheck`/
+`creaturesRecheck`/`DoRedundancyCreatureCheckThisFrame` are real identifiers in the source (the
+self-healing resync sweep this file's header comment already documented as deliberately not
+ported) -- not what's firing in the log, and not a second mechanism at play here.
+
+The actual bug: `ChainsSettings.DefaultEscapeTimerSeconds` was **90, not 0** -- this port's own
+addition (the safety-net paragraph earlier in this section explains why the feature itself was
+added at all: an unconfirmed bug turning into a permanent soft-lock is worse than an occasional
+early release) was shipped defaulted ON instead of OFF, silently contradicting both the source
+mod's real default behavior and the stated purpose of "lock until all creatures are killed." Fixed
+by changing the one constant to `0` (already means "off" via the existing `> 0` check -- no other
+logic touched). The feature stays available and unchanged for anyone who explicitly wants a timed
+release (Remix's escape-timer updown control still works exactly as before, 0-600 seconds). Built
+clean, deployed (DLL+PDB hash-verified byte-identical against the fresh build before copying over
+the installed game folder's copy). **Not yet re-confirmed in-game** -- next: lock a multi-creature
+room (LC_SUBWAY02 is a good repro target, per the log above) and confirm it now stays locked
+indefinitely with creatures still alive, well past the old 90-second mark, and only releases once
+every tracked creature is actually dead.
+
 ## Primal Slot Tab-switch, in detail (base mechanic + round-3 transition confirmed working in-game; round-4 character-preservation and round-5 multiple-Primal-slots both pushed together, unbuilt/untested)
 
 Requested (2026-09-13): "in the character selection menu, re-add Tab to switch save slots, to
@@ -7138,7 +7184,7 @@ at the same time, bit by bit, to bring it back probably").
 | Slugpup "ends on beating the game" | Unbuilt | Also fires for a non-Gourmand character's own alt ending |
 | Kill List gimmick | Unbuilt | Kill → shelter → button on cycle-end screen |
 | Threat Slowdown / Threat Panic | Unbuilt | Monk, with threat rising |
-| Chains gimmick | **Core confirmed in-game**; settings import unbuilt | The ported banlist/preset settings |
+| Chains gimmick | **Core confirmed in-game**; settings import built, in-game status unclear; 2026-11-02 escape-timer-default-on bug found+fixed, unconfirmed | Lock a multi-creature room, confirm it stays locked well past 90s with creatures still alive |
 | Primal Slot tab-switch | **Confirmed in-game** through round 3 | Rounds 4–5 (character preservation, multiple Primal slots) |
 | Config menu (grid + detail panel) | **Confirmed in-game** 2026-09-13 | The new slot-switch key binder in the title row |
 
