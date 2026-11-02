@@ -2,7 +2,7 @@
 	"id": "rokas.primal",
 	"name": "Primal",
 	"version": "0.1.0",
-	"authors": "Rokas",
+	"authors": "Rock6Sixes, dannad, caps_lock",
 	"description": "Adds Primal versions of character - more difficult and slugcats meant for an interesting challenge to those willing to delve deeper into the mechanics of the game.\nCoded with AI. Chains and Misery gimmicks made by dannad. Art by caps_lock",
 	"tags": [ "Gameplay" ]
 }
