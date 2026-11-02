@@ -201,6 +201,25 @@ namespace Primal.Gimmicks
     // Fixed by changing DefaultEscapeTimerSeconds to 0 (off) below, matching the source's real
     // default -- the feature itself (and its Remix updown control) stays exactly as before for
     // anyone who explicitly wants a timed release.
+    //
+    // 2026-11-02 (later): user retested in-game and the room STILL opened on its own after "some
+    // amount of time" -- the DefaultEscapeTimerSeconds fix above compiled, deployed, and was
+    // confirmed byte-identical on disk, yet changed nothing observable. Root cause this round
+    // wasn't in this file at all: `AppData\LocalLow\Videocult\Rain World\ModConfigs\
+    // rokas.primal.txt` already had `<CharID>_Chains_escapeTimerSeconds = 90` written for every
+    // single character, left over from playtesting BEFORE the code-default fix above. Remix's
+    // `Configurable<T>.Bind(key, defaultValue, ...)` only ever applies `defaultValue` the FIRST
+    // time that key is ever written to the save-wide config file -- once a value exists on disk
+    // (even one that only ever got there because it matched an old default nobody deliberately
+    // chose), changing the default in source code again has NO retroactive effect on it
+    // whatsoever. This is a new, general gotcha for this codebase, not specific to Chains -- see
+    // AI_CONTEXT.md's Gotcha #9. Fixed for real this time by directly resetting every
+    // `*_Chains_escapeTimerSeconds` line in that live config file from 90 to 0 (backed up first),
+    // alongside the two new logging lines below (UpdateLock's escape-timer branch now logs the
+    // actual bound seconds value, and the creature-removal loop now logs each removal's cause) --
+    // together these mean the NEXT time this setting (or any other) is unexpectedly nonzero, it's
+    // visible straight from LogOutput.log instead of requiring a fresh investigation into whether
+    // the bug is in this file's logic or sitting quietly in a stale config value.
     [HarmonyPatch(typeof(Player), nameof(Player.Update), new Type[] { typeof(bool) })]
     internal static class ChainsGimmick
     {
@@ -728,7 +747,16 @@ namespace Primal.Gimmicks
             int escapeTimerSeconds = ChainsSettings.GetEscapeTimerSeconds(characterID);
             if (escapeTimerSeconds > 0 && state.ActiveTime >= escapeTimerSeconds * 40)
             {
-                Plugin.Log?.LogInfo($"[Chains] {characterID}: escape timer elapsed -- freeing room {room.abstractRoom.name} unfinished");
+                // 2026-11-02: logs the actual bound seconds value, not just "elapsed" -- this is
+                // what caught the follow-up bug (see this file's own header note on the
+                // DefaultEscapeTimerSeconds fix): the code default changed to 0, but every
+                // character's ModConfigs entry had already been written as 90 from BEFORE that
+                // fix, and Configurable<T>.Bind only ever applies its default the first time a key
+                // is written, never retroactively -- so this log line kept saying "elapsed" at the
+                // same old 90s cadence even after the "fix", with no obvious way to tell why short
+                // of opening the raw config file by hand. Logging the live value here means a
+                // stale/unexpectedly-nonzero timer shows up immediately in the log itself.
+                Plugin.Log?.LogInfo($"[Chains] {characterID}: escape timer ({escapeTimerSeconds}s) elapsed -- freeing room {room.abstractRoom.name} unfinished ({state.CreatureList.Count} creature(s) still tracked alive)");
                 FreePlayer(self, state);
                 return;
             }
@@ -737,6 +765,12 @@ namespace Primal.Gimmicks
             {
                 AbstractCreature creature = state.CreatureList[i];
                 bool goneForGood = creature.state.dead;
+                // 2026-11-02: tracks WHY a creature left the tracked list (plain death vs. the
+                // InDen force-kill branch below) so a log line can say which -- added alongside
+                // the escape-timer logging above, same goal: make a premature/unexpected unlock
+                // diagnosable from BepInEx/LogOutput.log alone, without re-deriving it from a cold
+                // start every time.
+                string removalCause = goneForGood ? "dead" : null;
                 if (!goneForGood)
                 {
                     // Ported as-is from CustomHRGuardManager.Update, applied every tick to every
@@ -787,6 +821,7 @@ namespace Primal.Gimmicks
                         // den this gimmick can no longer see.
                         creature.Die();
                         goneForGood = true;
+                        removalCause = "reached its own den, force-killed";
                     }
                 }
 
@@ -801,6 +836,8 @@ namespace Primal.Gimmicks
                     chain.Dispose();
                     state.Chains.Remove(creature);
                 }
+
+                Plugin.Log?.LogInfo($"[Chains] {characterID}: {creature.creatureTemplate?.name ?? "creature"} removed from tracked room {room.abstractRoom.name} ({removalCause}) -- {state.CreatureList.Count} remaining");
             }
 
             if (state.CreatureList.Count == 0)

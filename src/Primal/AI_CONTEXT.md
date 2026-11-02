@@ -1219,6 +1219,45 @@ is a candidate), by reading that framework class's decompiled source in `referen
 what its own `AddItems`/removal really does, the same way this bug was actually found. Only reach for
 adjusting a literal coordinate/size constant once stale elements are ruled out.
 
+## Gotcha #9 — changing a `Configurable<T>`'s default in source code never retroactively changes an already-saved value
+
+Found 2026-11-02, Chains' escape-timer bug (see "Chains gimmick, in detail" below for the full
+trace). `owner.config.Bind(key, defaultValue, ...)` only ever writes `defaultValue` into
+`AppData\LocalLow\Videocult\Rain World\ModConfigs\rokas.primal.txt` the FIRST time that exact key
+is ever bound for a save file that's never seen it before — every later `Bind` call for that same
+key, in every future session, reads whatever's already on disk and ignores `defaultValue`
+entirely, forever, regardless of how many times the source code's own default changes afterward.
+
+**Why this bit Chains specifically:** `ChainsSettings.DefaultEscapeTimerSeconds` was fixed from 90
+to 0 (see that section below), rebuilt, redeployed, and verified byte-identical on disk — and
+changed *nothing* observable in-game, because every character's `*_Chains_escapeTimerSeconds` key
+had already been written as `90` to the live config file during earlier testing, before the fix
+existed. The fix was correct and the deploy was real; the bug just wasn't reachable by either of
+those things, because the actual live value was coming from disk, not from the constant that got
+changed.
+
+**The general lesson — this will happen again for ANY setting, not just this one:** once a
+character has ever had Remix open (or this mod has ever run with that character selected, which
+binds every setting for them regardless of whether the Settings sub-view was actually opened),
+every one of that character's `Configurable<T>` keys for every gimmick/requirement they have is
+permanently written to `rokas.primal.txt` at whatever value was in effect at that moment. Tuning a
+default afterward (changing what a *fresh* character gets) requires nothing special — but fixing
+or adjusting that value for a character/save that already exists requires directly editing (or
+clearing) their key in the live config file too; the code change alone is invisible to them.
+There's no mechanism in this codebase for migrating/forcing an existing saved value to a new
+default — if that's ever actually wanted (not just for one one-off fix like this), it would need to
+be built deliberately (e.g. a version-stamped migration marker), not assumed to happen for free.
+
+**How this was actually caught:** not by re-reading this file's own logic again — by adding a log
+line that prints the LIVE bound value at the exact moment it's used (`UpdateLock`'s escape-timer
+check now logs `{escapeTimerSeconds}s`, not just "elapsed"), then grepping the real
+`rokas.primal.txt` directly once the log showed a nonzero value that the source no longer defaults
+to. The same "log the live value where it's actually read, don't just log that something
+happened" approach is worth reaching for first on any future "I changed the default and nothing
+happened" report, rather than re-suspecting the surrounding logic. **Fixed for this specific case**
+by backing up `rokas.primal.txt` (`rokas.primal.txt.bak-20261102`, same folder) and directly
+resetting every `*_Chains_escapeTimerSeconds` line from `90` to `0` in the live file.
+
 ## Misery gimmick, in detail (traced from a real reference mod — read before editing)
 
 The user reported the original Misery implementation (a simple `aerobicLevel` threshold override on
@@ -1929,6 +1968,32 @@ the installed game folder's copy). **Not yet re-confirmed in-game** -- next: loc
 room (LC_SUBWAY02 is a good repro target, per the log above) and confirm it now stays locked
 indefinitely with creatures still alive, well past the old 90-second mark, and only releases once
 every tracked creature is actually dead.
+
+**Update (2026-11-02, later): the above fix was retested and the room STILL opened on its own.**
+User report: played LC_SUBWAY02 again, it opened after "some amount of time" the same as before,
+closed the game. The code fix itself was never in question (the previous build was hash-verified
+byte-identical on disk) -- the real cause was Gotcha #9 (new, see above): every character's
+`*_Chains_escapeTimerSeconds` key had already been written as `90` to the live
+`rokas.primal.txt` during EARLIER testing, before `DefaultEscapeTimerSeconds` was ever changed to
+`0` -- and `Configurable<T>.Bind` never retroactively re-applies a changed default to a key that
+already exists on disk, so the code fix was 100% correct and 100% inert for every character that
+had ever had this mod's Remix screen opened before. Added two new log lines specifically to make
+this class of bug visible without a cold investigation next time (see UpdateLock's escape-timer
+check and the creature-removal loop in `ChainsGimmick.cs`): the escape-timer log line now prints
+the actual LIVE bound seconds value (`"escape timer (90s) elapsed..."` would have caught this
+instantly, versus the old "escape timer elapsed..." with no value at all), and every creature
+removal from the tracked list now logs its own cause ("dead" vs. "reached its own den,
+force-killed") and the remaining count, so a future "unlocked too early with X still alive" report
+can be read directly off which exact creatures left tracking and why, instead of re-deriving it.
+**The actual fix this round:** backed up the live config
+(`rokas.primal.txt.bak-20261102`, same `ModConfigs` folder) and directly reset every
+`*_Chains_escapeTimerSeconds` line in it from `90` to `0` (10 characters, all confirmed stale from
+pre-fix testing, not a deliberate per-character choice anyone had made). Built, deployed,
+hash-verified. **Not yet re-confirmed in-game** -- next: same test as before (lock a multi-creature
+room, LC_SUBWAY02 again is fine), but this time also check the log for the new
+`"escape timer ({N}s) elapsed"` line if it ever fires again -- if `{N}` is nonzero, that's
+unambiguous proof of a config-level cause again rather than a logic bug, and the fix is the same
+(reset that character's key in `rokas.primal.txt`, not another code change).
 
 ## Primal Slot Tab-switch, in detail (base mechanic + round-3 transition confirmed working in-game; round-4 character-preservation and round-5 multiple-Primal-slots both pushed together, unbuilt/untested)
 
@@ -7184,7 +7249,7 @@ at the same time, bit by bit, to bring it back probably").
 | Slugpup "ends on beating the game" | Unbuilt | Also fires for a non-Gourmand character's own alt ending |
 | Kill List gimmick | Unbuilt | Kill → shelter → button on cycle-end screen |
 | Threat Slowdown / Threat Panic | Unbuilt | Monk, with threat rising |
-| Chains gimmick | **Core confirmed in-game**; settings import built, in-game status unclear; 2026-11-02 escape-timer-default-on bug found+fixed, unconfirmed | Lock a multi-creature room, confirm it stays locked well past 90s with creatures still alive |
+| Chains gimmick | **Core confirmed in-game**; settings import built, in-game status unclear; 2026-11-02 escape-timer-default-on bug fixed in code, then found to also need a stale config reset (Gotcha #9) -- both fixed, unconfirmed | Lock a multi-creature room, confirm it stays locked well past 90s; check log for a new nonzero `escape timer (Ns) elapsed` line if it still fires |
 | Primal Slot tab-switch | **Confirmed in-game** through round 3 | Rounds 4–5 (character preservation, multiple Primal slots) |
 | Config menu (grid + detail panel) | **Confirmed in-game** 2026-09-13 | The new slot-switch key binder in the title row |
 
