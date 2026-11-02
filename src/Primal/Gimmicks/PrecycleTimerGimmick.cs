@@ -102,25 +102,101 @@ namespace Primal.Gimmicks
     /// that skips the MS/Rivulet exception above entirely for this character -- checked, the flood
     /// chance rolled above applies on MS too, for anyone.
     ///
-    /// **"Force shelter unavailable" (added 2026-09-18, later still) -- see
+    /// **Shelter failure chance (2026-09-18, originally "Force shelter unavailable"; rebuilt
+    /// 2026-11-02 into a percentage + a "Permanent" option, per direct request) -- see
     /// `PrecycleForceShelterUnavailableHook` below, a SEPARATE Harmony patch on `ShelterDoor`'s own
-    /// constructor:** answers the user's own follow-up question directly -- whether a shelter can be
-    /// forced unusable-to-hibernate-in independent of the (region/room-limited) visual flood.
-    /// Traced to a real, existing vanilla mechanic that was simply far narrower than "any shelter,
-    /// any region": `World.brokenShelters` (a plain `bool[]`), set true by `ShelterDoor`'s own
-    /// constructor only when the room being constructed is the player's current den AND that
-    /// specific room's own level design placed a `PlacedObject.Type.BrokenShelterWaterLevel` marker
-    /// in it. Every system that actually treats a shelter as unusable
-    /// (`ShelterDoor.Broken`, `Room.cs`'s danger-type gating, `HUD/FoodMeter.cs`, `Player.cs`,
-    /// `Menu/FastTravelScreen.cs`, `Watcher/Sandstorm.cs`) reads that SAME flag, and none of them
-    /// additionally check for visible water -- confirming the flag alone, not the flood, is what
-    /// actually controls availability. This checkbox forces that flag directly, without needing the
-    /// room to have ever had that placed-object marker at all, so it works in any shelter.
+    /// constructor:** whether a shelter can be forced unusable-to-hibernate-in, independent of the
+    /// (region/room-limited) visual flood. Traced to a real, existing vanilla mechanic that was
+    /// simply far narrower than "any shelter, any region": `World.brokenShelters` (a plain
+    /// `bool[]`), set true by `ShelterDoor`'s own constructor only when the room being constructed
+    /// is the player's current den AND that specific room's own level design placed a
+    /// `PlacedObject.Type.BrokenShelterWaterLevel` marker in it. Every system that actually treats a
+    /// shelter as unusable (`ShelterDoor.Broken`, `Room.cs`'s danger-type gating,
+    /// `HUD/FoodMeter.cs`, `Player.cs`, `Menu/FastTravelScreen.cs`, `Watcher/Sandstorm.cs`) reads
+    /// that SAME flag, and none of them additionally check for visible water -- confirming the flag
+    /// alone, not the flood, is what actually controls availability.
+    ///
+    /// **"Shelter failure chance, out of 100" (`ShelterFailureChancePercent`) replaces the old
+    /// plain on/off checkbox** with an independent roll, same shape as `FloodChancePercent` --
+    /// rolled once per triggered precycle (in `PrecycleTimerGimmick.Postfix`'s own already-seeded
+    /// RNG block, alongside the trigger/duration/flood rolls), only ever relevant while this
+    /// gimmick's own precycle is actually active this cycle. The decision is stashed per-character
+    /// (`_shelterFailureActiveThisCycle`) since the roll happens inside the `RainCycle` constructor
+    /// Postfix, but the flag actually needs setting later, inside `ShelterDoor`'s own separate
+    /// constructor Postfix, which has no access to that roll's local variables -- same "stash on one
+    /// patch, read on another" shape `BlizzardTimerGimmick.CurrentCreature` already uses elsewhere
+    /// in this mod.
+    ///
+    /// **"Permanent shelter failure" (`PermanentShelterFailure`), new 2026-11-02:** vanilla's own
+    /// `World.brokenShelters` flag, once set, is never cleared anywhere in the vanilla codebase
+    /// itself (confirmed by grepping every write site) -- so by itself this mechanic would already
+    /// make a broken shelter stay broken for the rest of the World's lifetime (normally the whole
+    /// region visit), not just the one cycle whose precycle caused it. Per direct request, that's
+    /// treated as the OPT-IN "Permanent" behavior rather than the default: by default (this
+    /// checkbox unchecked), `PrecycleShelterFailureResetHook` (new, a Postfix on
+    /// `RainWorldGame.Win` -- confirmed elsewhere in this codebase to fire only on a genuine
+    /// successful shelter-reach) restores the one shelter THIS gimmick broke that cycle back to
+    /// usable the instant the player successfully sleeps/saves anywhere, matching the requested
+    /// "the shelter becomes usable after you save" framing. With "Permanent shelter failure"
+    /// checked, that reset is skipped entirely -- once broken, stays broken for the rest of the run,
+    /// exactly vanilla's own un-reset behavior. Only ever resets a shelter THIS gimmick marked
+    /// broken (tracked via `_pendingShelterFailure`, keyed by character and cleared once consumed)
+    /// -- a shelter broken by vanilla's own `BrokenShelterWaterLevel` marker mechanism is untouched
+    /// either way, matching real vanilla behavior for that case.
     /// </summary>
     [HarmonyPatch(typeof(RainCycle), MethodType.Constructor, new Type[] { typeof(World), typeof(float) })]
     internal static class PrecycleTimerGimmick
     {
         public const string ID = "PrecycleTimer";
+
+        /// <summary>Holds the World+shelterIndex this gimmick most recently marked broken for a
+        /// character, so PrecycleShelterFailureResetHook (a Postfix on RainWorldGame.Win, which
+        /// has no access to ShelterDoor's own constructor locals) knows what to un-break on a
+        /// successful sleep. Cleared once consumed (TryTakePendingShelterFailure) -- a stale
+        /// leftover entry is harmless (the next real break overwrites it), but there's nothing to
+        /// reset twice either way.</summary>
+        private sealed class PendingShelterFailure
+        {
+            public World World;
+            public int ShelterIndex;
+        }
+
+        /// <summary>This cycle's independent shelter-failure roll result (see
+        /// PrecycleTimerSettings.ShelterFailureChancePercent), decided once in this class's own
+        /// Postfix (where the roll happens) and read by PrecycleForceShelterUnavailableHook
+        /// (a separate Harmony patch on ShelterDoor's constructor, fired later, with no access to
+        /// this method's own locals) -- same "stash on one patch, read on another" shape
+        /// BlizzardTimerGimmick.CurrentCreature already uses elsewhere in this mod. Per-character
+        /// rather than per-World since that's what both patches already have on hand without
+        /// needing RainWorldGame.world (a member never touched elsewhere in this codebase, so
+        /// untested for Gotcha #1 purposes -- avoided rather than risked for no real benefit).</summary>
+        private static readonly Dictionary<string, bool> _shelterFailureActiveThisCycle = new Dictionary<string, bool>();
+
+        private static readonly Dictionary<string, PendingShelterFailure> _pendingShelterFailure = new Dictionary<string, PendingShelterFailure>();
+
+        internal static bool IsShelterFailureActiveThisCycle(string characterID)
+        {
+            return characterID != null && _shelterFailureActiveThisCycle.TryGetValue(characterID, out bool active) && active;
+        }
+
+        internal static void RecordBrokenShelter(string characterID, World world, int shelterIndex)
+        {
+            _pendingShelterFailure[characterID] = new PendingShelterFailure { World = world, ShelterIndex = shelterIndex };
+        }
+
+        internal static bool TryTakePendingShelterFailure(string characterID, out World world, out int shelterIndex)
+        {
+            if (characterID != null && _pendingShelterFailure.TryGetValue(characterID, out PendingShelterFailure pending))
+            {
+                _pendingShelterFailure.Remove(characterID);
+                world = pending.World;
+                shelterIndex = pending.ShelterIndex;
+                return true;
+            }
+            world = null;
+            shelterIndex = -1;
+            return false;
+        }
 
         private static void Postfix(RainCycle __instance, World world)
         {
@@ -159,6 +235,11 @@ namespace Primal.Gimmicks
             // reseeded window too, immediately after the trigger roll -- drawn here in the same spot
             // so this gimmick's replacement roll is seeded identically to vanilla's own.
             float durationRoll = UnityEngine.Random.value;
+            // Shelter-failure chance's own independent roll (2026-11-02, new) -- doesn't need to
+            // match any vanilla-consumed roll (there's no vanilla equivalent), so it's safe to draw
+            // last in this reseeded block without disturbing the ordering the comments above
+            // already rely on.
+            float shelterFailureRoll = UnityEngine.Random.value;
             UnityEngine.Random.state = savedState;
 
             if (triggerRoll >= frequencyPercent)
@@ -168,6 +249,7 @@ namespace Primal.Gimmicks
                 // precycle-prone the region itself normally is.
                 __instance.maxPreTimer = 0;
                 __instance.preTimer = 0;
+                _shelterFailureActiveThisCycle[characterID] = false;
                 return;
             }
 
@@ -193,7 +275,11 @@ namespace Primal.Gimmicks
                 game.globalRain.drainWorldFlood = suppressOnMS ? 0f : 99000f;
             }
 
-            Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: precycle triggered (roll {triggerRoll:F1} < {frequencyPercent}%), duration {durationTicks} ticks ({durationPercent}% of vanilla's {PrecycleTimerSettings.VanillaMinDurationTicks}-{PrecycleTimerSettings.VanillaMaxDurationTicks} range), flood roll {floodRoll * 100f:F1} vs {floodChancePercent}%");
+            int shelterFailureChancePercent = PrecycleTimerSettings.GetShelterFailureChancePercent(characterID);
+            bool shelterFailureActive = shelterFailureRoll * 100f < shelterFailureChancePercent;
+            _shelterFailureActiveThisCycle[characterID] = shelterFailureActive;
+
+            Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: precycle triggered (roll {triggerRoll:F1} < {frequencyPercent}%), duration {durationTicks} ticks ({durationPercent}% of vanilla's {PrecycleTimerSettings.VanillaMinDurationTicks}-{PrecycleTimerSettings.VanillaMaxDurationTicks} range), flood roll {floodRoll * 100f:F1} vs {floodChancePercent}%, shelter-failure roll {shelterFailureRoll * 100f:F1} vs {shelterFailureChancePercent}% ({(shelterFailureActive ? "active" : "inactive")} this cycle)");
         }
     }
 
@@ -259,7 +345,7 @@ namespace Primal.Gimmicks
 
             string characterID = game.StoryCharacter?.value;
             if (!GimmickAssignments.IsEnabled(characterID, PrecycleTimerGimmick.ID) ||
-                !PrecycleTimerSettings.ForceShelterUnavailable(characterID))
+                !PrecycleTimerGimmick.IsShelterFailureActiveThisCycle(characterID))
             {
                 return;
             }
@@ -272,6 +358,63 @@ namespace Primal.Gimmicks
 
             room.world.brokenShelters[shelterIndex] = true;
             room.world.brokenShelterIndexDueToPrecycle = shelterIndex;
+            // Remembered so PrecycleShelterFailureResetHook knows what to un-break on a
+            // successful sleep, unless "Permanent shelter failure" is checked for this character.
+            PrecycleTimerGimmick.RecordBrokenShelter(characterID, room.world, shelterIndex);
+        }
+    }
+
+    /// <summary>
+    /// Undoes a shelter PrecycleForceShelterUnavailableHook broke this cycle, the instant the
+    /// player successfully sleeps/saves ANYWHERE -- not necessarily in that same shelter -- unless
+    /// "Permanent shelter failure" is checked for this character, in which case this is a no-op and
+    /// the shelter stays broken for the rest of the run (vanilla's own un-reset behavior; see
+    /// PrecycleTimerGimmick's own header comment for the full "why" and why this is the OPT-IN
+    /// behavior, not the default). A Postfix on RainWorldGame.Win -- confirmed elsewhere in this
+    /// codebase (CreatureKillListGimmick.cs's own header comment) to fire only from a genuine
+    /// successful shelter-reach (ShelterDoor.cs), never from a death. Postfix, not Prefix: unlike
+    /// CreatureKillListGimmick's own Win hook (which had to pre-empt a synchronous save-to-disk
+    /// write inside Win itself), World.brokenShelters is a pure runtime simulation flag, never
+    /// persisted to the save file at all -- there's no disk-write race to beat here, so firing after
+    /// Win's own body has already run is just as correct and reads more naturally ("after a
+    /// successful sleep, reset").
+    /// </summary>
+    [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.Win))]
+    internal static class PrecycleShelterFailureResetHook
+    {
+        private static void Postfix(RainWorldGame __instance, bool malnourished, bool fromWarpPoint)
+        {
+            if (__instance == null || !__instance.IsStorySession || !PrimalSlot.IsActive(__instance.rainWorld))
+            {
+                return;
+            }
+
+            string characterID = __instance.StoryCharacter?.value;
+            if (characterID == null || !GimmickAssignments.IsEnabled(characterID, PrecycleTimerGimmick.ID))
+            {
+                return;
+            }
+
+            if (PrecycleTimerSettings.PermanentShelterFailure(characterID))
+            {
+                // Permanent -- leave whatever this gimmick broke exactly as it is; don't even
+                // consume the pending record, in case a later round wants to add an in-game way to
+                // flip this setting mid-run without losing track of what's pending.
+                return;
+            }
+
+            if (PrecycleTimerGimmick.TryTakePendingShelterFailure(characterID, out World world, out int shelterIndex))
+            {
+                if (world?.brokenShelters != null && shelterIndex >= 0 && shelterIndex < world.brokenShelters.Length)
+                {
+                    world.brokenShelters[shelterIndex] = false;
+                }
+                if (world != null && world.brokenShelterIndexDueToPrecycle == shelterIndex)
+                {
+                    world.brokenShelterIndexDueToPrecycle = -1;
+                }
+                Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: shelter failure reset on successful sleep (shelter index {shelterIndex})");
+            }
         }
     }
 
@@ -283,9 +426,12 @@ namespace Primal.Gimmicks
     /// always the scaled upper bound with no roll at all -- the same "always pick the maximum
     /// instead of rolling" idea as Remix's own `MMF.cfgNoRandomCycles`, which pins the normal
     /// cycle's own length to `cycleTimeMax` instead of rolling between `cycleTimeMin`/
-    /// `cycleTimeMax`), and FloodChancePercent (0-100, replacing vanilla's own per-region
-    /// `earlyCycleFloodChance`). See PrecycleTimerGimmick's own header comment for exactly what
-    /// each vanilla mechanism being replaced looked like.</summary>
+    /// `cycleTimeMax`), FloodChancePercent (0-100, replacing vanilla's own per-region
+    /// `earlyCycleFloodChance`), and ShelterFailureChancePercent/PermanentShelterFailure (2026-11-02,
+    /// replacing the old plain on/off "Force shelter unavailable" checkbox -- see
+    /// PrecycleTimerGimmick's own header comment for the full "why" behind both). See
+    /// PrecycleTimerGimmick's own header comment for exactly what each vanilla mechanism being
+    /// replaced looked like.</summary>
     internal static class PrecycleTimerSettings
     {
         /// <summary>Roughly matches vanilla's own commonly-cited baseline (the user's own "2%
@@ -332,18 +478,54 @@ namespace Primal.Gimmicks
         /// behavior until explicitly told otherwise.</summary>
         private const bool DefaultForceSubmergedSuperstructure = false;
 
-        /// <summary>Vanilla's own precycle-broken-shelter mechanic only ever fires for the small set
-        /// of shelters a region's own level design specifically placed a BrokenShelterWaterLevel
-        /// marker in -- off by default here too, so assigning this gimmick doesn't unexpectedly
-        /// start locking players out of shelters that were never meant to fail.</summary>
-        private const bool DefaultForceShelterUnavailable = false;
+        /// <summary>Generic default, matching the old "Force shelter unavailable" checkbox's own
+        /// off-by-default behavior (0% == never) -- assigning this gimmick to a character doesn't
+        /// unexpectedly start locking them out of shelters that were never meant to fail, same
+        /// reasoning as before.</summary>
+        private const int DefaultShelterFailureChancePercent = 0;
+
+        private const int MinShelterFailureChancePercent = 0;
+        private const int MaxShelterFailureChancePercent = 100;
+
+        /// <summary>Off by default -- a broken shelter resets back to usable the instant the
+        /// character next successfully sleeps/saves anywhere (PrecycleShelterFailureResetHook),
+        /// matching the request's own framing of "unlike vanilla behavior where that shelter can be
+        /// used after you save." Checking this reproduces vanilla's own actual un-reset behavior
+        /// instead (see PrecycleTimerGimmick's own header comment) -- an opt-in harsher mode, not
+        /// the default.</summary>
+        private const bool DefaultPermanentShelterFailure = false;
+
+        /// <summary>Per-character overrides for Rivulet (2026-11-02, explicit request -- the
+        /// original design table's own "Precycle Timer (50% multiplier, 100% chance, 100% shelter
+        /// failure)" row, completed): a precycle happens every cycle (100%), the head-start lasts
+        /// half of vanilla's own range (50%), and the current shelter always fails alongside it
+        /// (100%) unless/until "Permanent shelter failure" is also checked by hand. See
+        /// RainTimerSettings.PerCharacterDefaultPercent for the identical pattern this mirrors.
+        /// FloodChancePercent/ForceSubmergedSuperstructure/PermanentShelterFailure were not part of
+        /// either request and are deliberately left at their plain generic defaults for
+        /// Rivulet too -- not assumed.</summary>
+        private static readonly Dictionary<string, int> PerCharacterDefaultFrequencyPercent = new Dictionary<string, int>
+        {
+            [MoreSlugcats.MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value] = 100,
+        };
+
+        private static readonly Dictionary<string, int> PerCharacterDefaultDurationPercent = new Dictionary<string, int>
+        {
+            [MoreSlugcats.MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value] = 50,
+        };
+
+        private static readonly Dictionary<string, int> PerCharacterDefaultShelterFailureChancePercent = new Dictionary<string, int>
+        {
+            [MoreSlugcats.MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value] = 100,
+        };
 
         private static readonly Dictionary<string, Configurable<int>> _frequencyPercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<int>> _durationPercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceMaxDuration = new Dictionary<string, Configurable<bool>>();
         private static readonly Dictionary<string, Configurable<int>> _floodChancePercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceSubmergedSuperstructure = new Dictionary<string, Configurable<bool>>();
-        private static readonly Dictionary<string, Configurable<bool>> _forceShelterUnavailable = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<int>> _shelterFailureChancePercent = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, Configurable<bool>> _permanentShelterFailure = new Dictionary<string, Configurable<bool>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why.
@@ -351,16 +533,24 @@ namespace Primal.Gimmicks
 
         public static void Bind(OptionInterface owner, string characterID)
         {
+            int defaultFrequencyPercent = PerCharacterDefaultFrequencyPercent.TryGetValue(characterID, out int overrideFrequency)
+                ? overrideFrequency
+                : DefaultFrequencyPercent;
+
             _frequencyPercent[characterID] = owner.config.Bind(
                 characterID + "_PrecycleTimer_frequencyPercent",
-                DefaultFrequencyPercent,
+                defaultFrequencyPercent,
                 new ConfigurableInfo(
                     "Chance, out of 100, that a precycle (shelter failure -- storm already brewing at the start of the next cycle) happens. Replaces vanilla's own per-region chance entirely for this character.",
                     new ConfigAcceptableRange<int>(MinFrequencyPercent, MaxFrequencyPercent)));
 
+            int defaultDurationPercent = PerCharacterDefaultDurationPercent.TryGetValue(characterID, out int overrideDuration)
+                ? overrideDuration
+                : DefaultDurationPercent;
+
             _durationPercent[characterID] = owner.config.Bind(
                 characterID + "_PrecycleTimer_durationPercent",
-                DefaultDurationPercent,
+                defaultDurationPercent,
                 new ConfigurableInfo(
                     $"Percentage multiplier on BOTH bounds of vanilla's own random head-start roll ({VanillaMinDurationTicks}-{VanillaMaxDurationTicks} ticks, i.e. 2-5 real minutes). 100% rolls within vanilla's own unscaled range; 0% always gives no head start at all. Ignored entirely while \"Force max precycle timer\" is checked.",
                     new ConfigAcceptableRange<int>(MinDurationPercent, MaxDurationPercent)));
@@ -382,10 +572,21 @@ namespace Primal.Gimmicks
                 DefaultForceSubmergedSuperstructure,
                 new ConfigurableInfo("If checked, the flood chance above also applies on the Submerged Superstructure region (\"MS\"), which vanilla normally exempts from precycle flooding for every character except Rivulet."));
 
-            _forceShelterUnavailable[characterID] = owner.config.Bind(
-                characterID + "_PrecycleTimer_forceShelterUnavailable",
-                DefaultForceShelterUnavailable,
-                new ConfigurableInfo("If checked, the character's current shelter becomes unusable to hibernate in during a triggered precycle, in any shelter -- independent of whether that shelter's own room visibly floods."));
+            int defaultShelterFailureChancePercent = PerCharacterDefaultShelterFailureChancePercent.TryGetValue(characterID, out int overrideShelterFailure)
+                ? overrideShelterFailure
+                : DefaultShelterFailureChancePercent;
+
+            _shelterFailureChancePercent[characterID] = owner.config.Bind(
+                characterID + "_PrecycleTimer_shelterFailureChancePercent",
+                defaultShelterFailureChancePercent,
+                new ConfigurableInfo(
+                    "Chance, out of 100, that a triggered precycle ALSO makes the character's current shelter unusable to hibernate in -- independent of whether that shelter's own room visibly floods. Rolled independently from the flood chance above, only while a precycle is actually happening.",
+                    new ConfigAcceptableRange<int>(MinShelterFailureChancePercent, MaxShelterFailureChancePercent)));
+
+            _permanentShelterFailure[characterID] = owner.config.Bind(
+                characterID + "_PrecycleTimer_permanentShelterFailure",
+                DefaultPermanentShelterFailure,
+                new ConfigurableInfo("If checked, a shelter the chance above breaks stays unusable for the REST OF THE RUN. Unchecked (default), it becomes usable again the moment the character next successfully sleeps/saves anywhere."));
         }
 
         public static int GetFrequencyPercent(string characterID)
@@ -413,9 +614,14 @@ namespace Primal.Gimmicks
             return _forceSubmergedSuperstructure.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
         }
 
-        public static bool ForceShelterUnavailable(string characterID)
+        public static int GetShelterFailureChancePercent(string characterID)
         {
-            return _forceShelterUnavailable.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
+            return _shelterFailureChancePercent.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultShelterFailureChancePercent;
+        }
+
+        public static bool PermanentShelterFailure(string characterID)
+        {
+            return _permanentShelterFailure.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
         }
 
         public static List<UIelement> BuildUI(string characterID, float topY)
@@ -430,7 +636,8 @@ namespace Primal.Gimmicks
                 !_forceMaxDuration.TryGetValue(characterID, out Configurable<bool> forceMax) ||
                 !_floodChancePercent.TryGetValue(characterID, out Configurable<int> flood) ||
                 !_forceSubmergedSuperstructure.TryGetValue(characterID, out Configurable<bool> forceSubmerged) ||
-                !_forceShelterUnavailable.TryGetValue(characterID, out Configurable<bool> forceUnavailable))
+                !_shelterFailureChancePercent.TryGetValue(characterID, out Configurable<int> shelterFailureChance) ||
+                !_permanentShelterFailure.TryGetValue(characterID, out Configurable<bool> permanentShelterFailure))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
                 // run for this character yet and a later call could succeed.
@@ -471,8 +678,11 @@ namespace Primal.Gimmicks
             items.Add(new OpCheckBox(forceSubmerged, 20f, topY - 132f));
             items.Add(new OpLabel(56f, topY - 128f, "Force Submerged Superstructure Precycles", false));
 
-            items.Add(new OpCheckBox(forceUnavailable, 20f, topY - 168f));
-            items.Add(new OpLabel(56f, topY - 164f, "Force shelter unavailable", false));
+            items.Add(new OpLabel(20f, topY - 168f, "Shelter failure chance, out of 100:", false));
+            items.Add(new OpUpdown(shelterFailureChance, new Vector2(280f, topY - 174f), 80f));
+
+            items.Add(new OpCheckBox(permanentShelterFailure, 20f, topY - 212f));
+            items.Add(new OpLabel(56f, topY - 208f, "Permanent shelter failure", false));
 
             _uiCache[characterID] = items;
             return items;

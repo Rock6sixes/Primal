@@ -501,6 +501,32 @@ excuse doesn't mean these are untested — they're specifically waiting on an in
 not a compile check. Each file's own header comment states what to check when testing it. Treat
 none of this as "probably fine" until actually played.
 
+**New, not yet tested at all (2026-11-02): Rivulet's Precycle Timer, completed and defaulted.**
+Rivulet previously had `PrecycleTimer` built but never actually assigned (see `GimmickDefaults.cs`,
+new line) -- now defaulted onto Rivulet with `FrequencyPercent=100`/`DurationPercent=50` (the
+original design table's own "50% multiplier, 100% chance" row), completing it. Also rebuilt the
+old plain on/off "Force shelter unavailable" checkbox into two new settings, per direct request:
+`ShelterFailureChancePercent` (0-100, an independent roll alongside the flood chance, defaulted to
+100 for Rivulet specifically — the design table's own "100% shelter failure") and
+`PermanentShelterFailure` (a new checkbox, off by default for everyone including Rivulet — not
+part of either request). **Not to be confused with the separately-tracked, unrelated "Rivulet
+shelter permanent failure" issue flagged at the top of this file** (that one is about
+`VisitShelterRequirement`'s own shelter-visit tracking, deliberately deferred; this is a brand-new,
+intentional PrecycleTimer feature with a similar-sounding name purely by coincidence). See
+`PrecycleTimerGimmick.cs`'s own header comment for the full mechanism — in short: vanilla's own
+`World.brokenShelters` flag is never cleared anywhere in vanilla's own code once set, so by default
+(Permanent unchecked) this gimmick now actively resets a shelter it broke back to usable the moment
+the character next successfully sleeps/saves anywhere (`PrecycleShelterFailureResetHook`, a new
+Postfix on `RainWorldGame.Win`); checking Permanent skips that reset, reproducing vanilla's own
+un-reset behavior instead. Builds clean. **When testing:** (1) as Rivulet, confirm a precycle
+happens essentially every cycle and the head-start lasts roughly half of vanilla's own normal
+range; (2) confirm the current shelter becomes unusable (can't hibernate there) during that
+precycle; (3) with "Permanent shelter failure" unchecked (the default), sleep successfully in ANY
+shelter and confirm the previously-broken one becomes usable again afterward; (4) check "Permanent
+shelter failure" and confirm a broken shelter now stays broken even after a later successful sleep;
+(5) check `BepInEx/LogOutput.log` for `[PrecycleTimer]` lines showing the shelter-failure roll and,
+on a successful reset, the "shelter failure reset on successful sleep" line.
+
 **Known issues from real testing, status checked against current source (2026-11-02):**
 - **"Gourmand's Misery gimmick also spawns yeeks on room entrance; only the exhaustion effect
   should be part of it."** Checked `MiseryGimmick.cs` directly: it contains no yeek-related code at
@@ -552,9 +578,13 @@ none of this as "probably fine" until actually played.
 - `scripts/build-deploy-run.sh` doesn't deploy the Artificer scene art under `src/Primal/scenes/`
   (only `modinfo.json` + `Primal.dll`) — that art has to be copied to the install by hand. Worth
   fixing the script if this becomes a recurring friction point.
-- No gimmick/requirement has been designed yet for Rivulet, Saint, Watcher, Survivor, Monk, or
-  Hunter beyond what `CHARACTER_DESIGN_STATUS.md` already covers — Remix checkboxes exist for all
-  of them, just no content assigned by default for most.
+- Rivulet now has both of her originally-designed gimmicks (Rain Timer + Precycle Timer) and
+  requirements (Visit Shelter + Ending) defaulted — see the new entry above. No gimmick/requirement
+  has been designed yet for Survivor beyond the "all 50 community challenges" requirement intent
+  (see the bullet below — not yet wired up either). Watcher, Monk, and Hunter have only what
+  `CHARACTER_DESIGN_STATUS.md` already covers (Monk/Hunter: Threat Panic / Ending; Watcher:
+  nothing) — Remix checkboxes exist for every character regardless, just no further content
+  assigned by default for these three.
 - TimeLimit has no game-over presentation yet (just an instant kill) — deliberately deferred by the
   user ("later on we can implement some sort of game over screen"); don't build it unprompted.
 - Several `Requirement`s in the 50-challenge community list haven't been default-assigned to

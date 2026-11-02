@@ -311,14 +311,20 @@ namespace Primal.Gimmicks
         public static readonly GimmickDef PrecycleTimer = new GimmickDef(
             PrecycleTimerGimmick.ID,
             "Precycle Timer",
-            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (a percentage multiplier on vanilla's own roll bounds, or always the scaled upper bound), and flood chance with configured values for this character -- with options to also force flooding on Submerged Superstructure and force the current shelter unusable.",
+            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (a percentage multiplier on vanilla's own roll bounds, or always the scaled upper bound), flood chance, and shelter-failure chance with configured values for this character -- with options to also force flooding on Submerged Superstructure and make a failed shelter stay broken for the rest of the run.",
             PrecycleTimerSettings.Bind,
             PrecycleTimerSettings.BuildUI,
-            // Five rows now (frequency; duration+force-max; flood; force-submerged; force-shelter-
-            // unavailable) -- comfortably past the plain viewport's own default clamp, same
-            // reasoning as Chains' own settingsContentHeight.
-            settingsContentHeight: 260f,
-            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+            // Six rows now (frequency; duration+force-max; flood; force-submerged; shelter-failure
+            // chance; permanent-shelter-failure) -- comfortably past the plain viewport's own
+            // default clamp, same reasoning as Chains' own settingsContentHeight. Bumped from 260f
+            // (2026-11-02, one more row added for the shelter-failure-chance/permanent rework).
+            settingsContentHeight: 300f,
+            // Rivulet, not Saint -- Precycle Timer was always Rivulet's own design-table entry
+            // ("Precycle Timer (50% multiplier, 100% chance, 100% shelter failure)"), and is now
+            // actually default-assigned to Rivulet (see GimmickDefaults.cs) -- the color tag was
+            // left pointing at Saint before this, seemingly a holdover from the same day's Rain/
+            // Blizzard Timer work, corrected here to match the real design intent.
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Rivulet
         );
 
         public static readonly GimmickDef[] All =

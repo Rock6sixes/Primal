@@ -91,6 +91,15 @@ namespace Primal.Gimmicks
             // its own entry in RainTimerSettings.PerCharacterDefaultPercent is 0%, same "starts
             // essentially immediately" treatment as Saint.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.RainTimer.ID, true);
+
+            // Rivulet also gets Precycle Timer by default (2026-11-02, explicit request --
+            // completing the original design table's own "Precycle Timer (50% multiplier, 100%
+            // chance, 100% shelter failure)" row, which had the mechanic built but never actually
+            // assigned). The 50%/100%/100% values themselves are PrecycleTimerSettings' own
+            // per-character overrides (PerCharacterDefaultDurationPercent/FrequencyPercent/
+            // ShelterFailureChancePercent), not something SetDefault carries -- same split as every
+            // other per-character tuned default in this file.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.PrecycleTimer.ID, true);
         }
     }
 }
