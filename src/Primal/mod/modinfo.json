@@ -3,6 +3,6 @@
 	"name": "Primal",
 	"version": "0.1.0",
 	"authors": "Rokas",
-	"description": "Adds a fourth save slot per vanilla slot. On those slots only, the ordinary vanilla slugcats can have extra gameplay modifiers ('gimmicks') layered on top of them - configured per character in this mod's Remix options. Every other save slot plays completely unmodified.",
+	"description": "Adds Primal versions of character - more difficult and slugcats meant for an interesting challenge to those willing to delve deeper into the mechanics of the game.\nCoded with AI. Chains and Misery gimmicks made by dannad. Art by caps_lock",
 	"tags": [ "Gameplay" ]
 }
