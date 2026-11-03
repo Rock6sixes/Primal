@@ -527,6 +527,55 @@ shelter failure" and confirm a broken shelter now stays broken even after a late
 (5) check `BepInEx/LogOutput.log` for `[PrecycleTimer]` lines showing the shelter-failure roll and,
 on a successful reset, the "shelter failure reset on successful sleep" line.
 
+**New finding (2026-11-03): Kill List markers appear to have NEVER actually persisted to disk,
+despite the design looking correct.** The user asked to double-check that the Kill List popup
+(`KillListDialog`, `CreatureKillListGimmick.cs`) shows kills across the WHOLE playthrough, not just
+the current cycle. Code reading says it should: `PrimalKillTracker.IsKilled` checks permanently
+persisted `PRIMAL_KILLLIST` markers in `DeathPersistentSaveData.unrecognizedSaveStrings` (via
+`PrimalSaveMarkers`) OR the in-memory "pending this cycle" set, and markers are meant to move from
+pending into permanent storage via `PrimalKillCommitHook` (a Prefix on `RainWorldGame.Win`).
+**Checked the real evidence instead of trusting the design:** read `sav666667` (the live Primal
+slot 1 save file) directly and found Artificer's own save data shows `CYCLENUM<svB>424` (424 played
+cycles) but **zero `PRIMAL_KILLLIST` markers anywhere in the file, for any character** -- despite
+extensive logged Chains-gimmick activity on Artificer earlier this session. If kills were ever
+actually being committed to disk, 424 cycles should have produced plenty. This exactly matches the
+user's own symptom: within one continuous game session, pending kills accumulate correctly in
+memory and the dialog looks right -- but since nothing ever reaches the save file, closing and
+reopening the game (or just re-selecting the character) wipes `_pending`/`_lastCommitted` back to
+empty, and the dialog then shows only whatever's been killed since THAT relaunch -- i.e. "only
+shows the kill list for that cycle" is real, just not for the reason it looks like from the code
+alone. **Not yet root-caused** -- nothing in `PrimalKillTracker.cs` ever logged anything before
+this round, so there was no way to tell from `LogOutput.log` whether `RainWorldGame.Win`'s own
+Prefix gate was failing silently (wrong `IsStorySession`/`PrimalSlot.IsActive`/`saveState` state),
+or whether `CommitPending` itself was being skipped or throwing. **Fixed the visibility gap, not
+yet the bug itself:** added logging to every one of `PrimalKillCommitHook.Prefix`'s own gates,
+to `CommitPending` (now logs every call, including "nothing pending" and "saveData null" cases, not
+just successful commits), and to `PrimalKillDieHook.Postfix` (confirms kills are at least reaching
+the in-memory pending set). **Next session: play as any Primal-slot character, kill something,
+reach a shelter successfully, and check `LogOutput.log` for `[PrimalKillTracker]` lines** -- that
+will show directly whether `RainWorldGame.Win`'s gate is failing (and which check), whether
+`CommitPending` runs but finds nothing pending (a sign the Die hook itself isn't firing, despite
+Chains' own kill-tracking evidence suggesting creatures ARE dying), or whether commits genuinely
+succeed now (in which case the original bug may already be fixed by something unrelated, or may
+have been intermittent) -- don't guess further without this log in hand.
+
+**Also done, 2026-11-03, per direct request -- a live save-file edit, not a code change:** marked
+every `KillListRegistry` creature as killed for Artificer specifically on `sav666667` (the live
+Primal slot 1 save), except Rain Deer (`Deer`) and Guardian (`TempleGuard`). Backed up the original
+file first (`sav666667.bak-20261103`, same `Rain World` folder). Located Artificer's own
+`DEATHPERSISTENTSAVEDATA` block within the file's real, currently-loaded "save" Hashtable value
+(NOT "save__Backup", a separate, older crash-recovery copy also present in the same file -- both
+exist as parallel entries in the save file's outer Hashtable, confirmed by parsing its `Keys`/
+`Values` arrays directly) and inserted 53 `PRIMAL_KILLLIST<dpB>Artificer<dpB><CreatureType><dpA>`
+markers directly into its `unrecognizedSaveStrings` tail, in the exact format
+`PrimalSaveMarkers`/`DeathPersistentSaveData.SaveToString` themselves use. Verified afterward: exactly
+53 markers, all for Artificer only (no other character's block touched), `Deer`/`TempleGuard`
+correctly absent, and the file's real XML content (excluding its own pre-existing, benign trailing
+null-byte padding out to a fixed-size buffer -- present in the original file too, not something
+this edit caused) still parses correctly. **This direct edit bypasses the commit bug above
+entirely** -- it's unrelated to whether `PrimalKillCommitHook` is working, so these 53 markers will
+show up correctly in the Kill List dialog regardless of that investigation's outcome.
+
 **Known issues from real testing, status checked against current source (2026-11-02):**
 - **"Gourmand's Misery gimmick also spawns yeeks on room entrance; only the exhaustion effect
   should be part of it."** Checked `MiseryGimmick.cs` directly: it contains no yeek-related code at

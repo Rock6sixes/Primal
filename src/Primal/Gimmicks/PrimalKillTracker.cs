@@ -222,8 +222,21 @@ namespace Primal.Gimmicks
             var committedThisCall = new HashSet<string>();
             _lastCommitted[characterID] = committedThisCall;
 
-            if (saveData == null || !_pending.TryGetValue(characterID, out HashSet<string> set) || set.Count == 0)
+            // 2026-11-03: logging added after a real-save audit found zero PRIMAL_KILLLIST
+            // markers ever persisted for a character with 400+ cycles of actual play (sav666667,
+            // Artificer) -- there was previously no way to tell from the log whether this method
+            // even runs, whether saveData is unexpectedly null, or whether _pending is
+            // unexpectedly already empty by the time it's called. Logs every call, not just the
+            // "something to commit" branch, specifically so a run with zero kills this cycle is
+            // still distinguishable from this method never being reached at all.
+            if (saveData == null)
             {
+                Plugin.Log?.LogInfo($"[PrimalKillTracker] {characterID}: CommitPending called with null saveData -- nothing can be persisted this cycle.");
+                return;
+            }
+            if (!_pending.TryGetValue(characterID, out HashSet<string> set) || set.Count == 0)
+            {
+                Plugin.Log?.LogInfo($"[PrimalKillTracker] {characterID}: CommitPending called, nothing pending this cycle.");
                 return;
             }
             foreach (string creatureID in set)
@@ -231,6 +244,7 @@ namespace Primal.Gimmicks
                 PrimalSaveMarkers.Add(saveData, Marker(characterID, creatureID));
                 committedThisCall.Add(creatureID);
             }
+            Plugin.Log?.LogInfo($"[PrimalKillTracker] {characterID}: committed {committedThisCall.Count} kill(s) this cycle to the save file: {string.Join(", ", committedThisCall)}");
             set.Clear();
         }
 
@@ -367,6 +381,10 @@ namespace Primal.Gimmicks
             PrimalKillTracker.RecordPendingKill(characterID, type.value);
             PrimalKillTracker.RecordInstanceKill(characterID, __instance.abstractCreature.ID.number);
             PrimalKillTracker.RaiseKillCredited(characterID, player);
+            // 2026-11-03: see CommitPending's own new logging for why -- this confirms kills are
+            // actually reaching the in-memory pending set at all, the other half of the picture
+            // (whether CommitPending ever successfully moves them from there into the save file).
+            Plugin.Log?.LogInfo($"[PrimalKillTracker] {characterID}: recorded pending kill of {type.value}");
         }
     }
 
@@ -426,14 +444,27 @@ namespace Primal.Gimmicks
         [HarmonyPriority(Priority.First)]
         private static void Prefix(RainWorldGame __instance)
         {
-            if (__instance?.Players == null || !__instance.IsStorySession || !PrimalSlot.IsActive(__instance.rainWorld))
+            // 2026-11-03: this whole method firing at all was previously unverifiable from the
+            // log -- see CommitPending's own new logging for the full context (a real save audit
+            // found zero kills ever persisted across 400+ played cycles). Logs every one of this
+            // method's own early-out gates too, not just CommitPending's, since a gate failing
+            // here (e.g. IsStorySession false, or no PrimalSlot active) would ALSO explain zero
+            // commits ever, with CommitPending itself never even being reached to log anything.
+            if (__instance?.Players == null)
             {
+                Plugin.Log?.LogInfo("[PrimalKillTracker] RainWorldGame.Win fired but __instance.Players was null -- skipping commit entirely.");
+                return;
+            }
+            if (!__instance.IsStorySession || !PrimalSlot.IsActive(__instance.rainWorld))
+            {
+                Plugin.Log?.LogInfo($"[PrimalKillTracker] RainWorldGame.Win fired off the Primal slot or outside story mode (IsStorySession={__instance.IsStorySession}) -- skipping commit entirely.");
                 return;
             }
 
             DeathPersistentSaveData saveData = __instance.GetStorySession?.saveState?.deathPersistentSaveData;
             if (saveData == null)
             {
+                Plugin.Log?.LogInfo("[PrimalKillTracker] RainWorldGame.Win fired but GetStorySession/saveState/deathPersistentSaveData resolved null -- skipping commit entirely.");
                 return;
             }
 
