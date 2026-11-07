@@ -24,12 +24,38 @@ namespace Primal.Gimmicks
     /// a CONSUMER of that global record: its own curated 55-species roster (KillListRegistry.All,
     /// unchanged), and its own cycle-end button + popup (KillListButtonHook/KillListSignalHook/
     /// KillListDialog, unchanged in behavior) -- both still gated on THIS gimmick's own assignment
-    /// (GimmickAssignments.IsEnabled(characterID, ID)), same as before. Only the underlying
-    /// "did this character kill species X" data source changed, from this file's own
-    /// KillListTracker to the new global PrimalKillTracker -- see that file's own header comment
-    /// for the full trace of what moved, what changed, and why (gating relaxed to any Primal-slot
-    /// character; the curated-roster restriction dropped from the recording step entirely, so a
-    /// tracker like Ranger can ask about ANY creature type, not just this gimmick's own 55).
+    /// (GimmickAssignments.IsEnabled(characterID, ID)), same as before. PrimalKillTracker's own
+    /// pending/commit/discard record is still what every OTHER consumer (Ranger, Massacre,
+    /// UniqueKillsRequirement, Feast, Saint, etc.) reads -- this file's own display no longer uses
+    /// it, see the next paragraph.
+    ///
+    /// **2026-11-07: the popup itself switched to reading `SaveState.kills` directly, instead of
+    /// `PrimalKillTracker.IsKilled`.** Found and fixed after the user reported the popup showing
+    /// EVERY tracked species as killed right after ending a cycle, correctly suspecting this mod's
+    /// own tracking was "forcing the kill list... the game actually thinks I killed those
+    /// creatures" -- and asked directly for the popup to instead read "the same data thats used at
+    /// the end of a campaign to show how many killed creatures there are." That data is real and
+    /// already exists in vanilla: `SaveState.kills` (`List&lt;KeyValuePair&lt;IconSymbol
+    /// .IconSymbolData, int&gt;&gt;`), the exact field `Menu.StoryGameStatisticsScreen.KillsTable`
+    /// reads to build the icon+count grid shown on the real end-of-campaign Statistics screen.
+    /// Confirmed via `SaveState.cs`'s own `AppendCycleToStatistics` that this is populated
+    /// unconditionally on every cycle end -- win OR death, no exceptions (`AppendKills` is called
+    /// regardless of the `death` parameter; only the separate `deaths` counter is conditional) --
+    /// unlike this mod's own `PrimalKillTracker`, which deliberately discards a cycle's kills on
+    /// death. This is PRECISELY why `PrimalKillTracker`'s own design doesn't match what the user is
+    /// describing here: vanilla's real, persistent kill count never discards anything, so a
+    /// genuinely accurate "has this character ever killed X" display has to read vanilla's own
+    /// ground truth, not re-derive a parallel (and, per this bug, buggier) one. `GetKillCount`
+    /// (below) looks up a `CreatureTemplate.Type`'s count directly by scanning `saveState.kills`
+    /// for a matching `.critType` -- `IconSymbol.IconSymbolData` is a plain public struct already
+    /// constructed directly elsewhere in this same file (`RenderEntry`'s own icon lookup), and
+    /// `SaveState.kills`/`.critType` are both plain public fields on an already-trusted-directly
+    /// class (`saveState.saveStateNumber`/`.deathPersistentSaveData` are both already read directly
+    /// elsewhere in this exact file) -- same low Gotcha #1 risk category, not reflected.
+    /// `KillListDialog`/`ComputeSize`/`KillListSignalHook` all take a `SaveState` now instead of a
+    /// bare `DeathPersistentSaveData` -- the dialog shows each killed species' real count next to
+    /// its name (not just a killed/not-killed flag), directly answering the user's own "you should
+    /// be able to see over 1000 scavengers killed but exactly one leviathan killed" framing.
     /// </summary>
     internal static class CreatureKillListGimmick
     {
@@ -216,17 +242,17 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            ShowKillListDialog(__instance.manager, characterID, saveState.deathPersistentSaveData);
+            ShowKillListDialog(__instance.manager, characterID, saveState);
         }
 
-        private static void ShowKillListDialog(ProcessManager manager, string characterID, DeathPersistentSaveData saveData)
+        private static void ShowKillListDialog(ProcessManager manager, string characterID, SaveState saveState)
         {
             if (manager == null)
             {
                 return;
             }
 
-            manager.ShowDialog(new KillListDialog(manager, characterID, saveData));
+            manager.ShowDialog(new KillListDialog(manager, characterID, saveState));
         }
     }
 
@@ -290,6 +316,13 @@ namespace Primal.Gimmicks
     /// assigned (KillListButtonHook's own gate), still only against this file's own 55-species
     /// KillListRegistry.All.
     ///
+    /// **2026-11-07:** data source switched AGAIN, this time to vanilla's own `SaveState.kills` --
+    /// see this whole file's top-level header comment (`CreatureKillListGimmick`'s own doc summary,
+    /// above `KillListRegistry`) for the full "why" (a real bug: `PrimalKillTracker` discards a
+    /// cycle's kills on death, which doesn't match what the user actually wanted -- vanilla's own
+    /// real statistic never discards anything). Killed entries now also show their real kill count
+    /// next to the name, not just a plain killed/not-killed flag.
+    ///
     /// **Not yet built or tested in-game as of this doc** -- next: `dotnet build`, then open the Kill
     /// List popup (any character with the gimmick assigned, from the cycle-end screen) and confirm
     /// (1) it compiles and opens without an error screen; (2) the grid renders fully on screen with
@@ -313,14 +346,18 @@ namespace Primal.Gimmicks
         private const float CloseButtonAreaHeight = 60f;
         private const string CloseSignal = "PRIMAL_KILLLIST_CLOSE";
 
-        public KillListDialog(ProcessManager manager, string characterID, DeathPersistentSaveData saveData)
-            : base(string.Empty, ComputeSize(saveData, characterID), manager)
+        private readonly SaveState _saveState;
+
+        public KillListDialog(ProcessManager manager, string characterID, SaveState saveState)
+            : base(string.Empty, ComputeSize(saveState), manager)
         {
+            _saveState = saveState;
+
             var notKilled = new List<KillListEntry>();
             var killed = new List<KillListEntry>();
             foreach (KillListEntry entry in KillListRegistry.All)
             {
-                if (PrimalKillTracker.IsKilled(saveData, characterID, entry.ID))
+                if (GetKillCount(saveState, entry.Type) > 0)
                 {
                     killed.Add(entry);
                 }
@@ -401,23 +438,71 @@ namespace Primal.Gimmicks
             };
             pages[0].Container.AddChild(icon);
 
+            // 2026-11-07: killed entries now show their real vanilla kill count too (e.g. "Scavenger
+            // (1247)"), not just a binary killed/not-killed flag -- directly answering the user's
+            // own "you should be able to see... exactly one leviathan killed" framing. Not-yet-killed
+            // entries show just the plain name, same as before.
+            string displayText = entry.DisplayName;
+            if (killed)
+            {
+                int count = GetKillCount(_saveState, entry.Type);
+                displayText = $"{entry.DisplayName} ({count})";
+            }
+
             // Same MenuLabel anchor-is-always-the-box-center behavior as the section headers above
             // -- with the previous non-zero size.x, Left alignment anchored at the column's own
             // horizontal middle and grew the text rightward from there, landing well right of the
             // icon instead of right next to it. A zero-width box puts the anchor at exactly pos.x,
             // so Left-aligned text now genuinely starts right where the icon ends.
-            var label = new Menu.MenuLabel(this, pages[0], entry.DisplayName, new Vector2(cellX + IconSize + IconLabelGap, cellCenterY - 10f), new Vector2(0f, 20f), false);
+            var label = new Menu.MenuLabel(this, pages[0], displayText, new Vector2(cellX + IconSize + IconLabelGap, cellCenterY - 10f), new Vector2(0f, 20f), false);
             label.label.alignment = FLabelAlignment.Left;
             label.label.color = color;
             pages[0].subObjects.Add(label);
         }
 
-        private static Vector2 ComputeSize(DeathPersistentSaveData saveData, string characterID)
+        /// <summary>Looks up how many times this character has ever killed this creature type,
+        /// straight from vanilla's own real, persistent per-species kill counter
+        /// (`SaveState.kills`) -- see this class's own header comment for the full "why" (this
+        /// never discards on death, unlike `PrimalKillTracker`, matching vanilla's actual
+        /// behavior). 0 if never killed, or if `saveState`/`.kills` is unexpectedly null.
+        ///
+        /// **Sums EVERY entry matching this critType, rather than returning the first match --
+        /// confirmed necessary, not just defensive, by reading the real live save data directly.**
+        /// `IconSymbol.IconSymbolData.intData` encodes a purely cosmetic sprite-size variant for
+        /// plain `CreatureTemplate.Type.Centipede` specifically (`Centipede.GenerateSize`, read via
+        /// `CreatureSymbol.cs`'s own `Kill_Centipede{1,2,3}` sprite lookup) -- so a character who
+        /// killed regular Centipedes at more than one size ends up with SEVERAL separate
+        /// `saveState.kills` entries sharing `critType == Centipede` but differing `intData` (e.g.
+        /// `Centipede-Creature-1` and `Centipede-Creature-2` as two distinct entries in the same
+        /// list, confirmed directly in a real save file). `SmallCentipede`/`RedCentipede` are
+        /// separate, fixed `critType` values unaffected by this (their own sprite lookups hardcode
+        /// a fixed variant regardless of `intData`), so for them this always sums exactly one
+        /// entry -- summing is a safe superset for every creature type, not just the ones that
+        /// happen to split like this.</summary>
+        private static int GetKillCount(SaveState saveState, CreatureTemplate.Type type)
+        {
+            List<KeyValuePair<IconSymbol.IconSymbolData, int>> kills = saveState?.kills;
+            if (kills == null || type == null)
+            {
+                return 0;
+            }
+            int total = 0;
+            foreach (KeyValuePair<IconSymbol.IconSymbolData, int> kv in kills)
+            {
+                if (kv.Key.critType == type)
+                {
+                    total += kv.Value;
+                }
+            }
+            return total;
+        }
+
+        private static Vector2 ComputeSize(SaveState saveState)
         {
             int killedCount = 0;
             foreach (KillListEntry entry in KillListRegistry.All)
             {
-                if (PrimalKillTracker.IsKilled(saveData, characterID, entry.ID))
+                if (GetKillCount(saveState, entry.Type) > 0)
                 {
                     killedCount++;
                 }

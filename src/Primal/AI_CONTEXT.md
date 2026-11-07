@@ -527,54 +527,67 @@ shelter failure" and confirm a broken shelter now stays broken even after a late
 (5) check `BepInEx/LogOutput.log` for `[PrecycleTimer]` lines showing the shelter-failure roll and,
 on a successful reset, the "shelter failure reset on successful sleep" line.
 
-**New finding (2026-11-03): Kill List markers appear to have NEVER actually persisted to disk,
-despite the design looking correct.** The user asked to double-check that the Kill List popup
-(`KillListDialog`, `CreatureKillListGimmick.cs`) shows kills across the WHOLE playthrough, not just
-the current cycle. Code reading says it should: `PrimalKillTracker.IsKilled` checks permanently
-persisted `PRIMAL_KILLLIST` markers in `DeathPersistentSaveData.unrecognizedSaveStrings` (via
-`PrimalSaveMarkers`) OR the in-memory "pending this cycle" set, and markers are meant to move from
-pending into permanent storage via `PrimalKillCommitHook` (a Prefix on `RainWorldGame.Win`).
-**Checked the real evidence instead of trusting the design:** read `sav666667` (the live Primal
-slot 1 save file) directly and found Artificer's own save data shows `CYCLENUM<svB>424` (424 played
-cycles) but **zero `PRIMAL_KILLLIST` markers anywhere in the file, for any character** -- despite
-extensive logged Chains-gimmick activity on Artificer earlier this session. If kills were ever
-actually being committed to disk, 424 cycles should have produced plenty. This exactly matches the
-user's own symptom: within one continuous game session, pending kills accumulate correctly in
-memory and the dialog looks right -- but since nothing ever reaches the save file, closing and
-reopening the game (or just re-selecting the character) wipes `_pending`/`_lastCommitted` back to
-empty, and the dialog then shows only whatever's been killed since THAT relaunch -- i.e. "only
-shows the kill list for that cycle" is real, just not for the reason it looks like from the code
-alone. **Not yet root-caused** -- nothing in `PrimalKillTracker.cs` ever logged anything before
-this round, so there was no way to tell from `LogOutput.log` whether `RainWorldGame.Win`'s own
-Prefix gate was failing silently (wrong `IsStorySession`/`PrimalSlot.IsActive`/`saveState` state),
-or whether `CommitPending` itself was being skipped or throwing. **Fixed the visibility gap, not
-yet the bug itself:** added logging to every one of `PrimalKillCommitHook.Prefix`'s own gates,
-to `CommitPending` (now logs every call, including "nothing pending" and "saveData null" cases, not
-just successful commits), and to `PrimalKillDieHook.Postfix` (confirms kills are at least reaching
-the in-memory pending set). **Next session: play as any Primal-slot character, kill something,
-reach a shelter successfully, and check `LogOutput.log` for `[PrimalKillTracker]` lines** -- that
-will show directly whether `RainWorldGame.Win`'s gate is failing (and which check), whether
-`CommitPending` runs but finds nothing pending (a sign the Die hook itself isn't firing, despite
-Chains' own kill-tracking evidence suggesting creatures ARE dying), or whether commits genuinely
-succeed now (in which case the original bug may already be fixed by something unrelated, or may
-have been intermittent) -- don't guess further without this log in hand.
+**RESOLVED (2026-11-07): Kill List now reads vanilla's own real, persistent per-species kill
+counter (`SaveState.kills`) instead of this mod's own `PrimalKillTracker` record.** Full story,
+across two rounds:
 
-**Also done, 2026-11-03, per direct request -- a live save-file edit, not a code change:** marked
-every `KillListRegistry` creature as killed for Artificer specifically on `sav666667` (the live
-Primal slot 1 save), except Rain Deer (`Deer`) and Guardian (`TempleGuard`). Backed up the original
-file first (`sav666667.bak-20261103`, same `Rain World` folder). Located Artificer's own
-`DEATHPERSISTENTSAVEDATA` block within the file's real, currently-loaded "save" Hashtable value
-(NOT "save__Backup", a separate, older crash-recovery copy also present in the same file -- both
-exist as parallel entries in the save file's outer Hashtable, confirmed by parsing its `Keys`/
-`Values` arrays directly) and inserted 53 `PRIMAL_KILLLIST<dpB>Artificer<dpB><CreatureType><dpA>`
-markers directly into its `unrecognizedSaveStrings` tail, in the exact format
-`PrimalSaveMarkers`/`DeathPersistentSaveData.SaveToString` themselves use. Verified afterward: exactly
-53 markers, all for Artificer only (no other character's block touched), `Deer`/`TempleGuard`
-correctly absent, and the file's real XML content (excluding its own pre-existing, benign trailing
-null-byte padding out to a fixed-size buffer -- present in the original file too, not something
-this edit caused) still parses correctly. **This direct edit bypasses the commit bug above
-entirely** -- it's unrelated to whether `PrimalKillCommitHook` is working, so these 53 markers will
-show up correctly in the Kill List dialog regardless of that investigation's outcome.
+**Round 1 (2026-11-03):** the user asked to double-check the Kill List popup shows kills across
+the whole playthrough. Code reading suggested it should (`PrimalKillTracker.IsKilled` checks
+permanently-persisted markers OR the in-memory pending set) -- but reading the real save file
+(`sav666667`, Artificer, 424 played cycles) found ZERO `PRIMAL_KILLLIST` markers ever persisted,
+matching the user's symptom exactly (pending kills look right within one session, but nothing
+ever reaches disk, so a relaunch wipes it). Added logging to the commit pipeline, and separately
+(per direct request) hand-edited the live save file to mark every roster creature as killed for
+Artificer except Rain Deer/Guardian, as a stopgap.
+
+**Round 2 (2026-11-07) -- the stopgap itself became the next bug report, which pointed at the
+real fix.** The user reported the popup then showing literally EVERY tracked species as killed
+right after a cycle ended, correctly suspecting this mod's own tracking was "forcing the kill
+list... the game actually thinks I killed those creatures" -- and asked directly for the popup to
+instead read "the same data thats used at the end of a campaign to show how many killed creatures
+there are," giving a concrete, checkable example: "over 1000 scavengers... exactly one
+leviathan... no rain deers or guardians."
+
+That data is real and already exists in vanilla, confirmed by reading `Menu
+.StoryGameStatisticsScreen.cs` (the actual post-campaign Statistics screen) and `SaveState.cs`:
+**`SaveState.kills`** (`List<KeyValuePair<IconSymbol.IconSymbolData, int>>`) is vanilla's own
+persistent per-creature-type kill counter, the exact field that screen's own `KillsTable` reads.
+Critically, `SaveState.AppendCycleToStatistics` populates it **unconditionally on every cycle end,
+win OR death** (confirmed in its own source -- only the separate `deaths` counter is conditional
+on the `death` parameter; `AppendKills` itself isn't) -- this is precisely why `PrimalKillTracker`
+never matched what the user wanted: it deliberately discards a cycle's kills on death, which
+vanilla's own real statistic never does.
+
+**Fix:** `CreatureKillListGimmick.cs`'s `KillListDialog`/`ComputeSize`/`KillListSignalHook` all
+take a `SaveState` now (not a bare `DeathPersistentSaveData`), and a new `GetKillCount` reads
+`saveState.kills` directly by matching `.critType`. One real wrinkle found and fixed by reading
+the actual live data, not just the vanilla source: plain `CreatureTemplate.Type.Centipede` splits
+into MULTIPLE separate `kills` entries sharing that same `critType` but differing `intData` (a
+cosmetic sprite-size variant, confirmed in `CreatureSymbol.cs`'s own `Kill_Centipede{1,2,3}`
+lookup) -- `GetKillCount` sums every matching entry rather than returning the first match, which
+is what a real save's data (two separate `Centipede` entries, intData 1 and 2) actually needed.
+Killed entries in the popup now also show their real count next to the name (e.g. "Scavenger
+(1595)"), not just a plain killed/not-killed flag.
+
+**Independently verified against the real live save data before calling this done:** parsed
+Artificer's full `KILLS` field directly and summed every one of the 55 roster creatures the same
+way `GetKillCount` does -- `Scavenger: 1595`, `BigEel` (Leviathan): `1`, `Deer` (Rain Deer): `0`,
+`TempleGuard` (Guardian): `0`, matching the user's own verification example exactly. Also reverted
+the round-1 stopgap: removed all 106 injected `PRIMAL_KILLLIST` markers from the live save file
+(found in both its "save" and "save__Backup" Hashtable entries -- the game's own backup rotation
+had copied them into both since round 1) via a precise regex match on exactly the pattern
+inserted, not a wholesale restore-from-backup (which would have discarded four real days of
+progress since the round-1 backup was taken). A fresh backup
+(`sav666667.bak-20261107-before-revert`) was taken first regardless.
+
+**`PrimalKillTracker.cs` itself, and its own logging from round 1, were left exactly as they
+were** -- Ranger, Massacre, Saint, Feast, and `UniqueKillsRequirement` all still read it for live,
+mid-session detection, which is a genuinely different need (knowing about a kill the instant it
+happens, including ones not on Kill List's own 55-species roster) than Kill List's own simple
+"show the real ground truth" display -- only `CreatureKillListGimmick.cs`'s own display logic
+changed. Whether `PrimalKillTracker`'s own commit pipeline has a real bug (the round-1 finding)
+is now moot for Kill List specifically, but still relevant to those other consumers -- the
+logging added in round 1 is still in place for whenever that's picked back up.
 
 **Known issues from real testing, status checked against current source (2026-11-02):**
 - **"Gourmand's Misery gimmick also spawns yeeks on room entrance; only the exhaustion effect
