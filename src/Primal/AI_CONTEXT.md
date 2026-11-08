@@ -622,6 +622,21 @@ Whether `PrimalKillTracker`'s own commit pipeline has a real bug (the round-1 fi
 is now moot for Kill List specifically, but still relevant to those other consumers -- the
 logging added in round 1 is still in place for whenever that's picked back up.
 
+**Round 4 (2026-11-08): round 3's fix was correct but not what the user actually wanted here.**
+A screenshot of the death/sleep screen after round 3's deploy still showed a large icon row --
+round 3 made `PrimalArtificerKillList.cs` accurate (real `SaveState.kills` entries instead of
+fake ones), but it still merged the character's *entire* kill history into that specific row,
+and the user's actual intent for this particular UI element was different from "KILL LIST": they
+wanted this small vanilla row to just show vanilla's own default per-cycle-only kills, with full
+history staying exclusive to the separate "KILL LIST" button. Confirmed via `AskUserQuestion`
+("Only this cycle's real kills (Recommended)"). Fix: deleted `PrimalArtificerKillList.cs`
+entirely (confirmed via `grep` that nothing else referenced the type, and a clean `dotnet build`
+afterward) rather than patching it further -- there was nothing left for it to do once the goal
+was "don't touch this screen at all." The death/sleep screen's kill icon row is now 100% vanilla,
+unpatched; the "KILL LIST" button (round 2's fix, `CreatureKillListGimmick.cs`'s `GetKillCount`
+reading `SaveState.kills`) remains the only place full lifetime kill history is shown. Deployed
+and hash-verified after the game was closed.
+
 **Known issues from real testing, status checked against current source (2026-11-02):**
 - **"Gourmand's Misery gimmick also spawns yeeks on room entrance; only the exhaustion effect
   should be part of it."** Checked `MiseryGimmick.cs` directly: it contains no yeek-related code at
