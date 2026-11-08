@@ -12,108 +12,105 @@ namespace Primal.Gimmicks
     //
     // The kill list shown when you die or sleep is NOT the saved KILLS list. Verified from the game's code:
     //   SleepAndDeathScreen.GetDataFromGame does  new SleepScreenKills(menu, owner, pos, package.sessionRecord.kills)
-    // and sessionRecord.kills only holds the kills of THIS cycle. (The saved cumulative list, SaveState.kills, is only
-    // shown by the end-of-campaign StoryGameStatisticsScreen, which is why editing the save file changed nothing here.)
+    // and sessionRecord.kills only holds the kills of THIS cycle -- the real, persistent, cumulative record is
+    // SaveState.kills, only otherwise shown by the end-of-campaign StoryGameStatisticsScreen.
     //
-    // So this patch rewrites that constructor's `killsData` argument: on a Primal slot, while playing Artificer, it
-    // appends one kill of every creature type that THIS cycle's kills don't already contain, except Rain Deer ("Deer")
-    // and Guardian ("TempleGuard"). The screen itself still decides what is drawable (SleepScreenKills only makes a
-    // trophy for creatures where CreatureSymbol.DoesCreatureEarnATrophy is true).
+    // 2026-11-08 rewrite -- the original version of this patch (preserved in git history) injected one FAKE kill
+    // of every known creature type (except Rain Deer and Guardian) into this cycle's own kills list, so the
+    // sleep/death screen would show every tracked species as "killed" regardless of whether that was ever true.
+    // That's exactly what produced the bug reported directly: "end of cycle kills" showing everything killed,
+    // which the user correctly identified as this mod "forcing the kill list" rather than reflecting reality --
+    // see CreatureKillListGimmick.cs's own header comment for the parallel story on the separate "KILL LIST"
+    // button/popup this mod adds, which hit (and was fixed from) the exact same root confusion: real,
+    // cumulative, persistent kill data lives in SaveState.kills, not anything this mod should be faking.
     //
-    // The list handed to the screen is a COPY. The real sessionRecord.kills is never touched, so the fake kills can't
-    // leak into SaveState.AppendKills and get written into the save.
+    // Fixed the same way: this patch now merges in REAL entries from SaveState.kills (every creature type this
+    // character has ACTUALLY killed at least once, ever) that this cycle's own kills don't already contain --
+    // no fake injection, no hardcoded "every known creature type" list, no Rain Deer/Guardian special case
+    // needed at all. If SaveState.kills genuinely has zero entries for Rain Deer/Guardian (confirmed true for
+    // the user's own save as of the previous round's investigation), this screen simply won't show them killed
+    // either, for the same reason it's accurate for everything else: it's reading the real record, not faking
+    // anything.
+    //
+    // The list handed to the screen is still a COPY -- the real sessionRecord.kills is never touched, so
+    // nothing this patch adds can leak back into SaveState.AppendKills and double-count anything.
     internal static class PrimalArtificerKillList
     {
         internal static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource("PrimalArtificerKillList");
 
-        // Creature types of vanilla + More Slugcats (+ its shared-DLC list), from the game's own enums.
-        // Deliberately not here: non-creature templates (StandardGroundCreature, Slugcat, LizardTemplate), SlugNPC,
-        // Watcher-only creatures, and the two excluded below.
-        private static readonly string[] Names =
-        {
-            "PinkLizard", "GreenLizard", "BlueLizard", "YellowLizard", "WhiteLizard", "RedLizard", "BlackLizard",
-            "Salamander", "CyanLizard", "Fly", "Leech", "SeaLeech", "Snail", "Vulture", "GarbageWorm", "LanternMouse",
-            "CicadaA", "CicadaB", "Spider", "JetFish", "BigEel", "TubeWorm", "DaddyLongLegs", "BrotherLongLegs",
-            "TentaclePlant", "PoleMimic", "MirosBird", "Centipede", "RedCentipede", "Centiwing", "SmallCentipede",
-            "Scavenger", "Overseer", "VultureGrub", "EggBug", "BigSpider", "SpitterSpider", "SmallNeedleWorm",
-            "BigNeedleWorm", "DropBug", "KingVulture", "Hazer",
-            "MirosVulture", "SpitLizard", "EelLizard", "MotherSpider", "TerrorLongLegs", "AquaCenti", "StowawayBug",
-            "ScavengerElite", "Inspector", "Yeek", "BigJelly", "JungleLeech", "ZoopLizard",
-            "HunterDaddy", "FireBug", "ScavengerKing", "TrainLizard",
-        };
-
-        // Rain Deer and Guardian: left out on purpose.
-        private static readonly HashSet<string> Excluded = new HashSet<string> { "Deer", "TempleGuard" };
-
-        private static readonly FieldInfo SaveStateField = AccessTools.Field(typeof(KarmaLadderScreen), "saveState");
-        private static readonly FieldInfo StateNumberField = AccessTools.Field(typeof(SaveState), "saveStateNumber");
         private static readonly FieldInfo SymbolDataField = AccessTools.Field(typeof(PlayerSessionRecord.KillRecord), "symbolData");
-        private static readonly FieldInfo CritTypeField = AccessTools.Field(typeof(IconSymbol.IconSymbolData), "critType");
-        private static readonly FieldInfo IntDataField = AccessTools.Field(typeof(IconSymbol.IconSymbolData), "intData");
 
-        private static List<IconSymbol.IconSymbolData> _extras;
         private static bool _loggedFirstUse;
 
         // Is the death/sleep screen currently showing an Artificer run, on a Primal slot?
-        internal static bool ShouldApply(Menu.Menu menu)
+        internal static bool ShouldApply(Menu.Menu menu, out SaveState saveState)
         {
+            saveState = null;
             if (menu == null || menu.manager == null || menu.manager.rainWorld == null) return false;
             if (!PrimalSlot.IsActive(menu.manager.rainWorld)) return false;
-            if (SaveStateField == null || StateNumberField == null) return false;
-            object saveState = SaveStateField.GetValue(menu);
-            if (saveState == null) return false;
-            SlugcatStats.Name number = StateNumberField.GetValue(saveState) as SlugcatStats.Name;
-            return number != null && number == MoreSlugcatsEnums.SlugcatStatsName.Artificer;
+            if (!(menu is Menu.KarmaLadderScreen karmaLadderScreen)) return false;
+            saveState = PrimalMenuAccess.GetSaveState(karmaLadderScreen);
+            return saveState?.saveStateNumber != null && saveState.saveStateNumber == MoreSlugcatsEnums.SlugcatStatsName.Artificer;
         }
 
-        // One IconSymbolData per creature type that is registered in this install (so DLC types vanish if the DLC is off).
-        private static List<IconSymbol.IconSymbolData> GetExtras()
-        {
-            if (_extras != null) return _extras;
-            var list = new List<IconSymbol.IconSymbolData>();
-            foreach (string name in Names)
-            {
-                if (Excluded.Contains(name)) continue;
-                CreatureTemplate.Type type = new CreatureTemplate.Type(name, false);
-                if (type.Index == -1) continue;                          // not registered in this install
-                if (name == "Centipede")                                 // the three Centipede sizes are separate kills
-                    for (int size = 1; size <= 3; size++)
-                        list.Add(new IconSymbol.IconSymbolData(type, AbstractPhysicalObject.AbstractObjectType.Creature, size));
-                else
-                    list.Add(new IconSymbol.IconSymbolData(type, AbstractPhysicalObject.AbstractObjectType.Creature, 0));
-            }
-            _extras = list;
-            Log.LogInfo("Primal Artificer full kill list: " + list.Count + " creature entries available.");
-            return list;
-        }
-
+        // Same "critType|intData" key both this file and CreatureKillListGimmick.cs's own GetKillCount use to
+        // identify a kills-list entry -- see that file's own header comment for why intData has to be part of
+        // the key (plain Centipede kills split across several entries differing only by a cosmetic size
+        // variant) rather than matching on critType alone.
         private static string KeyOf(IconSymbol.IconSymbolData data)
         {
-            object crit = CritTypeField != null ? CritTypeField.GetValue(data) : null;
-            object intData = IntDataField != null ? IntDataField.GetValue(data) : null;
-            return (crit != null ? crit.ToString() : "?") + "|" + (intData != null ? intData.ToString() : "?");
+            return data.critType?.value + "|" + data.intData;
         }
 
-        // Returns a NEW list: this cycle's real kills, then one entry for every type not already in it.
-        internal static List<PlayerSessionRecord.KillRecord> Build(List<PlayerSessionRecord.KillRecord> real)
+        private static string KeyOf(PlayerSessionRecord.KillRecord record)
+        {
+            if (SymbolDataField == null)
+            {
+                return null;
+            }
+            return KeyOf((IconSymbol.IconSymbolData)SymbolDataField.GetValue(record));
+        }
+
+        // Returns a NEW list: this cycle's real kills, then one real entry (from SaveState.kills, the
+        // permanent record) for every creature type this cycle doesn't already show, that the character has
+        // genuinely killed at least once, ever.
+        internal static List<PlayerSessionRecord.KillRecord> Build(List<PlayerSessionRecord.KillRecord> real, SaveState saveState)
         {
             var result = real != null ? new List<PlayerSessionRecord.KillRecord>(real) : new List<PlayerSessionRecord.KillRecord>();
             var have = new HashSet<string>();
             if (SymbolDataField != null)
+            {
                 foreach (PlayerSessionRecord.KillRecord rec in result)
-                    have.Add(KeyOf((IconSymbol.IconSymbolData)SymbolDataField.GetValue(rec)));
+                {
+                    have.Add(KeyOf(rec));
+                }
+            }
 
             int added = 0;
-            foreach (IconSymbol.IconSymbolData data in GetExtras())
+            List<KeyValuePair<IconSymbol.IconSymbolData, int>> permanentKills = saveState?.kills;
+            if (permanentKills != null)
             {
-                if (have.Contains(KeyOf(data))) continue;
-                result.Add(new PlayerSessionRecord.KillRecord(data, default(EntityID), false));
-                added++;
+                foreach (KeyValuePair<IconSymbol.IconSymbolData, int> kv in permanentKills)
+                {
+                    if (kv.Value <= 0)
+                    {
+                        continue;
+                    }
+                    string key = KeyOf(kv.Key);
+                    if (have.Contains(key))
+                    {
+                        continue;
+                    }
+                    result.Add(new PlayerSessionRecord.KillRecord(kv.Key, default(EntityID), false));
+                    have.Add(key);
+                    added++;
+                }
             }
+
             if (!_loggedFirstUse)
             {
                 _loggedFirstUse = true;
-                Log.LogInfo("Death/sleep screen kill list: " + (result.Count - added) + " real kill(s) this cycle + " + added + " added.");
+                Log.LogInfo("Death/sleep screen kill list: " + (result.Count - added) + " real kill(s) this cycle + " + added + " from the permanent record (SaveState.kills).");
             }
             return result;
         }
@@ -135,8 +132,8 @@ namespace Primal.Gimmicks
         {
             try
             {
-                if (!PrimalArtificerKillList.ShouldApply(menu)) return;
-                killsData = PrimalArtificerKillList.Build(killsData);
+                if (!PrimalArtificerKillList.ShouldApply(menu, out SaveState saveState)) return;
+                killsData = PrimalArtificerKillList.Build(killsData, saveState);
             }
             catch (Exception e)
             {

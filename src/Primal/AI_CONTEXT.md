@@ -585,7 +585,40 @@ were** -- Ranger, Massacre, Saint, Feast, and `UniqueKillsRequirement` all still
 mid-session detection, which is a genuinely different need (knowing about a kill the instant it
 happens, including ones not on Kill List's own 55-species roster) than Kill List's own simple
 "show the real ground truth" display -- only `CreatureKillListGimmick.cs`'s own display logic
-changed. Whether `PrimalKillTracker`'s own commit pipeline has a real bug (the round-1 finding)
+changed.
+
+**Round 3 (2026-11-08): round 2's fix didn't touch the actual thing the user was looking at.**
+Reported tersely: "bug not fixed, still see end of cycle kills." Checked the deploy first (hash
+matched the installed DLL -- not a deploy gap this time), then checked `LogOutput.log` directly,
+which immediately explained it: `[PrimalArtificerKillList] Death/sleep screen kill list: 62 real
+kill(s) this cycle + 53 added.` -- `PrimalArtificerKillList.cs`, a THIRD, entirely separate,
+pre-existing patch neither created nor touched by rounds 1-2, never mentioned anywhere in this
+doc's prose (only a bare filename in the old file map), and apparently from a session predating
+this doc's own 2026-11-02 reorganization. Its own header comment explained everything at once,
+including why round 1's save-file edit "changed nothing here": it patches vanilla's
+`SleepScreenKills` constructor (the small kill-icon row vanilla itself draws directly on the
+death/sleep screen -- a DIFFERENT UI element from this mod's own "KILL LIST" button + popup that
+rounds 1-2 actually fixed) and, as originally written, unconditionally injected one FAKE kill of
+every known creature type except Rain Deer/Guardian into that cycle's own kill list -- exactly
+the "53 added" in the log line, and exactly the "show everything as killed" symptom reported both
+originally and again just now, completely independent of anything rounds 1-2 touched.
+
+**Fix, same principle as round 2 (real data, not fabricated data):** rewrote `Build`/`ShouldApply`
+to merge in real entries from `SaveState.kills` (every creature genuinely killed at least once,
+ever) instead of fabricating one for every known type. No more hardcoded `Names` list, no more
+"except Deer/Guardian" special case needed at all -- since neither has a real `SaveState.kills`
+entry (confirmed in round 2's own live-data audit: both `0`), accuracy alone reproduces exactly
+the exclusion that used to be hardcoded, for the same reason it's now also correct for every other
+creature. Reused `PrimalMenuAccess.GetSaveState` (already shared elsewhere in this codebase)
+instead of this file's own duplicate reflection fields for the same lookup. Builds clean, deployed
+(after waiting for the game to close -- the DLL is locked while Rain World is running, a first for
+this mod's deploy history worth remembering: `Copy-Item` will fail with "a file with a user-mapped
+section open" if the game is still up). **Not yet confirmed in-game** -- next: end a cycle as
+Artificer on the Primal slot and confirm the death/sleep screen's own kill icons now show exactly
+the character's real kill history (same creatures/counts as the "KILL LIST" button's own popup),
+not every tracked species.
+
+Whether `PrimalKillTracker`'s own commit pipeline has a real bug (the round-1 finding)
 is now moot for Kill List specifically, but still relevant to those other consumers -- the
 logging added in round 1 is still in place for whenever that's picked back up.
 
