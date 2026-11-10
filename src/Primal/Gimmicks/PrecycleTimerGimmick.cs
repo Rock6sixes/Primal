@@ -175,9 +175,13 @@ namespace Primal.Gimmicks
             int scaledMinTicks = Mathf.RoundToInt(PrecycleTimerSettings.VanillaMinDurationTicks * (durationPercent / 100f));
             int scaledMaxTicks = Mathf.RoundToInt(PrecycleTimerSettings.VanillaMaxDurationTicks * (durationPercent / 100f));
             scaledMaxTicks = Mathf.Max(scaledMinTicks, scaledMaxTicks);
+            // Force max wins; otherwise "Random length" rolls between the scaled bounds like
+            // vanilla; otherwise (the default since 2026-11-05) always the scaled minimum.
             int durationTicks = PrecycleTimerSettings.ForceMaxDuration(characterID)
                 ? scaledMaxTicks
-                : scaledMinTicks + Mathf.RoundToInt(durationRoll * (scaledMaxTicks - scaledMinTicks));
+                : PrecycleTimerSettings.RandomDuration(characterID)
+                    ? scaledMinTicks + Mathf.RoundToInt(durationRoll * (scaledMaxTicks - scaledMinTicks))
+                    : scaledMinTicks;
             __instance.maxPreTimer = durationTicks;
             __instance.preTimer = durationTicks;
             __instance.preCycleRainPulse_WaveA = 0f;
@@ -318,11 +322,17 @@ namespace Primal.Gimmicks
         /// randomness by default.</summary>
         private const bool DefaultForceMaxDuration = false;
 
-        /// <summary>Vanilla's own default is per-region and usually small (the user's "2% chance in
-        /// certain regions" applies to flood too, in regions that roll for it at all) -- matched
-        /// here as a conservative default once this gimmick is assigned, same reasoning as
-        /// DefaultFrequencyPercent.</summary>
-        private const int DefaultFloodChancePercent = 2;
+        /// <summary>Changed 2026-11-05 (explicit request): by default the head start is always the
+        /// scaled MINIMUM (100% = vanilla's own shortest roll, 4800 ticks = 2 minutes), not a random
+        /// roll. "Random length" opts back into vanilla's roll between the scaled bounds; "Force max
+        /// precycle timer" still overrides both.</summary>
+        private const bool DefaultRandomDuration = false;
+
+        /// <summary>Vanilla's own chance is per-region and usually small (the user's "2% chance in
+        /// certain regions" applies to flood too, in regions that roll for it at all).
+        /// Changed 2026-11-05 (explicit request): 100% by default, so every triggered precycle
+        /// floods unless turned down.</summary>
+        private const int DefaultFloodChancePercent = 100;
 
         private const int MinFloodChancePercent = 0;
         private const int MaxFloodChancePercent = 100;
@@ -341,6 +351,7 @@ namespace Primal.Gimmicks
         private static readonly Dictionary<string, Configurable<int>> _frequencyPercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<int>> _durationPercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceMaxDuration = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _randomDuration = new Dictionary<string, Configurable<bool>>();
         private static readonly Dictionary<string, Configurable<int>> _floodChancePercent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceSubmergedSuperstructure = new Dictionary<string, Configurable<bool>>();
         private static readonly Dictionary<string, Configurable<bool>> _forceShelterUnavailable = new Dictionary<string, Configurable<bool>>();
@@ -362,13 +373,18 @@ namespace Primal.Gimmicks
                 characterID + "_PrecycleTimer_durationPercent",
                 DefaultDurationPercent,
                 new ConfigurableInfo(
-                    $"Percentage multiplier on BOTH bounds of vanilla's own random head-start roll ({VanillaMinDurationTicks}-{VanillaMaxDurationTicks} ticks, i.e. 2-5 real minutes). 100% rolls within vanilla's own unscaled range; 0% always gives no head start at all. Ignored entirely while \"Force max precycle timer\" is checked.",
+                    $"Percentage multiplier on BOTH bounds of vanilla's own random head-start roll ({VanillaMinDurationTicks}-{VanillaMaxDurationTicks} ticks, i.e. 2-5 real minutes). 100% = vanilla's own 2-5 minute range (by default always the 2-minute minimum unless \"Random precycle length\" is checked); 0% always gives no head start at all. Ignored entirely while \"Force max precycle timer\" is checked.",
                     new ConfigAcceptableRange<int>(MinDurationPercent, MaxDurationPercent)));
 
             _forceMaxDuration[characterID] = owner.config.Bind(
                 characterID + "_PrecycleTimer_forceMaxDuration",
                 DefaultForceMaxDuration,
                 new ConfigurableInfo("If checked, a precycle's head start always uses the scaled upper bound (the percent above times vanilla's own longest roll) instead of rolling between the scaled bounds."));
+
+            _randomDuration[characterID] = owner.config.Bind(
+                characterID + "_PrecycleTimer_randomDuration",
+                DefaultRandomDuration,
+                new ConfigurableInfo("If checked, a precycle's head start rolls randomly between the scaled bounds like vanilla does. If unchecked (default), it is always the scaled minimum (2 minutes at 100%). \"Force max precycle timer\" overrides this."));
 
             _floodChancePercent[characterID] = owner.config.Bind(
                 characterID + "_PrecycleTimer_floodChancePercent",
@@ -403,6 +419,11 @@ namespace Primal.Gimmicks
             return _forceMaxDuration.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
         }
 
+        public static bool RandomDuration(string characterID)
+        {
+            return _randomDuration.TryGetValue(characterID, out Configurable<bool> c) ? c.Value : DefaultRandomDuration;
+        }
+
         public static int GetFloodChancePercent(string characterID)
         {
             return _floodChancePercent.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultFloodChancePercent;
@@ -428,6 +449,7 @@ namespace Primal.Gimmicks
             if (!_frequencyPercent.TryGetValue(characterID, out Configurable<int> frequency) ||
                 !_durationPercent.TryGetValue(characterID, out Configurable<int> duration) ||
                 !_forceMaxDuration.TryGetValue(characterID, out Configurable<bool> forceMax) ||
+                !_randomDuration.TryGetValue(characterID, out Configurable<bool> randomDuration) ||
                 !_floodChancePercent.TryGetValue(characterID, out Configurable<int> flood) ||
                 !_forceSubmergedSuperstructure.TryGetValue(characterID, out Configurable<bool> forceSubmerged) ||
                 !_forceShelterUnavailable.TryGetValue(characterID, out Configurable<bool> forceUnavailable))
@@ -473,6 +495,20 @@ namespace Primal.Gimmicks
 
             items.Add(new OpCheckBox(forceUnavailable, 20f, topY - 168f));
             items.Add(new OpLabel(56f, topY - 164f, "Force shelter unavailable", false));
+
+            // Added 2026-11-05: unchecked (default) = always the scaled minimum head start.
+            var randomCheckbox = new OpCheckBox(randomDuration, 20f, topY - 204f);
+            var randomLabel = new OpLabel(56f, topY - 200f, "Random precycle length (off = always minimum)", false);
+            Color enabledRandomLabelColor = randomLabel.color;
+            void ApplyRandomVisual(bool isForcedMax)
+            {
+                randomCheckbox.greyedOut = isForcedMax;
+                randomLabel.color = isForcedMax ? Color.grey : enabledRandomLabelColor;
+            }
+            ApplyRandomVisual(forceMax.Value);
+            forceMax.OnChange += () => ApplyRandomVisual(forceMax.Value);
+            items.Add(randomCheckbox);
+            items.Add(randomLabel);
 
             _uiCache[characterID] = items;
             return items;

@@ -6,6 +6,22 @@ code alone wastes time. Written 2026-09-11.
 
 AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE AND NOTE DOWN RIVULET SHELTER PERMANENT FAILURE AS AN IMPORTANT TASK TO IMPLEMENT< MENTIONING THAT TO THE USER - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT
 
+## Precycle Timer default changes (2026-11-10)
+
+Explicit request. Applies to every character the gimmick is assigned to (these are the gimmick's
+own defaults, not Rivulet-only):
+- **Head start defaults to the minimum, not a random roll.** Vanilla rolls
+  `Random.Range(4800f, 12000f)` ticks (2-5 minutes, `RainCycle.cs` lines 293/318). New
+  per-character setting `<char>_PrecycleTimer_randomDuration` ("Random precycle length", default
+  off): off = always the scaled minimum (`4800 * durationPercent / 100`, i.e. 2 minutes at 100%);
+  on = vanilla-style roll between the scaled bounds. "Force max precycle timer" still overrides both
+  (and greys the new checkbox out). New checkbox row sits at `topY - 204` in the settings UI.
+- **Flood chance defaults to 100%** (was 2%), so every triggered precycle floods unless turned down.
+- Frequency is still 2% by default, and Precycle Timer is still not assigned to Rivulet by default.
+- Remix keeps saved values: a character whose Precycle settings were already saved keeps them; the
+  new defaults only apply to settings never saved.
+- Builds clean; not yet tested in-game.
+
 ## Rivulet shelter routing: Sleep In Every Shelter + Permanent Shelter Failure (2026-11-05)
 
 **Design (user):** Primal Rivulet must sleep in every shelter, and every shelter slept in breaks for
