@@ -91,6 +91,11 @@ namespace Primal.Gimmicks
             // its own entry in RainTimerSettings.PerCharacterDefaultPercent is 0%, same "starts
             // essentially immediately" treatment as Saint.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.RainTimer.ID, true);
+
+            // Rivulet also gets Permanent Shelter Failure by default (2026-11-05, explicit
+            // request): together with SleepEveryShelterRequirement (RequirementDefaults.cs) the
+            // campaign becomes a one-way route through every shelter.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.PermanentShelterFailure.ID, true);
         }
     }
 }

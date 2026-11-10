@@ -4091,4 +4091,122 @@ namespace Primal.Gimmicks
             return true;
         }
     }
+
+    /// <summary>
+    /// "Sleep In Every Shelter" -- Rivulet's requirement (added 2026-11-05, explicit request,
+    /// replacing VisitShelterRequirement as Rivulet's default): successfully hibernate in every
+    /// shelter in every one of this character's story regions. Walking through a shelter doesn't
+    /// count; only a sleep does. Built to pair with PermanentShelterFailureGimmick, which makes each
+    /// shelter single-use, so the campaign becomes a one-way route through every shelter.
+    ///
+    /// Same overall shape as VisitShelterRequirement (same scope rules: World.shelters minus
+    /// World.DisabledMapRooms, per-region "complete" markers, then every
+    /// SlugcatStats.SlugcatStoryRegions entry), but driven by SurvivorEvents.OnSuccessfulHibernation
+    /// (a Prefix on RainWorldGame.Win, so markers land in the save Win writes) and read from
+    /// ShelterSleepRecords instead of RegionState.roomsVisited.
+    ///
+    /// Extra exclusion VisitShelter doesn't need: shelters the character's own timeline breaks
+    /// permanently (the region map file's "Broken Shelters" line) can never be slept in, so they
+    /// are skipped. Read from ShelterSleepRecords' snapshot of vanilla's brokenShelters taken right
+    /// after World.LoadWorld, before PermanentShelterFailureGimmick adds its own -- otherwise every
+    /// used shelter would look "unsleepable" too.
+    ///
+    /// A region can only become complete while you're in it (its last shelter is slept in there),
+    /// so checking the loaded region on each sleep is enough.
+    /// </summary>
+    internal sealed class SleepEveryShelterRequirement : Requirement
+    {
+        public const string RequirementID = "SleepEveryShelter";
+
+        public override string ID => RequirementID;
+        public override string DisplayName => "Sleep In Every Shelter";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Rivulet;
+
+        private const string RegionCompleteMarkerKey = "PrimalShelterSleptRegionComplete";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (ShelterSleepRecords.RecordSleep(game, player, characterID) == null)
+                {
+                    return;
+                }
+
+                World world = player?.abstractCreature?.world;
+                DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(game);
+                if (world?.name == null || world.shelters == null || world.shelters.Length == 0 || saveData == null)
+                {
+                    return;
+                }
+
+                if (!AllSheltersSleptInLoadedRegion(world, saveData, characterID, out int slept, out int total))
+                {
+                    Plugin.Log?.LogInfo($"[SleepEveryShelter] {characterID}: {slept}/{total} shelters slept in {world.name}");
+                    return;
+                }
+
+                if (PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, world.name)))
+                {
+                    Plugin.Log?.LogInfo($"[SleepEveryShelter] {characterID}: every shelter in {world.name} slept in");
+                }
+
+                if (!AllStoryRegionsComplete(saveData, player.playerState?.slugcatCharacter, characterID))
+                {
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: true);
+            };
+        }
+
+        private static bool AllSheltersSleptInLoadedRegion(World world, DeathPersistentSaveData saveData, string characterID, out int slept, out int total)
+        {
+            slept = 0;
+            total = 0;
+            foreach (int roomIndex in world.shelters)
+            {
+                AbstractRoom shelterRoom = world.GetAbstractRoom(roomIndex);
+                if (shelterRoom == null)
+                {
+                    continue;
+                }
+                if (world.DisabledMapRooms != null && world.DisabledMapRooms.Contains(shelterRoom.name))
+                {
+                    continue;
+                }
+                if (ShelterSleepRecords.IsVanillaBroken(world, shelterRoom.shelterIndex))
+                {
+                    continue;
+                }
+                total++;
+                if (ShelterSleepRecords.HasSlept(saveData, characterID, shelterRoom.name))
+                {
+                    slept++;
+                }
+            }
+            return slept == total;
+        }
+
+        private static bool AllStoryRegionsComplete(DeathPersistentSaveData saveData, SlugcatStats.Name slugcatName, string characterID)
+        {
+            if (slugcatName == null)
+            {
+                return false;
+            }
+            foreach (string regionAcronym in SlugcatStats.SlugcatStoryRegions(slugcatName))
+            {
+                if (!PrimalSaveMarkers.Has(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, regionAcronym)))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
 }

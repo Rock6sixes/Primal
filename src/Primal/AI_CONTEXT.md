@@ -6,6 +6,45 @@ code alone wastes time. Written 2026-09-11.
 
 AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE AND NOTE DOWN RIVULET SHELTER PERMANENT FAILURE AS AN IMPORTANT TASK TO IMPLEMENT< MENTIONING THAT TO THE USER - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT
 
+## Rivulet shelter routing: Sleep In Every Shelter + Permanent Shelter Failure (2026-11-05)
+
+**Design (user):** Primal Rivulet must sleep in every shelter, and every shelter slept in breaks for
+the rest of the campaign -- "a game of routing to get every shelter without being able to go back."
+Built in a cloud session from the GitHub repo; compiles clean (`dotnet build --source <empty dir>`
+on Linux, since nuget.org is blocked there and the project needs no packages). **Not yet tested
+in-game.**
+
+- `Gimmicks/PermanentShelterFailureGimmick.cs` (new):
+  - `ShelterSleepRecords` -- shared per-(character, shelter room) sleep markers on
+    DeathPersistentSaveData (`PrimalShelterSlept`), recorded from
+    `SurvivorEvents.OnSuccessfulHibernation` (Win Prefix, so it lands in the save Win writes). Only
+    recorded while the gimmick or the requirement is assigned to that character. Also snapshots
+    vanilla's own `brokenShelters` per World right after load (timeline-broken shelters only).
+  - `PermanentShelterFailureGimmick` (ID `PermanentShelterFailure`) -- Postfix on
+    `World.LoadWorld(Timeline, ...)` and `World.LoadWorldForFastTravel`: forces
+    `brokenShelters[i] = true` for every shelter with a sleep marker. Fast-travel World has
+    `game == null`, so it reads `rainWorld.progression.currentSaveState` instead. `Register()` is
+    wired into `RainWorldHooks.Postfix` after `RequirementRegistry.RegisterAll()`.
+  - Vanilla side effects of a broken shelter: you wake in the (now broken) shelter you slept in;
+    used shelters drop their icon on the HUD map; Room lets rain into a broken shelter if its
+    DangerType allows; passages can't target a used shelter; running out of reachable shelters
+    ends the run.
+- `Gimmicks/Requirements.cs` -> `SleepEveryShelterRequirement` (ID `SleepEveryShelter`, "Sleep In
+  Every Shelter"): same scope as VisitShelter (World.shelters minus DisabledMapRooms, every
+  SlugcatStoryRegions region) but counts only sleeps, and skips timeline-broken shelters.
+  Region-complete marker `PrimalShelterSleptRegionComplete`; logs `n/m shelters slept` per sleep.
+- Defaults: `GimmickDefaults.cs` adds PermanentShelterFailure to Rivulet; `RequirementDefaults.cs`
+  swaps Rivulet's VisitShelter default for SleepEveryShelter (VisitShelter still registered). An
+  existing saved Remix config keeps whatever was assigned before.
+- **Untested risk (Gotcha #1):** reads `World.brokenShelters`/`shelters`/`DisabledMapRooms`
+  directly. These look public, and existing code (VisitShelter, PrecycleForceShelterUnavailableHook)
+  already does the same, but neither has been confirmed against the real assembly. A
+  `FieldAccessException` in `BepInEx/LogOutput.log` would mean switching to AccessTools.
+- **Test checklist:** on a fresh Primal Rivulet save, sleep once -> log shows `[ShelterSleepRecords]
+  ... slept in X`; next cycle the door of X doesn't close and log shows `[PermanentShelterFailure]
+  ... broken: X`; X's map icon is gone; X stays broken after a death and after a game restart; a
+  passage can't target X; `[SleepEveryShelter] n/m` count climbs per region.
+
 ## Mod renamed: AltCharacters -> Primal (2026-09-12)
 
 This mod was originally built and shipped under the name **AltCharacters** (namespace

@@ -227,6 +227,10 @@ namespace Primal.Gimmicks
             // feasible rather than left unimplemented, see VisitShelterRequirement's own doc
             // comment for the full trace.
             new VisitShelterRequirement(),
+
+            // Character-specific (Rivulet), added 2026-11-05 -- the sleep-based version of the
+            // above, Rivulet's default from now on; see SleepEveryShelterRequirement's doc comment.
+            new SleepEveryShelterRequirement(),
         };
 
         private static bool _registered;

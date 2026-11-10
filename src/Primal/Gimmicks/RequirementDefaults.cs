@@ -61,10 +61,11 @@ namespace Primal.Gimmicks
             // reproducing the original "all four required" design exactly.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, InvHighestPointRequirement.RequirementID, true);
 
-            // VisitShelterRequirement ("Visit Shelter" -- researched and implemented this same
-            // round rather than left unimplemented, see its own doc comment in Requirements.cs)
-            // defaults onto Rivulet, its own HomeCharacter.
-            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, VisitShelterRequirement_ID, true);
+            // Rivulet's shelter requirement (2026-11-05, explicit request): must SLEEP in every
+            // shelter, not just visit it -- SleepEveryShelterRequirement replaces
+            // VisitShelterRequirement as Rivulet's default. Visit Shelter stays registered and
+            // assignable by hand in Remix; it's just no longer on by default for anyone.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, SleepEveryShelterRequirement.RequirementID, true);
         }
 
         // Plain string literals mirroring each requirement's own ID property -- there's no shared
@@ -75,6 +76,5 @@ namespace Primal.Gimmicks
         // magic string at each call site above.
         private const string ReachEndingRequirement_ID = "ReachEnding";
         private const string GourmandFoodQuestRequirement_ID = "GourmandFoodQuest";
-        private const string VisitShelterRequirement_ID = "VisitShelter";
     }
 }

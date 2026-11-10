@@ -183,6 +183,18 @@ namespace Primal.Gimmicks
         /// either, for the same reason (see GimmickDef.HomeCharacter) -- its button in the Remix
         /// menu keeps OpSimpleButton's own default color instead of being tagged.
         /// </summary>
+        /// <summary>
+        /// Every shelter this character successfully sleeps in stays broken for the rest of the
+        /// save (added 2026-11-05 for Primal Rivulet's one-way shelter routing). See
+        /// PermanentShelterFailureGimmick.cs for the full trace.
+        /// </summary>
+        public static readonly GimmickDef PermanentShelterFailure = new GimmickDef(
+            PermanentShelterFailureGimmick.ID,
+            "Permanent Shelter Failure",
+            "Every shelter you successfully sleep in breaks for the rest of this campaign -- you can never hibernate in it again, so each shelter is single-use.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Rivulet
+        );
+
         public static readonly GimmickDef NoPassages = new GimmickDef(
             NoPassagesGimmick.ID,
             "No Passages",
@@ -338,6 +350,7 @@ namespace Primal.Gimmicks
             RainTimer,
             BlizzardTimer,
             PrecycleTimer,
+            PermanentShelterFailure,
             CreatureKillList,
         };
     }
