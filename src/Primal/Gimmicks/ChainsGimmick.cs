@@ -1170,7 +1170,9 @@ namespace Primal.Gimmicks
     /// </summary>
     internal static class ChainsSettings
     {
-        private const int DefaultEscapeTimerSeconds = 90;
+        /// <summary>Changed 2026-11-10 (explicit request): off by default -- a locked room only
+        /// opens once every tracked creature is dead. Was 90 s.</summary>
+        private const int DefaultEscapeTimerSeconds = 0;
         private const int MinEscapeTimerSeconds = 0;
         private const int MaxEscapeTimerSeconds = 600;
 

@@ -4,7 +4,6 @@ Read this whole file before touching code. It exists because this project has be
 major architecture pivots and several misdiagnosed bugs, and re-deriving that history from the
 code alone wastes time. Written 2026-09-11.
 
-AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT. (Rivulet permanent shelter failure: implemented 2026-11-05, see below.)
 
 ## Open items (as of 2026-11-10)
 
@@ -15,11 +14,11 @@ Built but **not yet tested in-game**:
   checkbox, 100% chance, 100% flood, on for Rivulet by default.
 - Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
   second. See "Chains: creatures left unchained" below.
+- Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
+  (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
+  timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
 
 Waiting on a user decision:
-- Saint: should No Hold skip the first cycle (header note above)?
-- Chains escape timer: defaults to 90 s; when it fires, every creature still alive in the room is
-  left unchained for the rest of that visit. Intended, or should the default be 0 (no escape)?
 - Survivor's 50 community-challenge requirements are still not defaulted onto Survivor.
 - No design yet for Watcher (and any character missing from CHARACTER_DESIGN_STATUS.md).
 - TimeLimit game-over screen: deliberately deferred by the user.
@@ -49,9 +48,9 @@ Two causes found by code review:
    Gated on CatchLateArrivals (default on), skipped while the player is mid-shortcut, and suppressed
    for the rest of a visit after the escape timer released the room (`ChainState.Escaped`). Logs
    `[Chains] ... rescan found untracked X in ROOM -- adding`.
-2. **Escape timer (by design, unchanged).** Default 90 s; when it fires the room unlocks with
-   creatures still alive and unchained. The log line now says how many were left. Ask the user
-   whether that matches what they saw.
+2. **Escape timer (by design).** When it fires the room unlocks with creatures still alive and
+   unchained; the log line says how many were left. Default changed from 90 s to off (0) on
+   2026-11-10 at the user's request.
 
 Overseers are chainable by default (their ban checkbox defaults off).
 
