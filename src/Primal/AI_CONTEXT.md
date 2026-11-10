@@ -4,7 +4,58 @@ Read this whole file before touching code. It exists because this project has be
 major architecture pivots and several misdiagnosed bugs, and re-deriving that history from the
 code alone wastes time. Written 2026-09-11.
 
-AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE AND NOTE DOWN RIVULET SHELTER PERMANENT FAILURE AS AN IMPORTANT TASK TO IMPLEMENT< MENTIONING THAT TO THE USER - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT
+AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT. (Rivulet permanent shelter failure: implemented 2026-11-05, see below.)
+
+## Open items (as of 2026-11-10)
+
+Built but **not yet tested in-game**:
+- Rivulet shelter routing: Sleep In Every Shelter requirement + Permanent Shelter Failure gimmick
+  (2026-11-05). Checklist in its own section below.
+- Precycle Timer rework (2026-11-10): head start in seconds (0-480, default 60), Random length
+  checkbox, 100% chance, 100% flood, on for Rivulet by default.
+- Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
+  second. See "Chains: creatures left unchained" below.
+
+Waiting on a user decision:
+- Saint: should No Hold skip the first cycle (header note above)?
+- Chains escape timer: defaults to 90 s; when it fires, every creature still alive in the room is
+  left unchained for the rest of that visit. Intended, or should the default be 0 (no escape)?
+- Survivor's 50 community-challenge requirements are still not defaulted onto Survivor.
+- No design yet for Watcher (and any character missing from CHARACTER_DESIGN_STATUS.md).
+- TimeLimit game-over screen: deliberately deferred by the user.
+
+Older items this doc still lists as untested (from Sept. 2026 -- may since have been checked by
+the user; confirm and prune): Threat Slowdown, NoPassages, Inv roster entry, gimmick-assignment
+persistence fix, multiple Primal slots (rounds 4-5), Remix gimmick-picker scrolling, Primal
+character names.
+
+Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
+snapshot; this repo copy is authoritative.
+
+## Chains: creatures left unchained (2026-11-10)
+
+Reported: one chainable creature sometimes stays unchained, mostly when few creatures are around
+(e.g. only an overseer, room counted as cleared), possibly after it entered the room.
+
+Two causes found by code review:
+1. **Missed residents (bug, fixed).** Tracking started only from the room-entry scan
+   (`GetCreatureList`, skips any creature `inShortcut` at that moment) and the `Creature.NewRoom`
+   arrival hook. Vanilla calls `NewRoom` only when a creature exits a shortcut into a DIFFERENT
+   room (`Creature.SpitOutOfShortCut`: `if (newRoom != room)`). A creature riding one of the room's
+   own in-room shortcuts when you walked in was skipped by the scan and then came back out with no
+   `NewRoom` -- never tracked. Creatures placed straight into a room (`PlaceInRoom`) never call
+   `NewRoom` either. Fix: `RescanResidents` re-runs the entry scan every 20 ticks and feeds any
+   untracked eligible creature to `TryAddArrivingCreature` (locks the room if it was empty/cleared).
+   Gated on CatchLateArrivals (default on), skipped while the player is mid-shortcut, and suppressed
+   for the rest of a visit after the escape timer released the room (`ChainState.Escaped`). Logs
+   `[Chains] ... rescan found untracked X in ROOM -- adding`.
+2. **Escape timer (by design, unchanged).** Default 90 s; when it fires the room unlocks with
+   creatures still alive and unchained. The log line now says how many were left. Ask the user
+   whether that matches what they saw.
+
+Overseers are chainable by default (their ban checkbox defaults off).
+
+
 
 ## Precycle Timer: head start in seconds, 100% chance, on for Rivulet (2026-11-10, later)
 

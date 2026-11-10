@@ -243,7 +243,20 @@ namespace Primal.Gimmicks
             /// and flushed the next tick the player isn't mid-transition (FlushArrivalBuffer).
             /// </summary>
             public readonly List<Creature> CreaturesToAdd = new List<Creature>();
+
+            /// <summary>Set when the escape timer gave up on this room (2026-11-10). Suppresses
+            /// RescanResidents for the rest of this visit, so a room you were deliberately let out
+            /// of doesn't instantly re-lock on the creatures still in it. Cleared on room change.
+            /// Deliberately NOT reset by FreePlayer.</summary>
+            public bool Escaped;
+
+            /// <summary>Tick counter for RescanResidents' throttle.</summary>
+            public int RescanCounter;
         }
+
+        /// <summary>How often (ticks, 40/s) RescanResidents re-checks the room for chainable
+        /// creatures nothing is tracking.</summary>
+        private const int RescanIntervalTicks = 20;
 
         private static readonly ConditionalWeakTable<Player, ChainState> States = new ConditionalWeakTable<Player, ChainState>();
 
@@ -303,6 +316,8 @@ namespace Primal.Gimmicks
                     FreePlayer(self, state);
                 }
                 state.Room = self.room;
+                state.Escaped = false;
+                state.RescanCounter = 0;
 
                 // 2026-09-13 audit addition, then removed at the user's explicit request: the
                 // source's Player_NewRoom hardcodes an exclusion for one specific vanilla room
@@ -320,6 +335,8 @@ namespace Primal.Gimmicks
             // about *this* player's own room state needs to change for a buffered entry to become
             // safe to process -- only the player no longer being mid-shortcut does.
             FlushArrivalBuffer(self, self.room, state, characterID);
+
+            RescanResidents(self, state, characterID);
 
             if (state.Triggered)
             {
@@ -527,6 +544,63 @@ namespace Primal.Gimmicks
             }
         }
 
+        /// <summary>
+        /// 2026-11-10 fix for "one chainable creature sometimes stays unchained, usually when few
+        /// creatures are around, maybe after it entered the room". Every RescanIntervalTicks,
+        /// re-run the same GetCreatureList scan the room-entry lock uses and add any eligible
+        /// creature that isn't tracked (TryAddArrivingCreature -- same banlist/friend/dead checks,
+        /// and it starts the lock if the room was empty or already cleared).
+        ///
+        /// Why creatures slipped through before: tracking only ever started from (1) the one-time
+        /// scan when the player enters, which skips any creature that is inShortcut at that moment
+        /// (it can't be told apart from one leaving the room), and (2) ChainsCreatureArrivalHook
+        /// on Creature.NewRoom. Vanilla only calls NewRoom when a creature comes out of a shortcut
+        /// into a DIFFERENT room (Creature.SpitOutOfShortCut: `if (newRoom != room)
+        /// ...NewRoom(newRoom)`). So a creature that was inside one of the room's own in-room
+        /// shortcuts (Normal / NPCTransportation -- lizards, scavengers, centipedes use these
+        /// constantly) when you walked in was skipped by the scan, then popped back out into the
+        /// same room with no NewRoom call, and was never tracked. With nothing else in the list,
+        /// the room locked on the others and later counted as cleared while it was still alive --
+        /// or never locked at all if it was the only one. To the player it looks exactly like a
+        /// creature "entering" the room unchained. Creatures realized straight into a room via
+        /// PlaceInRoom (no shortcut at all) never call NewRoom either; this covers those too.
+        ///
+        /// Gated on CatchLateArrivals (default on): with that off, a newcomer is meant to be
+        /// ignored, and a rescan can't tell a newcomer from a missed resident. Skipped while the
+        /// player is mid-shortcut, and for the rest of a visit once the escape timer released the
+        /// room (state.Escaped).
+        /// </summary>
+        private static void RescanResidents(Player self, ChainState state, string characterID)
+        {
+            if (state.Escaped || self.inShortcut || !ChainsSettings.CatchLateArrivals(characterID))
+            {
+                return;
+            }
+            if (++state.RescanCounter < RescanIntervalTicks)
+            {
+                return;
+            }
+            state.RescanCounter = 0;
+
+            Room room = state.Room;
+            if (room?.abstractRoom?.creatures == null)
+            {
+                return;
+            }
+
+            List<AbstractCreature> found = new List<AbstractCreature>();
+            GetCreatureList(self, room, found, characterID);
+            foreach (AbstractCreature creature in found)
+            {
+                if (state.CreatureList.Contains(creature) || creature.realizedCreature == null)
+                {
+                    continue;
+                }
+                Plugin.Log?.LogInfo($"[Chains] {characterID}: rescan found untracked {creature.creatureTemplate?.name} in {room.abstractRoom.name} -- adding");
+                TryAddArrivingCreature(self, room, state, creature.realizedCreature, characterID);
+            }
+        }
+
         private static void FlushArrivalBuffer(Player self, Room room, ChainState state, string characterID)
         {
             if (state.CreaturesToAdd.Count == 0 || self.inShortcut)
@@ -713,8 +787,9 @@ namespace Primal.Gimmicks
             int escapeTimerSeconds = ChainsSettings.GetEscapeTimerSeconds(characterID);
             if (escapeTimerSeconds > 0 && state.ActiveTime >= escapeTimerSeconds * 40)
             {
-                Plugin.Log?.LogInfo($"[Chains] {characterID}: escape timer elapsed -- freeing room {room.abstractRoom.name} unfinished");
+                Plugin.Log?.LogInfo($"[Chains] {characterID}: escape timer elapsed -- freeing room {room.abstractRoom.name} unfinished ({state.CreatureList.Count} creature(s) left alive and now unchained)");
                 FreePlayer(self, state);
+                state.Escaped = true;
                 return;
             }
 
