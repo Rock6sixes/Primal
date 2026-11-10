@@ -161,6 +161,25 @@ namespace Primal.Gimmicks
             return gimmickID != null && _enabledCount.TryGetValue(gimmickID, out int count) && count > 0;
         }
 
+        /// <summary>Like IsEnabledForAnyCharacter, but also true for any of the 50 community
+        /// challenges while CommunityChallengeCountRequirement is assigned to anyone (2026-11-10):
+        /// that requirement tracks all 50 without them being assigned individually. Use this (not
+        /// IsEnabledForAnyCharacter) as the fast-path gate for requirement TRACKING; keep
+        /// IsEnabledForAnyCharacter for "is this actually assigned" questions.</summary>
+        public static bool IsTrackedForAnyCharacter(string id)
+        {
+            return IsEnabledForAnyCharacter(id)
+                || (CommunityChallengesRoster.Contains(id) && IsEnabledForAnyCharacter(CommunityChallengeCountRequirement.RequirementID));
+        }
+
+        /// <summary>Per-character counterpart of IsTrackedForAnyCharacter: assigned directly, or a
+        /// community challenge while this character has CommunityChallengeCountRequirement.</summary>
+        public static bool IsTracked(string characterID, string id)
+        {
+            return IsEnabled(characterID, id)
+                || (CommunityChallengesRoster.Contains(id) && IsEnabled(characterID, CommunityChallengeCountRequirement.RequirementID));
+        }
+
         /// <summary>The live Configurable behind this pair, if one has been bound. Lets
         /// PrimalOptions read and flip assignments through this class rather than keeping its own
         /// parallel dictionary of the same objects under a second key format.</summary>

@@ -112,7 +112,7 @@ namespace Primal.Gimmicks
         {
             foreach (string id in IDs)
             {
-                if (GimmickAssignments.IsEnabled(characterID, id))
+                if (GimmickAssignments.IsTracked(characterID, id))
                 {
                     return true;
                 }
@@ -127,7 +127,7 @@ namespace Primal.Gimmicks
             var enabled = new List<string>();
             foreach (string id in IDs)
             {
-                if (GimmickAssignments.IsEnabled(characterID, id))
+                if (GimmickAssignments.IsTracked(characterID, id))
                 {
                     enabled.Add(id);
                 }
@@ -315,7 +315,9 @@ namespace Primal.Gimmicks
             }
 
             float cursorY = pos.y + size.y - Margin;
-            var title = new Menu.MenuLabel(this, pages[0], $"COMMUNITY CHALLENGES -- {completedCount}/{enabled.Count}", new Vector2(pos.x, cursorY - TitleHeight), new Vector2(size.x, TitleHeight), true);
+            var title = new Menu.MenuLabel(this, pages[0], GimmickAssignments.IsEnabled(characterID, CommunityChallengeCountRequirement.RequirementID)
+                    ? $"COMMUNITY CHALLENGES -- {completedCount}/{enabled.Count} (need {CommunityChallengeCountSettings.GetRequiredCount(characterID)})"
+                    : $"COMMUNITY CHALLENGES -- {completedCount}/{enabled.Count}", new Vector2(pos.x, cursorY - TitleHeight), new Vector2(size.x, TitleHeight), true);
             pages[0].subObjects.Add(title);
             cursorY -= TitleHeight;
 

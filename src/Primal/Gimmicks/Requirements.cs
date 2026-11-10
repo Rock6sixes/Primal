@@ -2645,8 +2645,8 @@ namespace Primal.Gimmicks
             // pairs -- a requirement ID works exactly the same way a gimmick ID does, no separate
             // "is Community Challenges assigned" layer needed anymore (see Requirement's own doc
             // comment for the full trace of that simplification).
-            if (!GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
-                || !GimmickGate.IsActiveFor(player, RequirementID, out string characterID))
+            if (!GimmickAssignments.IsTrackedForAnyCharacter(RequirementID)
+                || !GimmickGate.IsTrackedFor(player, RequirementID, out string characterID))
             {
                 return;
             }
@@ -2766,9 +2766,13 @@ namespace Primal.Gimmicks
 
             string characterID = PrimalMenuAccess.GetCharacterID(screen);
             RainWorld rainWorld = screen.manager?.rainWorld;
-            if (characterID != SlugcatStats.Name.Red.value
-                || !GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
-                || !GimmickGate.IsEnabledForCharacter(rainWorld, characterID, RequirementID))
+            // 2026-11-10: no longer Hunter-only (explicit request: every challenge trackable by
+            // any character, Survivor included). Every character that finishes a campaign reaches
+            // this same final score screen (RainWorldGame.BeatGameMode / statsAfterCredits for
+            // Survivor's ending; Hunter's own game-over) and ScoreKeeper scores them all the same
+            // way, so the configured threshold simply applies to whichever character it is.
+            if (!GimmickAssignments.IsTrackedForAnyCharacter(RequirementID)
+                || !GimmickGate.IsTrackedForCharacter(rainWorld, characterID, RequirementID))
             {
                 return;
             }

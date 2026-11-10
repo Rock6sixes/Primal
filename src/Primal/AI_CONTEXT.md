@@ -14,12 +14,12 @@ Built but **not yet tested in-game**:
   checkbox, 100% chance, 100% flood, on for Rivulet by default.
 - Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
   second. See "Chains: creatures left unchained" below.
+- Survivor Community Challenges count requirement (2026-11-10), see its section below.
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
 
 Waiting on a user decision:
-- Survivor's 50 community-challenge requirements are still not defaulted onto Survivor.
 - No design yet for Watcher (and any character missing from CHARACTER_DESIGN_STATUS.md).
 - TimeLimit game-over screen: deliberately deferred by the user.
 
@@ -30,6 +30,30 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Survivor: Community Challenges count requirement (2026-11-10)
+
+Explicit request: Survivor's goal is "complete N of the 50 community challenges", N configurable,
+default 45; that's Survivor's only requirement, no gimmicks. All 50 must be trackable by Survivor,
+Outlaw included.
+
+- `Gimmicks/CommunityChallengeCountRequirement.cs` (new): requirement `CommunityChallengeCount`
+  ("Community Challenges") + `CommunityChallengeCountSettings` (`<char>_CommunityChallengeCount_required`,
+  1-50, default 45). Completes when `CountCompleted` (roster IDs with a completion marker) >= N.
+  Re-checked on every roster completion (`RequirementCompletion.OnSatisfied`) and every sleep.
+- **Tracking without assigning:** new `GimmickAssignments.IsTracked` / `IsTrackedForAnyCharacter`
+  and `GimmickGate.IsTrackedFor` / `IsTrackedForCharacter` = directly assigned, OR a roster
+  challenge while the character has CommunityChallengeCount. `Requirement.TryGetEnabledCharacter`
+  now uses these, as do the two challenges that gated themselves (Triplopia's pole-mimic hook,
+  Outlaw's score screen). The 50 are still not "assigned", so the all-requirements-complete check
+  only waits on CommunityChallengeCount. Use IsTracked* for tracking, IsEnabled* for "assigned".
+- CHALLENGES cycle-end button/dialog list all 50 for such a character; title shows `(need N)`.
+- **Outlaw no longer Hunter-only:** every campaign ending reaches StoryGameStatisticsScreen
+  (Survivor via statsAfterCredits after its ending), scored by the same ScoreKeeper, so the
+  per-character threshold (default 100000) applies to whoever it is.
+- Defaults: `RequirementDefaults.cs` assigns CommunityChallengeCount to Survivor (White). No
+  Survivor gimmick defaults exist.
+- Builds clean; not yet tested in-game.
 
 ## Chains: creatures left unchained (2026-11-10)
 

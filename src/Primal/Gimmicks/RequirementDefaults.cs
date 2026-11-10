@@ -66,6 +66,10 @@ namespace Primal.Gimmicks
             // VisitShelterRequirement as Rivulet's default. Visit Shelter stays registered and
             // assignable by hand in Remix; it's just no longer on by default for anyone.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, SleepEveryShelterRequirement.RequirementID, true);
+
+            // Survivor (2026-11-10, explicit request): complete N of the 50 community challenges
+            // (default 45) is Survivor's only requirement, and Survivor has no default gimmicks.
+            GimmickAssignments.SetDefault(SlugcatStats.Name.White.value, CommunityChallengeCountRequirement.RequirementID, true);
         }
 
         // Plain string literals mirroring each requirement's own ID property -- there's no shared
