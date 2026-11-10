@@ -96,6 +96,11 @@ namespace Primal.Gimmicks
             // request): together with SleepEveryShelterRequirement (RequirementDefaults.cs) the
             // campaign becomes a one-way route through every shelter.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.PermanentShelterFailure.ID, true);
+
+            // Precycle Timer on Rivulet by default too (2026-11-10, explicit request): with the
+            // gimmick's own defaults (100% chance, 1-minute head start, 100% flood) every cycle
+            // starts with a short precycle before Rain Timer's 0% day.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.PrecycleTimer.ID, true);
         }
     }
 }

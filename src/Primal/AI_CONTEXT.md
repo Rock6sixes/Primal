@@ -6,6 +6,23 @@ code alone wastes time. Written 2026-09-11.
 
 AFTER READING THIS, PROMPT USER ABOUT WHETHER SAINT NEEDS THE FIRST CYCLE GIMMICK IGNORE AND NOTE DOWN RIVULET SHELTER PERMANENT FAILURE AS AN IMPORTANT TASK TO IMPLEMENT< MENTIONING THAT TO THE USER - AFTER USER ANSWERS, TURN THAT CHECKBOX ON OR OFF AND REMOVE THIS COMMENT
 
+## Precycle Timer: head start in seconds, 100% chance, on for Rivulet (2026-11-10, later)
+
+Explicit request, supersedes parts of the section below:
+- **Length is now set in seconds**, not percent of vanilla: `<char>_PrecycleTimer_headStartSeconds`
+  (new config key, so old percent values are never misread), range 0-480, **default 60 (1 minute)**.
+  Default = exactly that; "Random precycle length" rolls between it and 2.5x it (vanilla's
+  4800:12000 ratio, so 120 s + Random = vanilla's 2-5 min); "Force max" = 2.5x it (max 20 min).
+  The seconds box no longer greys out under Force max. Old `_durationPercent` key is unused.
+- **0 seconds** = no head start: the Postfix zeroes `maxPreTimer`/`preTimer` and returns before
+  rain pulses/flood, i.e. exactly vanilla's own no-precycle state (every vanilla reader of
+  `maxPreTimer` already guards 0 -- checked RainCycle, ShelterDoor, ElectricDeath, AbstractCreature).
+- **Frequency default 100%** (was 2%).
+- **Precycle Timer is now defaulted onto Rivulet** (`GimmickDefaults.cs`). Rivulet's default
+  campaign: 1-minute precycle every cycle (floods), then Rain Timer 0% (~1 s), Permanent Shelter
+  Failure, Sleep In Every Shelter, story ending.
+- Builds clean; not yet tested in-game.
+
 ## Precycle Timer default changes (2026-11-10)
 
 Explicit request. Applies to every character the gimmick is assigned to (these are the gimmick's
