@@ -92,13 +92,18 @@ namespace Primal.Gimmicks
             // essentially immediately" treatment as Saint.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.RainTimer.ID, true);
 
-            // Rivulet also gets Precycle Timer by default (2026-11-02, explicit request --
-            // completing the original design table's own "Precycle Timer (50% multiplier, 100%
-            // chance, 100% shelter failure)" row, which had the mechanic built but never actually
-            // assigned). The 50%/100%/100% values themselves are PrecycleTimerSettings' own
-            // per-character overrides (PerCharacterDefaultDurationPercent/FrequencyPercent/
-            // ShelterFailureChancePercent), not something SetDefault carries -- same split as every
-            // other per-character tuned default in this file.
+            // Rivulet also gets Permanent Shelter Failure by default (2026-11-05, explicit
+            // request): together with SleepEveryShelterRequirement (RequirementDefaults.cs) the
+            // campaign becomes a one-way route through every shelter. This superseded this file's
+            // own earlier (2026-11-02) attempt at the same idea -- a configurable shelter-failure-
+            // chance percentage bolted onto PrecycleTimerGimmick itself -- which the user's later,
+            // more deliberate request above replaced outright rather than building alongside; see
+            // PrecycleTimerGimmick.cs's own merge note for the full account.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.PermanentShelterFailure.ID, true);
+
+            // Precycle Timer on Rivulet by default too (2026-11-10, explicit request): with the
+            // gimmick's own defaults (100% chance, 1-minute head start, 100% flood) every cycle
+            // starts with a short precycle before Rain Timer's 0% day.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, GimmickRegistry.PrecycleTimer.ID, true);
         }
     }

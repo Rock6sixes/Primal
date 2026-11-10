@@ -81,6 +81,24 @@ namespace Primal.Gimmicks
                 && GimmickAssignments.IsEnabled(characterID, gimmickID);
         }
 
+        /// <summary>Requirement-tracking version of IsActiveFor: uses GimmickAssignments.IsTracked,
+        /// so the 50 community challenges count as active while CommunityChallengeCountRequirement
+        /// is assigned (2026-11-10).</summary>
+        public static bool IsTrackedFor(Player player, string requirementID, out string characterID)
+        {
+            return TryGetCharacter(player, out characterID)
+                && GimmickAssignments.IsTracked(characterID, requirementID);
+        }
+
+        /// <summary>Menu-side version of IsTrackedFor.</summary>
+        public static bool IsTrackedForCharacter(RainWorld rainWorld, string characterID, string requirementID)
+        {
+            return rainWorld != null
+                && characterID != null
+                && PrimalSlot.IsActive(rainWorld)
+                && GimmickAssignments.IsTracked(characterID, requirementID);
+        }
+
         /// <summary>The menu-side equivalent, for screens that have a RainWorld and a character ID
         /// but no Player object (the cycle-end screen, the character-select screen).</summary>
         public static bool IsEnabledForCharacter(RainWorld rainWorld, string characterID, string gimmickID)

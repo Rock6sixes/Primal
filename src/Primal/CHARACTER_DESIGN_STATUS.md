@@ -13,7 +13,7 @@ day.
 | Character | Gimmick | Requirement |
 | --- | --- | --- |
 | Monk | Threat Panic | Ascend |
-| Survivor | -- | All 50 community challenges |
+| Survivor | -- | Community Challenges: complete 45 of 50 (count configurable) |
 | Hunter | -- | Reach 100k points / Ascend |
 | Artificer | Chain creature on room entry (double check: only slugcat-enterable pipes/shortcuts get the visual chain circle) | Unique kill list |
 | Gourmand | Misery | Food Quest (renamed from "Food Quest & Save") |
@@ -37,10 +37,11 @@ day.
 | Gourmand | Misery, Slugpup | **Done.** Both implemented, both defaulted to Gourmand. |
 | Spearmaster | Master Spear (OneSpear) | **Done.** Implemented, defaulted to Spearmaster. |
 | Spearmaster | No Hold (only spears enabled) | **Done.** `NoHoldSettings.PerCharacterDefaultBlocked` now has an explicit Spearmaster entry (Spears only) -- no longer a coincidence of the generic fallback, a real per-character default. |
-| Rivulet | Precycle Timer (percentage multiplier, 100% chance, 100% shelter failure) | **Duration mechanic done; assignment/exact percentages still the user's own call.** Precycle Timer's duration is now a percentage multiplier on BOTH of vanilla's own 4800-12000 tick roll bounds (`PrecycleTimerSettings.DurationPercent`), the same style Rain Timer's own percent already uses -- resolves the "doesn't map to anything that exists" gap. Not yet defaulted onto Rivulet, and no specific percent/frequency/flood-chance values have been requested for it -- fully assignable and configurable by hand via Remix today. |
+| Rivulet | Precycle Timer | **Reworked 2026-11-10, compiles, not yet tested in-game.** Defaulted onto Rivulet. Head start set in seconds (0-480, default 60 = 1 min; Random rolls base..2.5x; Force max = 2.5x), chance default 100%, flood default 100%. "Force shelter unavailable" left off (Permanent Shelter Failure covers it). |
+| Rivulet | Permanent Shelter Failure | **Built 2026-11-05, compiles, not yet tested in-game.** New `PermanentShelterFailureGimmick.cs`: every shelter you successfully sleep in stays broken (vanilla `World.brokenShelters`) for the rest of the save. Defaulted onto Rivulet. |
 | Rivulet | Rain Timer (set to 0) | **Done.** Defaulted onto Rivulet with `RainTimerSettings.PerCharacterDefaultPercent` at 0%, same "starts essentially immediately" treatment as Saint. |
 | Saint | Rain Timer (0), Blizzard Timer (60 min) | **Done.** Both implemented and defaulted to Saint with the exact requested values. |
-| Saint | No Hold (only enable itself after one cycle, everything checked) | **Done.** "Everything checked" is `NoHoldSettings.PerCharacterDefaultBlocked`'s own Saint entry (all ten categories + Other), defaulted onto Saint in `GimmickDefaults.cs`. "Inert until cycle N" is a new, genuinely general mechanic on `NoHoldGimmick` itself (`NoHoldSettings.GetInertUntilCycle`, a per-character textbox, 0 = active immediately) -- Saint's own value is left at the generic default (0) since no specific cycle count was requested, fully settable per-character via Remix. |
+| Saint | No Hold (only enable itself after one cycle, everything checked) | **Done.** "Everything checked" is `NoHoldSettings.PerCharacterDefaultBlocked`'s own Saint entry (all ten categories + Other), defaulted onto Saint in `GimmickDefaults.cs`. "Inert until cycle N" is a new, genuinely general mechanic on `NoHoldGimmick` itself (`NoHoldSettings.GetInertUntilCycle`, a per-character textbox, 0 = active immediately) -- Saint's own default is now 1 (2026-11-10, user: skip the first cycle), everyone else 0; settable per-character via Remix. |
 | Inv | No Hold (Spears, Yeeks, Squidcadas) | **Done.** `NoHoldSettings.PerCharacterDefaultBlocked` has an Inv (Sofanthiel) entry for exactly these three categories, defaulted onto Inv. |
 | Inv | No Maul | **Done.** Implemented, defaulted to Inv. |
 
@@ -49,14 +50,15 @@ day.
 | Character | Requirement | Status |
 | --- | --- | --- |
 | Monk | Ascend | **Done.** Resolved by the new "Ending" requirement (renamed from "Reach Ending"), defaulted onto Monk with its own select defaulting to "Ascension". |
-| Survivor | All 50 community challenges | **Still not defaulted to anyone** -- not part of this round's explicit requests. Each of the 50 is its own Requirement ID that would need individually default-assigning to Survivor via `RequirementDefaults.cs` (which now exists and is the right place for this, once requested). |
-| Hunter | Reach 100k points | **Done.** `OutlawRequirement`'s threshold is now a per-character `Configurable<int>` textbox (`OutlawSettings`), defaulting to 100,000, defaulted onto Hunter. |
+| Survivor | Community Challenges (complete N of 50, default 45) | **Built 2026-11-10, compiles, not yet tested in-game.** New `CommunityChallengeCountRequirement` ("Community Challenges", setting 1-50, default 45), Survivor's only default requirement; Survivor has no default gimmicks. Tracks all 50 automatically (`GimmickAssignments.IsTracked`). Outlaw is no longer Hunter-only, so all 50 are completable by any character. |
+| Hunter | Slaughter (reach 100k points) | **Built 2026-11-10, compiles, not yet tested in-game.** New `SlaughterRequirement` ("Slaughter"), its own per-character score setting (default 100,000), same score-screen detection as Outlaw; defaulted onto Hunter in place of Outlaw. Outlaw is back to a plain community challenge (default 10,000, any character). |
 | Hunter | Ascend | **Done.** Same "Ending" requirement as Monk's row, also defaulted onto Hunter with "Ascension". |
 | Artificer | Unique kill list | **Done.** `UniqueKillsRequirement`, fully general (no character lock), assignable to Artificer. Not defaulted onto Artificer specifically this round -- not part of this round's explicit requests (see AI_CONTEXT.md's own note on this same omission). |
 | Gourmand | Food Quest | **Done.** `GourmandFoodQuestRequirement.DisplayName` renamed from "Food Quest & Save" to "Food Quest", defaulted onto Gourmand. |
 | Gourmand | Story ending | **Done.** Resolved by "Ending", defaulted onto Gourmand with its own select defaulting to "Story" (the fallback). |
 | Spearmaster | Under 1 hour | **Done.** `SpearmasterFastEndingRequirement` ("Quick Broadcast"), exactly 60 minutes, already matches. Not defaulted onto Spearmaster specifically this round -- not part of this round's explicit requests. |
 | Spearmaster | Story ending | **Done.** Resolved by "Ending", defaulted onto Spearmaster with "Story". |
+| Rivulet | Sleep in every shelter | **Built 2026-11-05, compiles, not yet tested in-game.** New `SleepEveryShelterRequirement` ("Sleep In Every Shelter"): only a successful hibernation counts, not a visit. Replaces Visit Shelter as Rivulet's default (Visit Shelter stays available by hand). Skips shelters the timeline permanently breaks. |
 | Rivulet | Visit every shelter | **Done.** New `VisitShelterRequirement` ("Visit Shelter"), defaulted onto Rivulet -- see its own doc comment in `Requirements.cs` for the full trace (`World.shelters` + `RegionState.roomsVisited` + `SlugcatStats.SlugcatStoryRegions`, checked across every one of this character's own story regions, not just one). Scope was resolved as "every shelter in every story region" (the more literal reading of the request), not "one region" -- flagged as the more ambitious of the two readings the original audit left open, in case a narrower scope was actually wanted. |
 | Rivulet, Saint | Story ending | **Done.** Resolved by "Ending", defaulted onto both with "Story". |
 | Inv | "King" requirement, 4 checkboxes | **Done.** `InvHighestPointRequirement.DisplayName` renamed from "Highest Point" to "King"; all four conditions (highest screen, cloak, slugpup, vulture mask) are now independent per-character `Configurable<bool>` checkboxes (`InvHighestPointSettings`), all defaulting to checked (reproducing the old hardcoded "all four required" behavior). Defaulted onto Inv. |

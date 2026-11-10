@@ -129,7 +129,9 @@ namespace Primal.Gimmicks
         protected bool TryGetEnabledCharacter(Player player, out string characterID)
         {
             characterID = null;
-            return GimmickAssignments.IsEnabledForAnyCharacter(ID) && GimmickGate.IsActiveFor(player, ID, out characterID);
+            // IsTracked* (2026-11-10): a community challenge is also tracked while the character has
+            // CommunityChallengeCountRequirement, without being assigned individually.
+            return GimmickAssignments.IsTrackedForAnyCharacter(ID) && GimmickGate.IsTrackedFor(player, ID, out characterID);
         }
 
         /// <summary>Reports this requirement as satisfied for `characterID` -- see
@@ -227,6 +229,18 @@ namespace Primal.Gimmicks
             // feasible rather than left unimplemented, see VisitShelterRequirement's own doc
             // comment for the full trace.
             new VisitShelterRequirement(),
+
+            // Character-specific (Rivulet), added 2026-11-05 -- the sleep-based version of the
+            // above, Rivulet's default from now on; see SleepEveryShelterRequirement's doc comment.
+            new SleepEveryShelterRequirement(),
+
+            // General, added 2026-11-10 -- "complete N of the 50 community challenges" (default 45),
+            // Survivor's only default requirement; see CommunityChallengeCountRequirement.cs.
+            new CommunityChallengeCountRequirement(),
+
+            // Character-specific (Hunter), added 2026-11-10 -- Hunter's own score goal, split off
+            // from the Outlaw community challenge; see SlaughterRequirement's doc comment.
+            new SlaughterRequirement(),
         };
 
         private static bool _registered;

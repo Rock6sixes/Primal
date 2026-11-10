@@ -206,6 +206,14 @@ namespace Primal.Gimmicks
         /// drives.</summary>
         private const int DefaultInertUntilCycle = 0;
 
+        /// <summary>Per-character override of DefaultInertUntilCycle (2026-11-10, explicit
+        /// request): Saint's No Hold skips the first cycle by default (inert for cycle 0, active
+        /// from cycle 1 on).</summary>
+        private static int DefaultInertUntilCycleFor(string characterID)
+        {
+            return characterID == MoreSlugcats.MoreSlugcatsEnums.SlugcatStatsName.Saint.value ? 1 : DefaultInertUntilCycle;
+        }
+
         private const int MinInertUntilCycle = 0;
         private const int MaxInertUntilCycle = 999;
 
@@ -237,7 +245,7 @@ namespace Primal.Gimmicks
 
             _inertUntilCycle[characterID] = owner.config.Bind(
                 characterID + "_NoHold_inertUntilCycle",
-                DefaultInertUntilCycle,
+                DefaultInertUntilCycleFor(characterID),
                 new ConfigurableInfo(
                     "This gimmick does nothing at all until this cycle number is reached (0 = no delay, active from the very first cycle). Every category above still behaves completely normally once that cycle arrives.",
                     new ConfigAcceptableRange<int>(MinInertUntilCycle, MaxInertUntilCycle)));
@@ -267,7 +275,7 @@ namespace Primal.Gimmicks
         /// <summary>0 if unbound or unset -- matches DefaultInertUntilCycle, "no delay."</summary>
         public static int GetInertUntilCycle(string characterID)
         {
-            return _inertUntilCycle.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultInertUntilCycle;
+            return _inertUntilCycle.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultInertUntilCycleFor(characterID);
         }
 
         public static List<UIelement> BuildUI(string characterID, float topY)

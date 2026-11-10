@@ -6,11 +6,258 @@ code alone wastes time. Originally written 2026-09-11; reorganized and trimmed 2
 "About this reorganization" at the very bottom for what changed and why, and where the old
 day-by-day history actually went).
 
-**Deferred, not forgotten — flagged to the user, explicitly deferred by them (2026-11-02):**
-Rivulet's shelter-visit requirement has a known issue the user wants investigated eventually
-("Rivulet shelter permanent failure") but explicitly asked NOT to be worked on right now ("your
-goal is not to do rivulet"). Don't pick this up unprompted — ask first. See "Known issues from
-real testing" below for what's actually known about it.
+**2026-11-10 merge note:** this branch (its own Kill List rounds 1-4 and Rivulet Precycle
+Timer/shelter-failure work, both below) and `main` (the "Open items" section and everything
+through "Rivulet shelter routing" just below) had diverged and were merged here. One real design
+conflict: this branch's own 2026-11-02 Precycle Timer work had bolted a configurable
+"Shelter failure chance, out of 100" + "Permanent shelter failure" pair directly onto
+`PrecycleTimerGimmick.cs`, which `main`'s later (2026-11-05) `PermanentShelterFailureGimmick.cs` +
+`SleepEveryShelterRequirement` design superseded outright with something simpler (no chance roll —
+every shelter slept in breaks for good). Resolved in favor of `main`'s design: the chance/Permanent
+pair was removed from `PrecycleTimerGimmick.cs`/`PrecycleTimerSettings` entirely (see
+`PrecycleTimerGimmick.cs`'s own header comment), so Rivulet now has exactly one shelter-breaking
+mechanic, not two competing ones. The deferred "Rivulet shelter permanent failure" investigation
+this paragraph used to flag is superseded by that same `main` design and no longer open.
+
+**New, unfixed bug found 2026-11-08 (live play, Chains):** the user reported a chain visibly
+anchored at a spot with no creature in it. Root cause: `MultiChain.Update` reads
+`creature.realizedCreature.mainBodyChunk.pos` every tick with no check on `realized.inShortcut`.
+Chains only seals room-to-room pipes/dens, not in-room `Normal` shortcuts (deliberate, see this
+file's Chains history below) — when a tracked creature rides one of those (routine, since they're
+left open on purpose), vanilla's `Creature.SuckedIntoShortCut`
+(`reference/GameSource/Creature.cs:1049-1061`) sets `inShortcut = true` and removes it from the
+room's physics/rendering, freezing `mainBodyChunk.pos` at the entry tile until it's spat back out.
+`realizedCreature` stays non-null the whole time, so `MultiChain.Update`'s only guard never trips —
+the chain keeps re-anchoring at that stale, now-empty position until the creature re-emerges. Not
+a soft-lock (it self-corrects once the creature returns), just a visually wrong chain for the
+transit duration. Proposed, not yet implemented: check `realized.inShortcut` in `MultiChain.Update`
+and fade/hide the chain instead of repositioning it while true. Distinct from both Chains bugs in
+"Chains: creatures left unchained" below (those are about creatures never getting tracked at all,
+or the escape timer releasing a room early) — this one is purely cosmetic and only affects already-
+chained creatures.
+
+## Open items (as of 2026-11-10)
+
+Built but **not yet tested in-game**:
+- Rivulet shelter routing: Sleep In Every Shelter requirement + Permanent Shelter Failure gimmick
+  (2026-11-05). Checklist in its own section below.
+- Precycle Timer rework (2026-11-10): head start in seconds (0-480, default 60), Random length
+  checkbox, 100% chance, 100% flood, on for Rivulet by default.
+- Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
+  second. See "Chains: creatures left unchained" below.
+- Survivor Community Challenges count requirement (2026-11-10), see its section below.
+- Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
+  (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
+  timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
+
+Waiting on a user decision:
+- No design yet for Watcher (and any character missing from CHARACTER_DESIGN_STATUS.md).
+- TimeLimit game-over screen: deliberately deferred by the user.
+
+Older items this doc still lists as untested (from Sept. 2026 -- may since have been checked by
+the user; confirm and prune): Threat Slowdown, NoPassages, Inv roster entry, gimmick-assignment
+persistence fix, multiple Primal slots (rounds 4-5), Remix gimmick-picker scrolling, Primal
+character names.
+
+Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
+snapshot; this repo copy is authoritative.
+
+## Survivor: Community Challenges count requirement (2026-11-10)
+
+Explicit request: Survivor's goal is "complete N of the 50 community challenges", N configurable,
+default 45; that's Survivor's only requirement, no gimmicks. All 50 must be trackable by Survivor,
+Outlaw included.
+
+- `Gimmicks/CommunityChallengeCountRequirement.cs` (new): requirement `CommunityChallengeCount`
+  ("Community Challenges") + `CommunityChallengeCountSettings` (`<char>_CommunityChallengeCount_required`,
+  1-50, default 45). Completes when `CountCompleted` (roster IDs with a completion marker) >= N.
+  Re-checked on every roster completion (`RequirementCompletion.OnSatisfied`) and every sleep.
+- **Tracking without assigning:** new `GimmickAssignments.IsTracked` / `IsTrackedForAnyCharacter`
+  and `GimmickGate.IsTrackedFor` / `IsTrackedForCharacter` = directly assigned, OR a roster
+  challenge while the character has CommunityChallengeCount. `Requirement.TryGetEnabledCharacter`
+  now uses these, as do the two challenges that gated themselves (Triplopia's pole-mimic hook,
+  Outlaw's score screen). The 50 are still not "assigned", so the all-requirements-complete check
+  only waits on CommunityChallengeCount. Use IsTracked* for tracking, IsEnabled* for "assigned".
+- CHALLENGES cycle-end button/dialog list all 50 for such a character; title shows `(need N)`.
+- **Outlaw no longer Hunter-only:** every campaign ending reaches StoryGameStatisticsScreen
+  (Survivor via statsAfterCredits after its ending), scored by the same ScoreKeeper, so the
+  per-character threshold applies to whoever it is. Outlaw default is now 10000 (the community
+  challenge's own number).
+- **Slaughter** (same day, explicit request): Hunter's 100k goal split off into its own
+  `SlaughterRequirement` (`<char>_Slaughter_requiredScore`, default 100000, HomeCharacter Hunter),
+  driven by the same `OutlawScoreScreenHook`. Not in the roster, so only tracked where assigned.
+  Replaces Outlaw as Hunter's default in `RequirementDefaults.cs`. Reaching it does not complete
+  Outlaw.
+- Defaults: `RequirementDefaults.cs` assigns CommunityChallengeCount to Survivor (White). No
+  Survivor gimmick defaults exist.
+- Builds clean; not yet tested in-game.
+
+## Chains: creatures left unchained (2026-11-10)
+
+Reported: one chainable creature sometimes stays unchained, mostly when few creatures are around
+(e.g. only an overseer, room counted as cleared), possibly after it entered the room.
+
+Two causes found by code review:
+1. **Missed residents (bug, fixed).** Tracking started only from the room-entry scan
+   (`GetCreatureList`, skips any creature `inShortcut` at that moment) and the `Creature.NewRoom`
+   arrival hook. Vanilla calls `NewRoom` only when a creature exits a shortcut into a DIFFERENT
+   room (`Creature.SpitOutOfShortCut`: `if (newRoom != room)`). A creature riding one of the room's
+   own in-room shortcuts when you walked in was skipped by the scan and then came back out with no
+   `NewRoom` -- never tracked. Creatures placed straight into a room (`PlaceInRoom`) never call
+   `NewRoom` either. Fix: `RescanResidents` re-runs the entry scan every 20 ticks and feeds any
+   untracked eligible creature to `TryAddArrivingCreature` (locks the room if it was empty/cleared).
+   Gated on CatchLateArrivals (default on), skipped while the player is mid-shortcut, and suppressed
+   for the rest of a visit after the escape timer released the room (`ChainState.Escaped`). Logs
+   `[Chains] ... rescan found untracked X in ROOM -- adding`.
+2. **Escape timer (by design).** When it fires the room unlocks with creatures still alive and
+   unchained; the log line says how many were left. Default changed from 90 s to off (0) on
+   2026-11-10 at the user's request.
+
+Overseers are chainable by default (their ban checkbox defaults off).
+
+
+
+## Precycle Timer: head start in seconds, 100% chance, on for Rivulet (2026-11-10, later)
+
+Explicit request, supersedes parts of the section below:
+- **Length is now set in seconds**, not percent of vanilla: `<char>_PrecycleTimer_headStartSeconds`
+  (new config key, so old percent values are never misread), range 0-480, **default 60 (1 minute)**.
+  Default = exactly that; "Random precycle length" rolls between it and 2.5x it (vanilla's
+  4800:12000 ratio, so 120 s + Random = vanilla's 2-5 min); "Force max" = 2.5x it (max 20 min).
+  The seconds box no longer greys out under Force max. Old `_durationPercent` key is unused.
+- **0 seconds** = no head start: the Postfix zeroes `maxPreTimer`/`preTimer` and returns before
+  rain pulses/flood, i.e. exactly vanilla's own no-precycle state (every vanilla reader of
+  `maxPreTimer` already guards 0 -- checked RainCycle, ShelterDoor, ElectricDeath, AbstractCreature).
+- **Frequency default 100%** (was 2%).
+- **Precycle Timer is now defaulted onto Rivulet** (`GimmickDefaults.cs`). Rivulet's default
+  campaign: 1-minute precycle every cycle (floods), then Rain Timer 0% (~1 s), Permanent Shelter
+  Failure, Sleep In Every Shelter, story ending.
+- Builds clean; not yet tested in-game.
+
+## Precycle Timer default changes (2026-11-10)
+
+Explicit request. Applies to every character the gimmick is assigned to (these are the gimmick's
+own defaults, not Rivulet-only):
+- **Head start defaults to the minimum, not a random roll.** Vanilla rolls
+  `Random.Range(4800f, 12000f)` ticks (2-5 minutes, `RainCycle.cs` lines 293/318). New
+  per-character setting `<char>_PrecycleTimer_randomDuration` ("Random precycle length", default
+  off): off = always the scaled minimum (`4800 * durationPercent / 100`, i.e. 2 minutes at 100%);
+  on = vanilla-style roll between the scaled bounds. "Force max precycle timer" still overrides both
+  (and greys the new checkbox out). New checkbox row sits at `topY - 204` in the settings UI.
+- **Flood chance defaults to 100%** (was 2%), so every triggered precycle floods unless turned down.
+- Frequency is still 2% by default, and Precycle Timer is still not assigned to Rivulet by default.
+- Remix keeps saved values: a character whose Precycle settings were already saved keeps them; the
+  new defaults only apply to settings never saved.
+- Builds clean; not yet tested in-game.
+
+## Rivulet shelter routing: Sleep In Every Shelter + Permanent Shelter Failure (2026-11-05)
+
+**Design (user):** Primal Rivulet must sleep in every shelter, and every shelter slept in breaks for
+the rest of the campaign -- "a game of routing to get every shelter without being able to go back."
+Built in a cloud session from the GitHub repo; compiles clean (`dotnet build --source <empty dir>`
+on Linux, since nuget.org is blocked there and the project needs no packages). **Not yet tested
+in-game.**
+
+- `Gimmicks/PermanentShelterFailureGimmick.cs` (new):
+  - `ShelterSleepRecords` -- shared per-(character, shelter room) sleep markers on
+    DeathPersistentSaveData (`PrimalShelterSlept`), recorded from
+    `SurvivorEvents.OnSuccessfulHibernation` (Win Prefix, so it lands in the save Win writes). Only
+    recorded while the gimmick or the requirement is assigned to that character. Also snapshots
+    vanilla's own `brokenShelters` per World right after load (timeline-broken shelters only).
+  - `PermanentShelterFailureGimmick` (ID `PermanentShelterFailure`) -- Postfix on
+    `World.LoadWorld(Timeline, ...)` and `World.LoadWorldForFastTravel`: forces
+    `brokenShelters[i] = true` for every shelter with a sleep marker. Fast-travel World has
+    `game == null`, so it reads `rainWorld.progression.currentSaveState` instead. `Register()` is
+    wired into `RainWorldHooks.Postfix` after `RequirementRegistry.RegisterAll()`.
+  - Vanilla side effects of a broken shelter: you wake in the (now broken) shelter you slept in;
+    used shelters drop their icon on the HUD map; Room lets rain into a broken shelter if its
+    DangerType allows; passages can't target a used shelter; running out of reachable shelters
+    ends the run.
+- `Gimmicks/Requirements.cs` -> `SleepEveryShelterRequirement` (ID `SleepEveryShelter`, "Sleep In
+  Every Shelter"): same scope as VisitShelter (World.shelters minus DisabledMapRooms, every
+  SlugcatStoryRegions region) but counts only sleeps, and skips timeline-broken shelters.
+  Region-complete marker `PrimalShelterSleptRegionComplete`; logs `n/m shelters slept` per sleep.
+- Defaults: `GimmickDefaults.cs` adds PermanentShelterFailure to Rivulet; `RequirementDefaults.cs`
+  swaps Rivulet's VisitShelter default for SleepEveryShelter (VisitShelter still registered). An
+  existing saved Remix config keeps whatever was assigned before.
+- **Untested risk (Gotcha #1):** reads `World.brokenShelters`/`shelters`/`DisabledMapRooms`
+  directly. These look public, and existing code (VisitShelter, PrecycleForceShelterUnavailableHook)
+  already does the same, but neither has been confirmed against the real assembly. A
+  `FieldAccessException` in `BepInEx/LogOutput.log` would mean switching to AccessTools.
+- **Test checklist:** on a fresh Primal Rivulet save, sleep once -> log shows `[ShelterSleepRecords]
+  ... slept in X`; next cycle the door of X doesn't close and log shows `[PermanentShelterFailure]
+  ... broken: X`; X's map icon is gone; X stays broken after a death and after a game restart; a
+  passage can't target X; `[SleepEveryShelter] n/m` count climbs per region.
+
+## Mod renamed: AltCharacters -> Primal (2026-09-12)
+
+This mod was originally built and shipped under the name **AltCharacters** (namespace
+`AltCharacters`, assembly `AltCharacters.dll`, plugin/config GUID `rokas.altcharacters`, project
+folder `src/AltCharacters/`). At the user's request it was fully rebranded to **Primal** on
+2026-09-12 — namespace, assembly name, project folder, every class/file whose name derived from
+"AltCharacters" or "AltChar" (`AltCharactersOptions` -> `PrimalOptions`, `AltSlot` -> `PrimalSlot`,
+`AltCharSlotOptionsMenuHooks` -> `PrimalSlotOptionsMenuHooks` and its four hook classes, the "ALT
+CHAR SLOT" Options-menu button text -> "PRIMAL SLOT", the Remix screen title, `modinfo.json`'s
+`name` field), and **the plugin GUID itself, `rokas.altcharacters` -> `rokas.primal`** (the user
+explicitly chose this over keeping the old GUID, understanding it means Rain World treats this as a
+fresh mod install and every previously-saved (character, gimmick) assignment in
+`ModConfigs\rokas.altcharacters.txt` is orphaned — starts over at hardcoded defaults under the new
+`ModConfigs\rokas.primal.txt`, same as the very first launch ever). `OneSpearGimmick.cs`'s
+`SaveMarkerKey` ("ALTCHAR_ONESPEAR", used to count lifetime spear-pulls already spent per save file)
+was deliberately left **unrenamed** despite the "ALTCHAR" prefix — unlike the config file, this key
+is embedded inside actual save files, and renaming it would silently reset every save's pull count
+to 0 for no real benefit (it's invisible internal bookkeeping, never shown in any UI).
+
+This file (`AI_CONTEXT.md`) was renamed throughout to match — every current/forward-looking mention
+of the old name, namespace, or paths now says "Primal" — **except** the handful of places that
+quote an exact historical log or exception line verbatim (grep for `AltCharacters` if you need to
+find them): those are left exactly as actually captured, since the whole point of quoting them is
+that they're byte-for-byte reproducible from a real log file, and at the time they were captured
+the mod really was still called AltCharacters. Don't "fix" those quotes to say Primal.
+
+**2026-09-15: the leftover pre-rename `src/AltCharacters/` project tree deleted entirely.** The
+rename above only ever touched `src/Primal/` — the old `src/AltCharacters/` folder (its own full
+copy of the source at the time of the rename, its own build output, and its own now-superseded
+duplicate of this exact file) had been left sitting untouched in the repo since 2026-09-12, not
+excluded from anything, not referenced by any build, just dead weight that could easily be mistaken
+for a second active project by a future session. Deleted outright (`git rm -r`) rather than
+excluded — this repo is real git history now, so removing it loses nothing recoverable. If you're
+looking for the pre-rename version of any of this doc's own history, it's in this file's own git
+log, not a second file on disk.
+
+## 2026-09-15 (later): sessions now run directly on the user's own Windows machine, not a cloud container
+
+Every "Container environment notes" section and every "this session's container has no `.NET`
+toolchain / no git / has to push files through `device_commit_files`" caveat elsewhere in this doc
+describes a **different, no-longer-current** setup. As of this update, the working directory
+(`C:\Users\rokas\Documents\RWMods`) **is** the user's real machine — a real git repo (not
+"no git repo here" as the Build & deploy workflow section still claims), with a working `dotnet`
+(confirmed: `dotnet --version` -> 8.0.425) and direct filesystem access to both the source tree and
+the actual Steam game install. `scripts/build-deploy-run.sh` can now be run directly and actually
+builds/deploys/launches for real, instead of being hand-reviewed-only and shipped through a
+device-bridge as described throughout the rest of this file. Don't assume the container limitations
+(no toolchain, no decompiler, file transfer via `SendUserFile`/`device_commit_files`) still apply —
+check directly (`dotnet --version`, `git status`) before assuming either way, the same "verify,
+don't assume" discipline Gotcha #5 already established for build staleness.
+
+**First real build in this environment found the 2026-09-15 whole-codebase refactor didn't actually
+compile.** `dotnet build` (via `scripts/build-deploy-run.sh`) failed with 9x `CS0103: The name
+'MoreSlugcatsEnums' does not exist in the current context`, all in `Gimmicks/GimmickRegistry.cs`
+(the new `homeCharacter:` arguments added that day — see "Gimmick buttons colored by their home
+character" above). Root cause was mundane: that file was missing `using MoreSlugcats;` entirely (no
+`using` directives at all at its top), unlike every sibling file (`GimmickDefaults.cs`, etc.) that
+already has it. **Fixed** by adding the one `using` line. Rebuilt clean (0 errors), the
+`CopyToModFolder` post-build step + the script's own deploy step copied the DLL into
+`...\StreamingAssets\mods\Primal\plugins\Primal.dll`, and `./RainWorld.exe` launched successfully —
+`BepInEx/LogOutput.log` shows a clean chainloader startup with no errors, and no `exceptionLog.txt`
+was generated. This is the first confirmed-clean build+launch since the 2026-09-15 refactor; **it
+does not mean any individual gimmick/feature listed as "not yet tested" elsewhere in this doc is now
+verified** — only that the mod loads without immediately crashing BepInEx's own chainloader. Note
+also: `BepInEx/LogOutput.log` shows `Primal` (along with every other optional local mod --
+moreslugcats, watcher, jollycoop, rwremix, versioning) as **"Skipping loading [Primal] because it's
+not enabled"** — this is the in-game Mods-menu enabled/disabled list, unrelated to the build/deploy
+fix above, and needs to be toggled on from Rain World's own mod-manager screen before any gimmick
+can actually be exercised in-game.
 
 ## Maintenance policy — keep this document current
 
@@ -212,7 +459,7 @@ this list is for orientation, not a substitute for reading the file.
   `NoHoldGimmick.cs` (generalized 2026-09-18 from the old single-purpose `NoSpears`, now deleted),
   `ChainsGimmick.cs`, `NoYeeksGimmick.cs`, `NoCicadasGimmick.cs`, `NoMaulingGimmick.cs`,
   `NoPassagesGimmick.cs`, `ThreatSlowdownGimmick.cs`, `ThreatPanicGimmick.cs`,
-  `CreatureKillListGimmick.cs` (+ `PrimalArtificerKillList.cs`), `RainTimerGimmick.cs`,
+  `CreatureKillListGimmick.cs`, `RainTimerGimmick.cs`,
   `BlizzardTimerGimmick.cs`, `PrecycleTimerGimmick.cs` — one file per gimmick (see Current
   architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` reskins
   Artificer's ending-cutscene art for the Primal slot (see `scenes/primal artificer/`).

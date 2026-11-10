@@ -45,11 +45,10 @@ namespace Primal.Gimmicks
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, ReachEndingRequirement_ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, ReachEndingRequirement_ID, true);
 
-            // OutlawRequirement ("100k points" -- OutlawSettings' own default score threshold is
-            // already 100000, see Requirements.cs) defaults onto Hunter, the only character it's
-            // thematically tied to (checked via SlugcatStats.Name.Red inside CheckScoreScreen
-            // itself regardless of assignment, but assigning it here means it's on out of the box).
-            GimmickAssignments.SetDefault(SlugcatStats.Name.Red.value, OutlawRequirement.RequirementID, true);
+            // Hunter's "100k points" goal (2026-11-10): SlaughterRequirement, its own score
+            // requirement (default 100000), replacing the Outlaw community challenge as Hunter's
+            // default -- Outlaw is back to a plain 10000-point community challenge for everyone.
+            GimmickAssignments.SetDefault(SlugcatStats.Name.Red.value, SlaughterRequirement.RequirementID, true);
 
             // GourmandFoodQuestRequirement ("Food Quest," renamed the same round from "Food Quest &
             // Save") defaults onto Gourmand, its own HomeCharacter.
@@ -61,10 +60,15 @@ namespace Primal.Gimmicks
             // reproducing the original "all four required" design exactly.
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value, InvHighestPointRequirement.RequirementID, true);
 
-            // VisitShelterRequirement ("Visit Shelter" -- researched and implemented this same
-            // round rather than left unimplemented, see its own doc comment in Requirements.cs)
-            // defaults onto Rivulet, its own HomeCharacter.
-            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, VisitShelterRequirement_ID, true);
+            // Rivulet's shelter requirement (2026-11-05, explicit request): must SLEEP in every
+            // shelter, not just visit it -- SleepEveryShelterRequirement replaces
+            // VisitShelterRequirement as Rivulet's default. Visit Shelter stays registered and
+            // assignable by hand in Remix; it's just no longer on by default for anyone.
+            GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, SleepEveryShelterRequirement.RequirementID, true);
+
+            // Survivor (2026-11-10, explicit request): complete N of the 50 community challenges
+            // (default 45) is Survivor's only requirement, and Survivor has no default gimmicks.
+            GimmickAssignments.SetDefault(SlugcatStats.Name.White.value, CommunityChallengeCountRequirement.RequirementID, true);
         }
 
         // Plain string literals mirroring each requirement's own ID property -- there's no shared
@@ -75,6 +79,5 @@ namespace Primal.Gimmicks
         // magic string at each call site above.
         private const string ReachEndingRequirement_ID = "ReachEnding";
         private const string GourmandFoodQuestRequirement_ID = "GourmandFoodQuest";
-        private const string VisitShelterRequirement_ID = "VisitShelter";
     }
 }

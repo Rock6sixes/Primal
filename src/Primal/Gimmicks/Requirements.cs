@@ -2645,8 +2645,8 @@ namespace Primal.Gimmicks
             // pairs -- a requirement ID works exactly the same way a gimmick ID does, no separate
             // "is Community Challenges assigned" layer needed anymore (see Requirement's own doc
             // comment for the full trace of that simplification).
-            if (!GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
-                || !GimmickGate.IsActiveFor(player, RequirementID, out string characterID))
+            if (!GimmickAssignments.IsTrackedForAnyCharacter(RequirementID)
+                || !GimmickGate.IsTrackedFor(player, RequirementID, out string characterID))
             {
                 return;
             }
@@ -2766,9 +2766,13 @@ namespace Primal.Gimmicks
 
             string characterID = PrimalMenuAccess.GetCharacterID(screen);
             RainWorld rainWorld = screen.manager?.rainWorld;
-            if (characterID != SlugcatStats.Name.Red.value
-                || !GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
-                || !GimmickGate.IsEnabledForCharacter(rainWorld, characterID, RequirementID))
+            // 2026-11-10: no longer Hunter-only (explicit request: every challenge trackable by
+            // any character, Survivor included). Every character that finishes a campaign reaches
+            // this same final score screen (RainWorldGame.BeatGameMode / statsAfterCredits for
+            // Survivor's ending; Hunter's own game-over) and ScoreKeeper scores them all the same
+            // way, so the configured threshold simply applies to whichever character it is.
+            if (!GimmickAssignments.IsTrackedForAnyCharacter(RequirementID)
+                || !GimmickGate.IsTrackedForCharacter(rainWorld, characterID, RequirementID))
             {
                 return;
             }
@@ -2788,7 +2792,9 @@ namespace Primal.Gimmicks
     /// Defaults to 100000 ("100k points"), per explicit request.</summary>
     internal static class OutlawSettings
     {
-        private const int DefaultRequiredScore = 100000;
+        /// <summary>Back to the community challenge's own 10000 ("Get 10k+ points") on
+        /// 2026-11-10 -- Hunter's 100k goal moved to its own SlaughterRequirement.</summary>
+        private const int DefaultRequiredScore = 10000;
         private const int MinRequiredScore = 0;
         private const int MaxRequiredScore = 999999;
 
@@ -2836,14 +2842,112 @@ namespace Primal.Gimmicks
         }
     }
 
+    /// <summary>
+    /// "Slaughter" (added 2026-11-10, explicit request): Hunter's own score goal -- reach a
+    /// configurable final score (default 100000) on the end-of-campaign score screen. Same
+    /// detection as OutlawRequirement (vanilla's own ScoreKeeper total, read once the screen's
+    /// tally finishes -- see Outlaw's doc comment for the trace), but a separate requirement with
+    /// its own setting, so it has nothing to do with the community challenges: Outlaw stays a
+    /// plain community challenge (10000), and reaching Slaughter's target doesn't mark Outlaw done.
+    /// Replaces Outlaw as Hunter's default. Not in CommunityChallengesRoster, so only tracked
+    /// where directly assigned.
+    /// </summary>
+    internal sealed class SlaughterRequirement : Requirement
+    {
+        internal const string RequirementID = "Slaughter";
+        public override string ID => RequirementID;
+        public override string DisplayName => "Slaughter";
+        public override SlugcatStats.Name HomeCharacter => SlugcatStats.Name.Red;
+
+        public override Action<OptionInterface, string> BindSettings => SlaughterSettings.Bind;
+        public override Func<string, float, List<UIelement>> BuildSettingsUI => SlaughterSettings.BuildUI;
+
+        public override void Register()
+        {
+            // Detection happens in OutlawScoreScreenHook's Postfix (shared with Outlaw).
+        }
+
+        internal static void CheckScoreScreen(Menu.StoryGameStatisticsScreen screen)
+        {
+            if (screen == null || !PrimalMenuAccess.IsScoreScreenDone(screen))
+            {
+                return;
+            }
+
+            string characterID = PrimalMenuAccess.GetCharacterID(screen);
+            RainWorld rainWorld = screen.manager?.rainWorld;
+            if (!GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
+                || !GimmickGate.IsEnabledForCharacter(rainWorld, characterID, RequirementID))
+            {
+                return;
+            }
+
+            int? score = PrimalMenuAccess.GetFinalScore(screen);
+            if (!score.HasValue || score.Value < SlaughterSettings.GetRequiredScore(characterID))
+            {
+                return;
+            }
+
+            DeathPersistentSaveData saveData = PrimalMenuAccess.GetSaveState(screen)?.deathPersistentSaveData;
+            RequirementCompletion.ReportForSave(saveData, characterID, RequirementID);
+        }
+    }
+
+    /// <summary>Per-character setting for SlaughterRequirement. Default 100000.</summary>
+    internal static class SlaughterSettings
+    {
+        private const int DefaultRequiredScore = 100000;
+        private const int MinRequiredScore = 0;
+        private const int MaxRequiredScore = 999999;
+
+        private static readonly Dictionary<string, Configurable<int>> _requiredScore = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, List<UIelement>> _uiCache = new Dictionary<string, List<UIelement>>();
+
+        public static void Bind(OptionInterface owner, string characterID)
+        {
+            _requiredScore[characterID] = owner.config.Bind(
+                characterID + "_Slaughter_requiredScore",
+                DefaultRequiredScore,
+                new ConfigurableInfo(
+                    "The final-score-screen score this character needs to reach or exceed to satisfy Slaughter.",
+                    new ConfigAcceptableRange<int>(MinRequiredScore, MaxRequiredScore)));
+        }
+
+        public static int GetRequiredScore(string characterID)
+        {
+            return _requiredScore.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultRequiredScore;
+        }
+
+        public static List<UIelement> BuildUI(string characterID, float topY)
+        {
+            if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
+            {
+                return cached;
+            }
+            if (!_requiredScore.TryGetValue(characterID, out Configurable<int> requiredScore))
+            {
+                return new List<UIelement>();
+            }
+
+            var items = new List<UIelement>();
+            items.Add(new OpLabel(20f, topY, "Score required (final score screen):", false));
+            items.Add(new OpUpdown(requiredScore, new Vector2(280f, topY - 6f), 100f));
+
+            _uiCache[characterID] = items;
+            return items;
+        }
+    }
+
     /// <summary>See OutlawRequirement's own doc comment for the full trace of why this challenge is
-    /// detected from a menu screen Postfix rather than a SurvivorEvents subscription.</summary>
+    /// detected from a menu screen Postfix rather than a SurvivorEvents subscription. Also drives
+    /// SlaughterRequirement (2026-11-10), which uses the same score.</summary>
     [HarmonyPatch(typeof(Menu.StoryGameStatisticsScreen), nameof(Menu.StoryGameStatisticsScreen.Update))]
     internal static class OutlawScoreScreenHook
     {
         private static void Postfix(Menu.StoryGameStatisticsScreen __instance)
         {
             OutlawRequirement.CheckScoreScreen(__instance);
+            SlaughterRequirement.CheckScoreScreen(__instance);
         }
     }
 
@@ -4075,6 +4179,124 @@ namespace Primal.Gimmicks
 
         // True once every one of this character's own required story regions has its own
         // "region complete" marker set (see Register() above).
+        private static bool AllStoryRegionsComplete(DeathPersistentSaveData saveData, SlugcatStats.Name slugcatName, string characterID)
+        {
+            if (slugcatName == null)
+            {
+                return false;
+            }
+            foreach (string regionAcronym in SlugcatStats.SlugcatStoryRegions(slugcatName))
+            {
+                if (!PrimalSaveMarkers.Has(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, regionAcronym)))
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// "Sleep In Every Shelter" -- Rivulet's requirement (added 2026-11-05, explicit request,
+    /// replacing VisitShelterRequirement as Rivulet's default): successfully hibernate in every
+    /// shelter in every one of this character's story regions. Walking through a shelter doesn't
+    /// count; only a sleep does. Built to pair with PermanentShelterFailureGimmick, which makes each
+    /// shelter single-use, so the campaign becomes a one-way route through every shelter.
+    ///
+    /// Same overall shape as VisitShelterRequirement (same scope rules: World.shelters minus
+    /// World.DisabledMapRooms, per-region "complete" markers, then every
+    /// SlugcatStats.SlugcatStoryRegions entry), but driven by SurvivorEvents.OnSuccessfulHibernation
+    /// (a Prefix on RainWorldGame.Win, so markers land in the save Win writes) and read from
+    /// ShelterSleepRecords instead of RegionState.roomsVisited.
+    ///
+    /// Extra exclusion VisitShelter doesn't need: shelters the character's own timeline breaks
+    /// permanently (the region map file's "Broken Shelters" line) can never be slept in, so they
+    /// are skipped. Read from ShelterSleepRecords' snapshot of vanilla's brokenShelters taken right
+    /// after World.LoadWorld, before PermanentShelterFailureGimmick adds its own -- otherwise every
+    /// used shelter would look "unsleepable" too.
+    ///
+    /// A region can only become complete while you're in it (its last shelter is slept in there),
+    /// so checking the loaded region on each sleep is enough.
+    /// </summary>
+    internal sealed class SleepEveryShelterRequirement : Requirement
+    {
+        public const string RequirementID = "SleepEveryShelter";
+
+        public override string ID => RequirementID;
+        public override string DisplayName => "Sleep In Every Shelter";
+        public override SlugcatStats.Name HomeCharacter => MoreSlugcatsEnums.SlugcatStatsName.Rivulet;
+
+        private const string RegionCompleteMarkerKey = "PrimalShelterSleptRegionComplete";
+
+        public override void Register()
+        {
+            SurvivorEvents.OnSuccessfulHibernation += (game, player, eventCharacterID) =>
+            {
+                if (!TryGetEnabledCharacter(player, out string characterID))
+                {
+                    return;
+                }
+
+                if (ShelterSleepRecords.RecordSleep(game, player, characterID) == null)
+                {
+                    return;
+                }
+
+                World world = player?.abstractCreature?.world;
+                DeathPersistentSaveData saveData = PrimalSaveMarkers.SaveDataFor(game);
+                if (world?.name == null || world.shelters == null || world.shelters.Length == 0 || saveData == null)
+                {
+                    return;
+                }
+
+                if (!AllSheltersSleptInLoadedRegion(world, saveData, characterID, out int slept, out int total))
+                {
+                    Plugin.Log?.LogInfo($"[SleepEveryShelter] {characterID}: {slept}/{total} shelters slept in {world.name}");
+                    return;
+                }
+
+                if (PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, world.name)))
+                {
+                    Plugin.Log?.LogInfo($"[SleepEveryShelter] {characterID}: every shelter in {world.name} slept in");
+                }
+
+                if (!AllStoryRegionsComplete(saveData, player.playerState?.slugcatCharacter, characterID))
+                {
+                    return;
+                }
+
+                ReportCompletion(player, characterID, isLive: true);
+            };
+        }
+
+        private static bool AllSheltersSleptInLoadedRegion(World world, DeathPersistentSaveData saveData, string characterID, out int slept, out int total)
+        {
+            slept = 0;
+            total = 0;
+            foreach (int roomIndex in world.shelters)
+            {
+                AbstractRoom shelterRoom = world.GetAbstractRoom(roomIndex);
+                if (shelterRoom == null)
+                {
+                    continue;
+                }
+                if (world.DisabledMapRooms != null && world.DisabledMapRooms.Contains(shelterRoom.name))
+                {
+                    continue;
+                }
+                if (ShelterSleepRecords.IsVanillaBroken(world, shelterRoom.shelterIndex))
+                {
+                    continue;
+                }
+                total++;
+                if (ShelterSleepRecords.HasSlept(saveData, characterID, shelterRoom.name))
+                {
+                    slept++;
+                }
+            }
+            return slept == total;
+        }
+
         private static bool AllStoryRegionsComplete(DeathPersistentSaveData saveData, SlugcatStats.Name slugcatName, string characterID)
         {
             if (slugcatName == null)

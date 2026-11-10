@@ -183,6 +183,18 @@ namespace Primal.Gimmicks
         /// either, for the same reason (see GimmickDef.HomeCharacter) -- its button in the Remix
         /// menu keeps OpSimpleButton's own default color instead of being tagged.
         /// </summary>
+        /// <summary>
+        /// Every shelter this character successfully sleeps in stays broken for the rest of the
+        /// save (added 2026-11-05 for Primal Rivulet's one-way shelter routing). See
+        /// PermanentShelterFailureGimmick.cs for the full trace.
+        /// </summary>
+        public static readonly GimmickDef PermanentShelterFailure = new GimmickDef(
+            PermanentShelterFailureGimmick.ID,
+            "Permanent Shelter Failure",
+            "Every shelter you successfully sleep in breaks for the rest of this campaign -- you can never hibernate in it again, so each shelter is single-use.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Rivulet
+        );
+
         public static readonly GimmickDef NoPassages = new GimmickDef(
             NoPassagesGimmick.ID,
             "No Passages",
@@ -303,22 +315,23 @@ namespace Primal.Gimmicks
         /// Replaces vanilla's own precycle ("shelter failure") decision outright -- both how often
         /// one happens (a flat 0-100% for this character, in place of vanilla's own per-region
         /// chance) and how long its head start lasts before the normal rain timer even starts
-        /// counting (a percentage multiplier on BOTH bounds of vanilla's own random 4800-12000 tick
-        /// roll, same idea as Rain Timer's own percent, in place of a fixed value). See
-        /// PrecycleTimerGimmick.cs's own header comment for the full trace of RainCycle's
-        /// constructor and exactly which vanilla fields this overrides.
+        /// counting (a length in seconds, with vanilla's own random 4800-12000 tick roll ratio
+        /// preserved for "Random"/"Force max"). See PrecycleTimerGimmick.cs's own header comment
+        /// for the full trace of RainCycle's constructor and exactly which vanilla fields this
+        /// overrides. Making a failed shelter stay broken for good is a separate gimmick now --
+        /// PermanentShelterFailure, below -- not this one; see PrecycleTimerGimmick.cs's own header
+        /// comment for why that moved out.
         /// </summary>
         public static readonly GimmickDef PrecycleTimer = new GimmickDef(
             PrecycleTimerGimmick.ID,
             "Precycle Timer",
-            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (a percentage multiplier on vanilla's own roll bounds, or always the scaled upper bound), flood chance, and shelter-failure chance with configured values for this character -- with options to also force flooding on Submerged Superstructure and make a failed shelter stay broken for the rest of the run.",
+            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration in seconds (with vanilla's own roll ratio for \"Random\"/\"Force max\"), and flood chance with configured values for this character -- with an option to also force flooding on Submerged Superstructure.",
             PrecycleTimerSettings.Bind,
             PrecycleTimerSettings.BuildUI,
-            // Six rows now (frequency; duration+force-max; flood; force-submerged; shelter-failure
-            // chance; permanent-shelter-failure) -- comfortably past the plain viewport's own
-            // default clamp, same reasoning as Chains' own settingsContentHeight. Bumped from 260f
-            // (2026-11-02, one more row added for the shelter-failure-chance/permanent rework).
-            settingsContentHeight: 300f,
+            // Five rows (frequency; duration+force-max; flood; force-submerged; random-length) --
+            // comfortably past the plain viewport's own default clamp, same reasoning as Chains'
+            // own settingsContentHeight.
+            settingsContentHeight: 220f,
             // Rivulet, not Saint -- Precycle Timer was always Rivulet's own design-table entry
             // ("Precycle Timer (50% multiplier, 100% chance, 100% shelter failure)"), and is now
             // actually default-assigned to Rivulet (see GimmickDefaults.cs) -- the color tag was
@@ -344,6 +357,7 @@ namespace Primal.Gimmicks
             RainTimer,
             BlizzardTimer,
             PrecycleTimer,
+            PermanentShelterFailure,
             CreatureKillList,
         };
     }

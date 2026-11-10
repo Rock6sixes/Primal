@@ -113,6 +113,17 @@ namespace Primal.Gimmicks
 
             try
             {
+                // Same reasoning again -- records each successful sleep via
+                // SurvivorEvents.OnSuccessfulHibernation, a plain event subscription.
+                PermanentShelterFailureGimmick.Register();
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogError($"PermanentShelterFailureGimmick.Register() threw -- used shelters may not stay broken this session: {ex}");
+            }
+
+            try
+            {
                 // Same reasoning again -- a plain event subscription (RequirementCompletion.OnSatisfied),
                 // not a Harmony patch, needs its own explicit one-shot call site.
                 CommunityChallengesNotifications.Init();
