@@ -237,6 +237,10 @@ namespace Primal.Gimmicks
             // General, added 2026-11-10 -- "complete N of the 50 community challenges" (default 45),
             // Survivor's only default requirement; see CommunityChallengeCountRequirement.cs.
             new CommunityChallengeCountRequirement(),
+
+            // Character-specific (Hunter), added 2026-11-10 -- Hunter's own score goal, split off
+            // from the Outlaw community challenge; see SlaughterRequirement's doc comment.
+            new SlaughterRequirement(),
         };
 
         private static bool _registered;

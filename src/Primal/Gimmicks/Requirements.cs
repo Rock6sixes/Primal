@@ -2792,7 +2792,9 @@ namespace Primal.Gimmicks
     /// Defaults to 100000 ("100k points"), per explicit request.</summary>
     internal static class OutlawSettings
     {
-        private const int DefaultRequiredScore = 100000;
+        /// <summary>Back to the community challenge's own 10000 ("Get 10k+ points") on
+        /// 2026-11-10 -- Hunter's 100k goal moved to its own SlaughterRequirement.</summary>
+        private const int DefaultRequiredScore = 10000;
         private const int MinRequiredScore = 0;
         private const int MaxRequiredScore = 999999;
 
@@ -2840,14 +2842,112 @@ namespace Primal.Gimmicks
         }
     }
 
+    /// <summary>
+    /// "Slaughter" (added 2026-11-10, explicit request): Hunter's own score goal -- reach a
+    /// configurable final score (default 100000) on the end-of-campaign score screen. Same
+    /// detection as OutlawRequirement (vanilla's own ScoreKeeper total, read once the screen's
+    /// tally finishes -- see Outlaw's doc comment for the trace), but a separate requirement with
+    /// its own setting, so it has nothing to do with the community challenges: Outlaw stays a
+    /// plain community challenge (10000), and reaching Slaughter's target doesn't mark Outlaw done.
+    /// Replaces Outlaw as Hunter's default. Not in CommunityChallengesRoster, so only tracked
+    /// where directly assigned.
+    /// </summary>
+    internal sealed class SlaughterRequirement : Requirement
+    {
+        internal const string RequirementID = "Slaughter";
+        public override string ID => RequirementID;
+        public override string DisplayName => "Slaughter";
+        public override SlugcatStats.Name HomeCharacter => SlugcatStats.Name.Red;
+
+        public override Action<OptionInterface, string> BindSettings => SlaughterSettings.Bind;
+        public override Func<string, float, List<UIelement>> BuildSettingsUI => SlaughterSettings.BuildUI;
+
+        public override void Register()
+        {
+            // Detection happens in OutlawScoreScreenHook's Postfix (shared with Outlaw).
+        }
+
+        internal static void CheckScoreScreen(Menu.StoryGameStatisticsScreen screen)
+        {
+            if (screen == null || !PrimalMenuAccess.IsScoreScreenDone(screen))
+            {
+                return;
+            }
+
+            string characterID = PrimalMenuAccess.GetCharacterID(screen);
+            RainWorld rainWorld = screen.manager?.rainWorld;
+            if (!GimmickAssignments.IsEnabledForAnyCharacter(RequirementID)
+                || !GimmickGate.IsEnabledForCharacter(rainWorld, characterID, RequirementID))
+            {
+                return;
+            }
+
+            int? score = PrimalMenuAccess.GetFinalScore(screen);
+            if (!score.HasValue || score.Value < SlaughterSettings.GetRequiredScore(characterID))
+            {
+                return;
+            }
+
+            DeathPersistentSaveData saveData = PrimalMenuAccess.GetSaveState(screen)?.deathPersistentSaveData;
+            RequirementCompletion.ReportForSave(saveData, characterID, RequirementID);
+        }
+    }
+
+    /// <summary>Per-character setting for SlaughterRequirement. Default 100000.</summary>
+    internal static class SlaughterSettings
+    {
+        private const int DefaultRequiredScore = 100000;
+        private const int MinRequiredScore = 0;
+        private const int MaxRequiredScore = 999999;
+
+        private static readonly Dictionary<string, Configurable<int>> _requiredScore = new Dictionary<string, Configurable<int>>();
+        private static readonly Dictionary<string, List<UIelement>> _uiCache = new Dictionary<string, List<UIelement>>();
+
+        public static void Bind(OptionInterface owner, string characterID)
+        {
+            _requiredScore[characterID] = owner.config.Bind(
+                characterID + "_Slaughter_requiredScore",
+                DefaultRequiredScore,
+                new ConfigurableInfo(
+                    "The final-score-screen score this character needs to reach or exceed to satisfy Slaughter.",
+                    new ConfigAcceptableRange<int>(MinRequiredScore, MaxRequiredScore)));
+        }
+
+        public static int GetRequiredScore(string characterID)
+        {
+            return _requiredScore.TryGetValue(characterID, out Configurable<int> c) ? c.Value : DefaultRequiredScore;
+        }
+
+        public static List<UIelement> BuildUI(string characterID, float topY)
+        {
+            if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
+            {
+                return cached;
+            }
+            if (!_requiredScore.TryGetValue(characterID, out Configurable<int> requiredScore))
+            {
+                return new List<UIelement>();
+            }
+
+            var items = new List<UIelement>();
+            items.Add(new OpLabel(20f, topY, "Score required (final score screen):", false));
+            items.Add(new OpUpdown(requiredScore, new Vector2(280f, topY - 6f), 100f));
+
+            _uiCache[characterID] = items;
+            return items;
+        }
+    }
+
     /// <summary>See OutlawRequirement's own doc comment for the full trace of why this challenge is
-    /// detected from a menu screen Postfix rather than a SurvivorEvents subscription.</summary>
+    /// detected from a menu screen Postfix rather than a SurvivorEvents subscription. Also drives
+    /// SlaughterRequirement (2026-11-10), which uses the same score.</summary>
     [HarmonyPatch(typeof(Menu.StoryGameStatisticsScreen), nameof(Menu.StoryGameStatisticsScreen.Update))]
     internal static class OutlawScoreScreenHook
     {
         private static void Postfix(Menu.StoryGameStatisticsScreen __instance)
         {
             OutlawRequirement.CheckScoreScreen(__instance);
+            SlaughterRequirement.CheckScoreScreen(__instance);
         }
     }
 

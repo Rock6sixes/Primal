@@ -51,7 +51,7 @@ day.
 | --- | --- | --- |
 | Monk | Ascend | **Done.** Resolved by the new "Ending" requirement (renamed from "Reach Ending"), defaulted onto Monk with its own select defaulting to "Ascension". |
 | Survivor | Community Challenges (complete N of 50, default 45) | **Built 2026-11-10, compiles, not yet tested in-game.** New `CommunityChallengeCountRequirement` ("Community Challenges", setting 1-50, default 45), Survivor's only default requirement; Survivor has no default gimmicks. Tracks all 50 automatically (`GimmickAssignments.IsTracked`). Outlaw is no longer Hunter-only, so all 50 are completable by any character. |
-| Hunter | Reach 100k points | **Done.** `OutlawRequirement`'s threshold is now a per-character `Configurable<int>` textbox (`OutlawSettings`), defaulting to 100,000, defaulted onto Hunter. |
+| Hunter | Slaughter (reach 100k points) | **Built 2026-11-10, compiles, not yet tested in-game.** New `SlaughterRequirement` ("Slaughter"), its own per-character score setting (default 100,000), same score-screen detection as Outlaw; defaulted onto Hunter in place of Outlaw. Outlaw is back to a plain community challenge (default 10,000, any character). |
 | Hunter | Ascend | **Done.** Same "Ending" requirement as Monk's row, also defaulted onto Hunter with "Ascension". |
 | Artificer | Unique kill list | **Done.** `UniqueKillsRequirement`, fully general (no character lock), assignable to Artificer. Not defaulted onto Artificer specifically this round -- not part of this round's explicit requests (see AI_CONTEXT.md's own note on this same omission). |
 | Gourmand | Food Quest | **Done.** `GourmandFoodQuestRequirement.DisplayName` renamed from "Food Quest & Save" to "Food Quest", defaulted onto Gourmand. |

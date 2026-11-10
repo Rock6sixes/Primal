@@ -45,11 +45,10 @@ namespace Primal.Gimmicks
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Rivulet.value, ReachEndingRequirement_ID, true);
             GimmickAssignments.SetDefault(MoreSlugcatsEnums.SlugcatStatsName.Saint.value, ReachEndingRequirement_ID, true);
 
-            // OutlawRequirement ("100k points" -- OutlawSettings' own default score threshold is
-            // already 100000, see Requirements.cs) defaults onto Hunter, the only character it's
-            // thematically tied to (checked via SlugcatStats.Name.Red inside CheckScoreScreen
-            // itself regardless of assignment, but assigning it here means it's on out of the box).
-            GimmickAssignments.SetDefault(SlugcatStats.Name.Red.value, OutlawRequirement.RequirementID, true);
+            // Hunter's "100k points" goal (2026-11-10): SlaughterRequirement, its own score
+            // requirement (default 100000), replacing the Outlaw community challenge as Hunter's
+            // default -- Outlaw is back to a plain 10000-point community challenge for everyone.
+            GimmickAssignments.SetDefault(SlugcatStats.Name.Red.value, SlaughterRequirement.RequirementID, true);
 
             // GourmandFoodQuestRequirement ("Food Quest," renamed the same round from "Food Quest &
             // Save") defaults onto Gourmand, its own HomeCharacter.

@@ -50,7 +50,13 @@ Outlaw included.
 - CHALLENGES cycle-end button/dialog list all 50 for such a character; title shows `(need N)`.
 - **Outlaw no longer Hunter-only:** every campaign ending reaches StoryGameStatisticsScreen
   (Survivor via statsAfterCredits after its ending), scored by the same ScoreKeeper, so the
-  per-character threshold (default 100000) applies to whoever it is.
+  per-character threshold applies to whoever it is. Outlaw default is now 10000 (the community
+  challenge's own number).
+- **Slaughter** (same day, explicit request): Hunter's 100k goal split off into its own
+  `SlaughterRequirement` (`<char>_Slaughter_requiredScore`, default 100000, HomeCharacter Hunter),
+  driven by the same `OutlawScoreScreenHook`. Not in the roster, so only tracked where assigned.
+  Replaces Outlaw as Hunter's default in `RequirementDefaults.cs`. Reaching it does not complete
+  Outlaw.
 - Defaults: `RequirementDefaults.cs` assigns CommunityChallengeCount to Survivor (White). No
   Survivor gimmick defaults exist.
 - Builds clean; not yet tested in-game.
