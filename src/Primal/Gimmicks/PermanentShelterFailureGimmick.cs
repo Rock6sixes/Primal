@@ -213,7 +213,16 @@ namespace Primal.Gimmicks
         }
     }
 
-    [HarmonyPatch(typeof(World), nameof(World.LoadWorldForFastTravel))]
+    // 2026-11-10 fix: World.LoadWorldForFastTravel is overloaded (SlugcatStats.Name or
+    // SlugcatStats.Timeline as the first parameter, see World.cs) -- without explicit parameter
+    // types here, Harmony's AccessTools.DeclaredMethod lookup is ambiguous and throws
+    // HarmonyException during Harmony.PatchAll(), which aborts ALL of this mod's patching
+    // (Primal.Plugin.OnEnable's own PatchAll call has no per-patch isolation), not just this one
+    // hook -- the symptom in-game was the Remix config screen reporting "no configuration
+    // interface" at all, because OptionInterface itself never got registered either. Pinned to the
+    // Timeline overload, matching PermanentShelterFailureLoadWorldHook's own LoadWorld pin just
+    // above (the Name overload is a thin wrapper that just calls this one, per World.cs).
+    [HarmonyPatch(typeof(World), nameof(World.LoadWorldForFastTravel), new[] { typeof(SlugcatStats.Timeline), typeof(List<AbstractRoom>), typeof(int[]), typeof(int[]), typeof(int[]) })]
     internal static class PermanentShelterFailureFastTravelHook
     {
         private static void Postfix(World __instance)
