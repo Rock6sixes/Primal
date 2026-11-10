@@ -1,3 +1,5 @@
+using MoreSlugcats;
+
 namespace Primal.Gimmicks
 {
     /// <summary>
@@ -86,18 +88,25 @@ namespace Primal.Gimmicks
         );
 
         /// <summary>
-        /// Spears can never be picked up by the character it's assigned to (Player.Grabability
-        /// forced to CantGrab for anything that "is Spear") -- see NoSpearsGimmick.cs. Doesn't
-        /// block OneSpear's own tail-pull, which attaches its spear through a different, lower-
-        /// level vanilla method that bypasses Grabability entirely. Which of the three spear
-        /// types are still allowed can be configured -- see NoSpearsGimmick.NoSpearsSettings.
+        /// Generalization of the old NoSpears gimmick (removed 2026-09-18) to ten independently
+        /// togglable categories -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas,
+        /// Yeeks, Centipedes, and Other (everything else grabbable) -- see NoHoldGimmick.cs for the
+        /// full category-to-class mapping. Same Player.Grabability Postfix mechanism NoSpears
+        /// always used; still doesn't block OneSpear's own tail-pull (a different, lower-level
+        /// vanilla method that bypasses Grabability entirely). Unlike NoSpears, individual spear
+        /// sub-types (plain/explosive/electric) are no longer separately configurable -- Spears is
+        /// now a single category, per explicit request when this gimmick was generalized. Also has
+        /// an "inert until cycle N" setting (default 0, no delay) that keeps the whole gimmick
+        /// switched off until that cycle number is reached -- see NoHoldGimmick.cs's own header
+        /// comment.
         /// </summary>
-        public static readonly GimmickDef NoSpears = new GimmickDef(
-            NoSpearsGimmick.ID,
-            "No Spears",
-            "Spears become impossible to pick up -- they act as if they were never grabbable objects at all (individual spear types can be re-allowed in this gimmick's settings).",
-            NoSpearsSettings.Bind,
-            NoSpearsSettings.BuildUI,
+        public static readonly GimmickDef NoHold = new GimmickDef(
+            NoHoldGimmick.ID,
+            "No Hold",
+            "Blocks picking up whichever categories are checked in this gimmick's settings -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, and/or Other (everything else grabbable) -- optionally inert until a configured cycle number.",
+            NoHoldSettings.Bind,
+            NoHoldSettings.BuildUI,
+            settingsContentHeight: 340f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Spear
         );
 
@@ -118,7 +127,7 @@ namespace Primal.Gimmicks
             ChainsSettings.BuildUI,
             // ChainsSettings.BuildUI lays out an escape-timer row, two toggles, a preset picker,
             // and a 6-row/2-column, 12-checkbox banlist grid -- well over 400px tall, badly
-            // overflowing the plain ~241px settings viewport (see PrimalOptions.RenderGimmickSettings).
+            // overflowing the plain settings viewport (see PrimalOptions.RenderGimmickSettingsModal).
             // 480 gives it room to scroll instead of clipping/being unreachable.
             settingsContentHeight: 480f,
             homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Artificer
@@ -127,8 +136,8 @@ namespace Primal.Gimmicks
         /// <summary>
         /// Blocks Player.Grabability outright for MoreSlugcats.Yeek (Watcher's small mask-wearing
         /// creature) -- see NoYeeksGimmick.cs, which reuses the exact same Postfix mechanism as
-        /// NoSpears. Plain on/off; there's only one Yeek class, so unlike NoSpears there's nothing
-        /// to sub-select.
+        /// NoHold (this same class is also NoHold's own Yeeks category). Plain on/off; there's
+        /// only one Yeek class, so there's nothing to sub-select.
         /// </summary>
         public static readonly GimmickDef NoYeeks = new GimmickDef(
             NoYeeksGimmick.ID,
@@ -174,6 +183,18 @@ namespace Primal.Gimmicks
         /// either, for the same reason (see GimmickDef.HomeCharacter) -- its button in the Remix
         /// menu keeps OpSimpleButton's own default color instead of being tagged.
         /// </summary>
+        /// <summary>
+        /// Every shelter this character successfully sleeps in stays broken for the rest of the
+        /// save (added 2026-11-05 for Primal Rivulet's one-way shelter routing). See
+        /// PermanentShelterFailureGimmick.cs for the full trace.
+        /// </summary>
+        public static readonly GimmickDef PermanentShelterFailure = new GimmickDef(
+            PermanentShelterFailureGimmick.ID,
+            "Permanent Shelter Failure",
+            "Every shelter you successfully sleep in breaks for the rest of this campaign -- you can never hibernate in it again, so each shelter is single-use.",
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Rivulet
+        );
+
         public static readonly GimmickDef NoPassages = new GimmickDef(
             NoPassagesGimmick.ID,
             "No Passages",
@@ -247,13 +268,78 @@ namespace Primal.Gimmicks
             "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
         );
 
+        /// <summary>
+        /// Rescales how long rain (or, on Saint, the region-wide blizzard -- the exact same
+        /// underlying timer, see RainTimerGimmick.cs's own header comment for the full trace) takes
+        /// to arrive each cycle, as a percentage of vanilla's own normal timing, all the way down
+        /// to 0 (essentially immediate). Postfixes RainCycle's constructor and rescales the
+        /// cycleLength it already computed, mirroring the exact same scaling points a real,
+        /// already-installed third-party mod (MMF) uses for its own rain-speed config. The real
+        /// vanilla rendering bug this used to just floor around -- pushing the timer below roughly
+        /// 13% of its normal length used to break Saint's blizzard visuals entirely -- is now fixed
+        /// at its actual source (see BlizzardVisualCycleLengthHook, same file, and the header
+        /// comment's "The actual fix" section), so 0% is genuinely safe to configure. Defaulted to
+        /// Saint at 0% (see GimmickDefaults.cs), per explicit request.
+        /// </summary>
+        public static readonly GimmickDef RainTimer = new GimmickDef(
+            RainTimerGimmick.ID,
+            "Rain Timer",
+            "Rescales how long rain (or Saint's blizzard) takes to arrive each cycle, as a percentage of normal vanilla timing -- 0 is essentially immediate.",
+            RainTimerSettings.Bind,
+            RainTimerSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+        );
+
+        /// <summary>
+        /// Controls how many minutes into the cycle (from the cycle's own start, not from whenever
+        /// rain/blizzard actually hits) the blizzard's heat-drain mechanic suddenly maxes out --
+        /// see BlizzardTimerGimmick.cs's own header comment for the full trace of
+        /// Creature.HypothermiaUpdate()'s real formula and why a Postfix on the single-call-site
+        /// static helper RainWorldGame.BlizzardHardEndTimer, rather than touching cycleLength
+        /// directly, is what avoids side-effecting an unrelated wind-chill sub-term in the same
+        /// method. Composes correctly with RainTimer above -- both read/derive from the character's
+        /// actual live cycleLength at the moment they're asked, so assigning both to the same
+        /// character always means exactly what each one's own setting says, independently.
+        /// Defaulted to Saint at 60 minutes (see GimmickDefaults.cs), per explicit request.
+        /// </summary>
+        public static readonly GimmickDef BlizzardTimer = new GimmickDef(
+            BlizzardTimerGimmick.ID,
+            "Blizzard Timer",
+            "Controls how many minutes into the cycle the blizzard's heat-drain mechanic suddenly jumps from a gentle background rate to its maximum severity.",
+            BlizzardTimerSettings.Bind,
+            BlizzardTimerSettings.BuildUI,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+        );
+
+        /// <summary>
+        /// Replaces vanilla's own precycle ("shelter failure") decision outright -- both how often
+        /// one happens (a flat 0-100% for this character, in place of vanilla's own per-region
+        /// chance) and how long its head start lasts before the normal rain timer even starts
+        /// counting (a percentage multiplier on BOTH bounds of vanilla's own random 4800-12000 tick
+        /// roll, same idea as Rain Timer's own percent, in place of a fixed value). See
+        /// PrecycleTimerGimmick.cs's own header comment for the full trace of RainCycle's
+        /// constructor and exactly which vanilla fields this overrides.
+        /// </summary>
+        public static readonly GimmickDef PrecycleTimer = new GimmickDef(
+            PrecycleTimerGimmick.ID,
+            "Precycle Timer",
+            "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (a percentage multiplier on vanilla's own roll bounds, or always the scaled upper bound), and flood chance with configured values for this character -- with options to also force flooding on Submerged Superstructure and force the current shelter unusable.",
+            PrecycleTimerSettings.Bind,
+            PrecycleTimerSettings.BuildUI,
+            // Five rows now (frequency; duration+force-max; flood; force-submerged; force-shelter-
+            // unavailable) -- comfortably past the plain viewport's own default clamp, same
+            // reasoning as Chains' own settingsContentHeight.
+            settingsContentHeight: 260f,
+            homeCharacter: MoreSlugcatsEnums.SlugcatStatsName.Saint
+        );
+
         public static readonly GimmickDef[] All =
         {
             Misery,
             Slugpup,
             OneSpear,
             TimeLimit,
-            NoSpears,
+            NoHold,
             Chains,
             NoYeeks,
             NoCicadas,
@@ -261,6 +347,10 @@ namespace Primal.Gimmicks
             NoPassages,
             ThreatSlowdown,
             ThreatPanic,
+            RainTimer,
+            BlizzardTimer,
+            PrecycleTimer,
+            PermanentShelterFailure,
             CreatureKillList,
         };
     }

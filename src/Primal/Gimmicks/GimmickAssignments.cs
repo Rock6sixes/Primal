@@ -69,13 +69,54 @@ namespace Primal.Gimmicks
         private static readonly Dictionary<AssignmentKey, bool> _defaults = new Dictionary<AssignmentKey, bool>();
         private static readonly Dictionary<AssignmentKey, Configurable<bool>> _overrides = new Dictionary<AssignmentKey, Configurable<bool>>();
 
+        /// <summary>Added 2026-09-17: a live, O(1)-to-query count of how many characters currently
+        /// have each gimmick enabled -- kept in sync incrementally (SetDefault/Register adjust it
+        /// on write, Configurable.OnChange adjusts it on every live Remix toggle) rather than
+        /// recomputed by scanning _defaults/_overrides on every query. Exists so a gimmick with
+        /// many always-registered listeners on hot/frequent vanilla events (Community Challenges'
+        /// own 50 ChallengeTrackers, all permanently subscribed to shared events regardless of
+        /// whether anyone actually uses the gimmick, was the motivating case) can fail fast with
+        /// one dictionary lookup instead of every single listener separately re-deriving "is my own
+        /// gimmick assigned to this specific player" from scratch on every relevant event.</summary>
+        private static readonly Dictionary<string, int> _enabledCount = new Dictionary<string, int>();
+
+        private static void AdjustEnabledCount(string gimmickID, int delta)
+        {
+            if (delta == 0 || gimmickID == null)
+            {
+                return;
+            }
+            _enabledCount.TryGetValue(gimmickID, out int count);
+            count += delta;
+            if (count <= 0)
+            {
+                _enabledCount.Remove(gimmickID);
+            }
+            else
+            {
+                _enabledCount[gimmickID] = count;
+            }
+        }
+
         /// <summary>Sets the mod-defined default for whether a gimmick is enabled on a
         /// character absent any Remix configuration. Call during startup, before any
         /// PrimalOptions instance is constructed (its checkboxes read this as their
         /// initial value).</summary>
         public static void SetDefault(string characterID, string gimmickID, bool enabled)
         {
-            _defaults[new AssignmentKey(characterID, gimmickID)] = enabled;
+            var key = new AssignmentKey(characterID, gimmickID);
+            bool wasCountedByDefault = !_overrides.ContainsKey(key)
+                && _defaults.TryGetValue(key, out bool oldValue) && oldValue;
+            _defaults[key] = enabled;
+
+            // Only affects the live count while no override has been bound for this key yet --
+            // once Register() binds one, the override is authoritative for it instead (see
+            // Register's own comment), and a default set afterward (shouldn't happen per this
+            // class's own call-order contract, but cheap to guard regardless) is inert here.
+            if (!_overrides.ContainsKey(key) && wasCountedByDefault != enabled)
+            {
+                AdjustEnabledCount(gimmickID, enabled ? 1 : -1);
+            }
         }
 
         public static bool GetDefault(string characterID, string gimmickID)
@@ -87,7 +128,56 @@ namespace Primal.Gimmicks
         /// pair, so IsEnabled() can start reading the live, user-editable value.</summary>
         public static void Register(string characterID, string gimmickID, Configurable<bool> configurable)
         {
-            _overrides[new AssignmentKey(characterID, gimmickID)] = configurable;
+            var key = new AssignmentKey(characterID, gimmickID);
+
+            // Un-count whatever this key's own default was contributing -- the override is about
+            // to become authoritative for it instead, and double-counting both would overstate the
+            // live total.
+            if (!_overrides.ContainsKey(key) && _defaults.TryGetValue(key, out bool defaultValue) && defaultValue)
+            {
+                AdjustEnabledCount(gimmickID, -1);
+            }
+
+            _overrides[key] = configurable;
+            if (configurable != null && configurable.Value)
+            {
+                AdjustEnabledCount(gimmickID, 1);
+            }
+
+            if (configurable != null)
+            {
+                configurable.OnChange += () => AdjustEnabledCount(gimmickID, configurable.Value ? 1 : -1);
+            }
+        }
+
+        /// <summary>Added 2026-09-17: true if at least one character currently has `gimmickID`
+        /// enabled (whether via a live Remix override or an unbound default) -- an O(1) read of
+        /// the live count above. Intended as the very first check a gimmick with many always-
+        /// registered event listeners does, before any of its own per-player resolution --
+        /// ChallengeTracker.TryGetEnabledCharacter is the first consumer, but this is a general
+        /// primitive any gimmick's own hot-path patches can adopt the same way.</summary>
+        public static bool IsEnabledForAnyCharacter(string gimmickID)
+        {
+            return gimmickID != null && _enabledCount.TryGetValue(gimmickID, out int count) && count > 0;
+        }
+
+        /// <summary>Like IsEnabledForAnyCharacter, but also true for any of the 50 community
+        /// challenges while CommunityChallengeCountRequirement is assigned to anyone (2026-11-10):
+        /// that requirement tracks all 50 without them being assigned individually. Use this (not
+        /// IsEnabledForAnyCharacter) as the fast-path gate for requirement TRACKING; keep
+        /// IsEnabledForAnyCharacter for "is this actually assigned" questions.</summary>
+        public static bool IsTrackedForAnyCharacter(string id)
+        {
+            return IsEnabledForAnyCharacter(id)
+                || (CommunityChallengesRoster.Contains(id) && IsEnabledForAnyCharacter(CommunityChallengeCountRequirement.RequirementID));
+        }
+
+        /// <summary>Per-character counterpart of IsTrackedForAnyCharacter: assigned directly, or a
+        /// community challenge while this character has CommunityChallengeCountRequirement.</summary>
+        public static bool IsTracked(string characterID, string id)
+        {
+            return IsEnabled(characterID, id)
+                || (CommunityChallengesRoster.Contains(id) && IsEnabled(characterID, CommunityChallengeCountRequirement.RequirementID));
         }
 
         /// <summary>The live Configurable behind this pair, if one has been bound. Lets

@@ -10,10 +10,11 @@ namespace Primal.Gimmicks
     /// original discovery that no vanilla creature is actually called "squid"). There is only one
     /// real C# class involved, root-namespace Cicada (extends InsectoidCreature, confirmed via
     /// TypeDef in the real game assembly) -- CicadaA/CicadaB are just the two
-    /// CreatureTemplate.Type enum variants of that one class, not separate types, so unlike
-    /// NoSpears there's nothing to distinguish at the C# level.
+    /// CreatureTemplate.Type enum variants of that one class, not separate types, so there's
+    /// nothing to distinguish at the C# level (NoHoldGimmick's own Squidcadas category uses this
+    /// exact same "is Cicada" check).
     ///
-    /// Same mechanism as NoSpearsGimmick/NoYeeksGimmick: Postfixes Player.Grabability, and forces
+    /// Same mechanism as NoHoldGimmick/NoYeeksGimmick: Postfixes Player.Grabability, and forces
     /// the result to Player.ObjectGrabability.CantGrab when the object "is Cicada" and the asking
     /// player has this gimmick active.
     ///

@@ -1,0 +1,692 @@
+﻿Gimmicks\BlizzardTimerGimmick.cs:64: public const string ID = "BlizzardTimer";
+Gimmicks\BlizzardTimerGimmick.cs:164: characterID + "_BlizzardTimer_minutes",
+Gimmicks\BlizzardTimerGimmick.cs:167: "Minutes into the cycle (counted from the cycle's own start, not from whenever rain/blizzard actually hits) before the blizzard's heat-drain mechanic suddenly maxes out. Ignored entirely while \"Disable timer\" is checked.",
+Gimmicks\BlizzardTimerGimmick.cs:171: characterID + "_BlizzardTimer_disabled",
+Gimmicks\BlizzardTimerGimmick.cs:173: new ConfigurableInfo("If checked, the blizzard's heat-drain mechanic never suddenly maxes out -- the minutes above are ignored while this is checked."));
+Gimmicks\BlizzardTimerGimmick.cs:203: var label = new OpLabel(20f, topY, "Minutes into the cycle before it turns harsh:", false);
+Gimmicks\BlizzardTimerGimmick.cs:206: var disableLabel = new OpLabel(416f, topY - 2f, "Disable timer", false);
+Gimmicks\ChainsGimmick.cs:192: public const string ID = "Chains";
+Gimmicks\ChainsGimmick.cs:429: Plugin.Log?.LogInfo($"[Chains] {characterID}: locked room {room.abstractRoom.name} -- {state.CreatureList.Count} creature(s), {state.ChainedShortcuts.Count} exit(s) sealed");
+Gimmicks\ChainsGimmick.cs:516: Plugin.Log?.LogInfo($"[Chains] {characterID}: {template.name} entered tracked room {room.abstractRoom.name} -- added ({state.CreatureList.Count} total)");
+Gimmicks\ChainsGimmick.cs:716: Plugin.Log?.LogInfo($"[Chains] {characterID}: escape timer elapsed -- freeing room {room.abstractRoom.name} unfinished");
+Gimmicks\ChainsGimmick.cs:793: Plugin.Log?.LogInfo($"[Chains] {characterID}: room {room.abstractRoom.name} cleared -- freeing");
+Gimmicks\ChainsGimmick.cs:1152: private static readonly string[] PresetNames = { "Funny", "Hardcore", "Casual", "NoCritters" };
+Gimmicks\ChainsGimmick.cs:1164: ["Funny"] = new string[0],
+Gimmicks\ChainsGimmick.cs:1165: ["Hardcore"] = new[] { "GarbageWorm", "VultureGrub", "EelLizard" },
+Gimmicks\ChainsGimmick.cs:1166: ["Casual"] = new[] { "GarbageWorm", "VultureGrub", "EelLizard", "TempleGuard", "BigEel", "Deer" },
+Gimmicks\ChainsGimmick.cs:1167: ["NoCritters"] = new[] { "GarbageWorm", "VultureGrub", "EelLizard", "TempleGuard", "BigEel", "Deer", "Overseer", "Spider", "Leech", "Fly" },
+Gimmicks\ChainsGimmick.cs:1170: private static readonly HashSet<string> GroupedBanOptionKeys = new HashSet<string> { "Vultures", "Cicadas" };
+Gimmicks\ChainsGimmick.cs:1219: new BanOption("GarbageWorm", "Garbage Worms", true, CreatureTemplate.Type.GarbageWorm),
+Gimmicks\ChainsGimmick.cs:1220: new BanOption("VultureGrub", "Vulture Grubs", true, CreatureTemplate.Type.VultureGrub),
+Gimmicks\ChainsGimmick.cs:1221: new BanOption("EelLizard", "Eel Lizards", true, DLCSharedEnums.CreatureTemplateType.EelLizard),
+Gimmicks\ChainsGimmick.cs:1222: new BanOption("Vultures", "Vultures", true, CreatureTemplate.Type.Vulture, CreatureTemplate.Type.KingVulture),
+Gimmicks\ChainsGimmick.cs:1223: new BanOption("Cicadas", "Cicadas (\"squids\")", true, CreatureTemplate.Type.CicadaA, CreatureTemplate.Type.CicadaB),
+Gimmicks\ChainsGimmick.cs:1224: new BanOption("TempleGuard", "Temple Guards", false, CreatureTemplate.Type.TempleGuard),
+Gimmicks\ChainsGimmick.cs:1225: new BanOption("BigEel", "Big Eels", false, CreatureTemplate.Type.BigEel),
+Gimmicks\ChainsGimmick.cs:1226: new BanOption("Deer", "Rain Deer", false, CreatureTemplate.Type.Deer),
+Gimmicks\ChainsGimmick.cs:1227: new BanOption("Overseer", "Overseers", false, CreatureTemplate.Type.Overseer),
+Gimmicks\ChainsGimmick.cs:1228: new BanOption("Spider", "Spiders", false, CreatureTemplate.Type.Spider),
+Gimmicks\ChainsGimmick.cs:1229: new BanOption("Leech", "Leeches", false, CreatureTemplate.Type.Leech),
+Gimmicks\ChainsGimmick.cs:1230: new BanOption("Fly", "Batflies", false, CreatureTemplate.Type.Fly),
+Gimmicks\ChainsGimmick.cs:1236: characterID + "_Chains_escapeTimerSeconds",
+Gimmicks\ChainsGimmick.cs:1239: "Seconds before a locked room gives up and releases you even if it isn't cleared. 0 disables the timer -- you must kill everything in the room to leave.",
+Gimmicks\ChainsGimmick.cs:1243: characterID + "_Chains_catchLateArrivals",
+Gimmicks\ChainsGimmick.cs:1245: new ConfigurableInfo("If checked, a creature that wanders into an already-tracked room after you enter it can start or join the lock too -- not just whatever was already there when you walked in."));
+Gimmicks\ChainsGimmick.cs:1248: characterID + "_Chains_fauxHuntedBurden",
+Gimmicks\ChainsGimmick.cs:1250: new ConfigurableInfo("If checked, every creature sharing a room with you is forced to instantly notice you, bypassing stealth entirely -- whether or not that room is currently locked."));
+Gimmicks\ChainsGimmick.cs:1256: characterID + "_Chains_ban_" + option.Key,
+Gimmicks\ChainsGimmick.cs:1258: new ConfigurableInfo("Checked: never counts toward triggering or joining a room lock, and can't be chained."));
+Gimmicks\ChainsGimmick.cs:1265: characterID + "_Chains_banlistPreset",
+Gimmicks\ChainsGimmick.cs:1266: "Hardcore",
+Gimmicks\ChainsGimmick.cs:1267: new ConfigurableInfo("Quick preset -- picking one immediately sets the individual creature checkboxes below to match it (Vultures/Cicadas are untouched by this, they stay independent). You can still fine-tune any checkbox afterward."));
+Gimmicks\ChainsGimmick.cs:1368: items.Add(new OpLabel(20f, topY, "Escape timer, in seconds (0 = must clear room):", false));
+Gimmicks\ChainsGimmick.cs:1372: items.Add(new OpLabel(56f, topY - 40f, "Catch creatures that wander in after you enter", false));
+Gimmicks\ChainsGimmick.cs:1375: items.Add(new OpLabel(56f, topY - 76f, "Faux-hunted burden (forces nearby creatures to notice you)", false));
+Gimmicks\ChainsGimmick.cs:1382: items.Add(new OpLabel(20f, presetY, "Quick preset:", false));
+Gimmicks\ChainsGimmick.cs:1385: items.Add(new OpLabel(20f, presetY - 116f, "Never lock a room over these (checked = excluded):", false));
+Gimmicks\CommunityChallengesGimmick.cs:43: "Flytrap",
+Gimmicks\CommunityChallengesGimmick.cs:44: "Visitor",
+Gimmicks\CommunityChallengesGimmick.cs:45: "Chieftain",
+Gimmicks\CommunityChallengesGimmick.cs:46: "Manslaughter",
+Gimmicks\CommunityChallengesGimmick.cs:47: "Tasty",
+Gimmicks\CommunityChallengesGimmick.cs:48: "Leukocyte",
+Gimmicks\CommunityChallengesGimmick.cs:49: "Heist",
+Gimmicks\CommunityChallengesGimmick.cs:50: "Fishtank",
+Gimmicks\CommunityChallengesGimmick.cs:51: "Descension",
+Gimmicks\CommunityChallengesGimmick.cs:52: "Visions",
+Gimmicks\CommunityChallengesGimmick.cs:53: "Mycologist",
+Gimmicks\CommunityChallengesGimmick.cs:54: "Catalogue",
+Gimmicks\CommunityChallengesGimmick.cs:55: "Despicable",
+Gimmicks\CommunityChallengesGimmick.cs:56: "Elder",
+Gimmicks\CommunityChallengesGimmick.cs:57: "Feast",
+Gimmicks\CommunityChallengesGimmick.cs:58: "Desperado",
+Gimmicks\CommunityChallengesGimmick.cs:59: "Symbiote",
+Gimmicks\CommunityChallengesGimmick.cs:60: "Vegan",
+Gimmicks\CommunityChallengesGimmick.cs:61: "Friend",
+Gimmicks\CommunityChallengesGimmick.cs:62: "Collector",
+Gimmicks\CommunityChallengesGimmick.cs:63: "Nomad",
+Gimmicks\CommunityChallengesGimmick.cs:64: "Enlightenment",
+Gimmicks\CommunityChallengesGimmick.cs:65: "Journey",
+Gimmicks\CommunityChallengesGimmick.cs:66: "Charged",
+Gimmicks\CommunityChallengesGimmick.cs:67: "Passages",
+Gimmicks\CommunityChallengesGimmick.cs:68: "Scholar",
+Gimmicks\CommunityChallengesGimmick.cs:69: "Martyr",
+Gimmicks\CommunityChallengesGimmick.cs:70: "Devotee",
+Gimmicks\CommunityChallengesGimmick.cs:71: "Offering",
+Gimmicks\CommunityChallengesGimmick.cs:72: "Sleepover",
+Gimmicks\CommunityChallengesGimmick.cs:73: "Saint",
+Gimmicks\CommunityChallengesGimmick.cs:74: "Safari",
+Gimmicks\CommunityChallengesGimmick.cs:75: "Usurper",
+Gimmicks\CommunityChallengesGimmick.cs:76: "Triplopia",
+Gimmicks\CommunityChallengesGimmick.cs:77: "Ranger",
+Gimmicks\CommunityChallengesGimmick.cs:78: "Spearfisher",
+Gimmicks\CommunityChallengesGimmick.cs:79: "Ascension",
+Gimmicks\CommunityChallengesGimmick.cs:80: "Outlaw",
+Gimmicks\CommunityChallengesGimmick.cs:81: "Circuit",
+Gimmicks\CommunityChallengesGimmick.cs:82: "Mother",
+Gimmicks\CommunityChallengesGimmick.cs:83: "Chef",
+Gimmicks\CommunityChallengesGimmick.cs:84: "Foe",
+Gimmicks\CommunityChallengesGimmick.cs:85: "Ornaments",
+Gimmicks\CommunityChallengesGimmick.cs:86: "Broadcast",
+Gimmicks\CommunityChallengesGimmick.cs:87: "Guardian",
+Gimmicks\CommunityChallengesGimmick.cs:88: "Massacre",
+Gimmicks\CommunityChallengesGimmick.cs:89: "Pilgrimage",
+Gimmicks\CommunityChallengesGimmick.cs:90: "Criminal",
+Gimmicks\CommunityChallengesGimmick.cs:91: "UTurn",
+Gimmicks\CommunityChallengesGimmick.cs:92: "Perseverance",
+Gimmicks\CommunityChallengesGimmick.cs:193: hud.textPrompt?.AddMessage("Challenge complete: " + challengeDisplayName, MessageWaitTicks, MessageDurationTicks, false, false);
+Gimmicks\CommunityChallengesGimmick.cs:218: internal const string SignalText = "PRIMAL_COMMUNITYCHALLENGES";
+Gimmicks\CommunityChallengesGimmick.cs:237: var button = new Menu.SimpleButton(__instance, __instance.pages[0], "CHALLENGES", SignalText, new Vector2(x, y), new Vector2(110f, 30f));
+Gimmicks\CommunityChallengesGimmick.cs:296: private const string CloseSignal = "PRIMAL_COMMUNITYCHALLENGES_CLOSE";
+Gimmicks\CommunityChallengesGimmick.cs:318: var title = new Menu.MenuLabel(this, pages[0], $"COMMUNITY CHALLENGES -- {completedCount}/{enabled.Count}", new Vector2(pos.x, cursorY - TitleHeight), new Vector2(size.x, TitleHeight), true);
+Gimmicks\CommunityChallengesGimmick.cs:324: var placeholder = new Menu.MenuLabel(this, pages[0], "(no challenges selected in this character's Requirements tab)", new Vector2(pos.x + Margin, cursorY - RowHeight), new Vector2(size.x - Margin * 2f, RowHeight), false);
+Gimmicks\CommunityChallengesGimmick.cs:340: var closeButton = new Menu.SimpleButton(this, pages[0], "CLOSE", CloseSignal, new Vector2(pos.x + (size.x - 110f) * 0.5f, pos.y + Mathf.Max(size.y * 0.02f, 10f)), new Vector2(110f, 30f));
+Gimmicks\CreatureKillListGimmick.cs:36: public const string ID = "CreatureKillList";
+Gimmicks\CreatureKillListGimmick.cs:81: new KillListEntry(CreatureTemplate.Type.GreenLizard, "Green Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:82: new KillListEntry(CreatureTemplate.Type.PinkLizard, "Pink Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:83: new KillListEntry(CreatureTemplate.Type.WhiteLizard, "White Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:84: new KillListEntry(CreatureTemplate.Type.BlueLizard, "Blue Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:85: new KillListEntry(CreatureTemplate.Type.YellowLizard, "Yellow Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:86: new KillListEntry(CreatureTemplate.Type.RedLizard, "Red Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:87: new KillListEntry(CreatureTemplate.Type.BlackLizard, "Black Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:88: new KillListEntry(CreatureTemplate.Type.CyanLizard, "Cyan Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:89: new KillListEntry(CreatureTemplate.Type.Salamander, "Salamander"),
+Gimmicks\CreatureKillListGimmick.cs:90: new KillListEntry(CreatureTemplate.Type.Vulture, "Vulture"),
+Gimmicks\CreatureKillListGimmick.cs:91: new KillListEntry(CreatureTemplate.Type.KingVulture, "King Vulture"),
+Gimmicks\CreatureKillListGimmick.cs:92: new KillListEntry(CreatureTemplate.Type.MirosBird, "Miros Bird"),
+Gimmicks\CreatureKillListGimmick.cs:93: new KillListEntry(CreatureTemplate.Type.SmallCentipede, "Small Centipede"),
+Gimmicks\CreatureKillListGimmick.cs:94: new KillListEntry(CreatureTemplate.Type.Centipede, "Centipede"),
+Gimmicks\CreatureKillListGimmick.cs:95: new KillListEntry(CreatureTemplate.Type.RedCentipede, "Red Centipede"),
+Gimmicks\CreatureKillListGimmick.cs:96: new KillListEntry(CreatureTemplate.Type.Centiwing, "Centiwing"),
+Gimmicks\CreatureKillListGimmick.cs:97: new KillListEntry(CreatureTemplate.Type.Spider, "Small Spider"),
+Gimmicks\CreatureKillListGimmick.cs:98: new KillListEntry(CreatureTemplate.Type.BigSpider, "Big Spider"),
+Gimmicks\CreatureKillListGimmick.cs:99: new KillListEntry(CreatureTemplate.Type.SpitterSpider, "Spitter Spider"),
+Gimmicks\CreatureKillListGimmick.cs:100: new KillListEntry(CreatureTemplate.Type.DropBug, "Dropwig"),
+Gimmicks\CreatureKillListGimmick.cs:101: new KillListEntry(CreatureTemplate.Type.BrotherLongLegs, "Brother Long Legs"),
+Gimmicks\CreatureKillListGimmick.cs:102: new KillListEntry(CreatureTemplate.Type.DaddyLongLegs, "Daddy Long Legs"),
+Gimmicks\CreatureKillListGimmick.cs:103: new KillListEntry(CreatureTemplate.Type.PoleMimic, "Pole Plant"),
+Gimmicks\CreatureKillListGimmick.cs:104: new KillListEntry(CreatureTemplate.Type.TentaclePlant, "Monster Kelp"),
+Gimmicks\CreatureKillListGimmick.cs:105: new KillListEntry(CreatureTemplate.Type.BigNeedleWorm, "Adult Noodlefly"),
+Gimmicks\CreatureKillListGimmick.cs:106: new KillListEntry(CreatureTemplate.Type.SmallNeedleWorm, "Infant Noodlefly"),
+Gimmicks\CreatureKillListGimmick.cs:107: new KillListEntry(CreatureTemplate.Type.Snail, "Snail"),
+Gimmicks\CreatureKillListGimmick.cs:108: new KillListEntry(CreatureTemplate.Type.Scavenger, "Scavenger"),
+Gimmicks\CreatureKillListGimmick.cs:109: new KillListEntry(CreatureTemplate.Type.EggBug, "Eggbug"),
+Gimmicks\CreatureKillListGimmick.cs:110: new KillListEntry(CreatureTemplate.Type.Leech, "Red Leech"),
+Gimmicks\CreatureKillListGimmick.cs:111: new KillListEntry(CreatureTemplate.Type.SeaLeech, "Sea Leech"),
+Gimmicks\CreatureKillListGimmick.cs:112: new KillListEntry(CreatureTemplate.Type.TubeWorm, "Grapple Worm"),
+Gimmicks\CreatureKillListGimmick.cs:113: new KillListEntry(CreatureTemplate.Type.Overseer, "Overseer"),
+Gimmicks\CreatureKillListGimmick.cs:114: new KillListEntry(CreatureTemplate.Type.Fly, "Batfly"),
+Gimmicks\CreatureKillListGimmick.cs:115: new KillListEntry(CreatureTemplate.Type.VultureGrub, "Vulture Grub"),
+Gimmicks\CreatureKillListGimmick.cs:116: new KillListEntry(CreatureTemplate.Type.LanternMouse, "Lantern Mouse"),
+Gimmicks\CreatureKillListGimmick.cs:117: new KillListEntry(CreatureTemplate.Type.Hazer, "Hazer"),
+Gimmicks\CreatureKillListGimmick.cs:118: new KillListEntry(CreatureTemplate.Type.TempleGuard, "Guardian"),
+Gimmicks\CreatureKillListGimmick.cs:119: new KillListEntry(CreatureTemplate.Type.JetFish, "Jetfish"),
+Gimmicks\CreatureKillListGimmick.cs:120: new KillListEntry(CreatureTemplate.Type.GarbageWorm, "Garbage Worm"),
+Gimmicks\CreatureKillListGimmick.cs:121: new KillListEntry(CreatureTemplate.Type.Deer, "Rain Deer"),
+Gimmicks\CreatureKillListGimmick.cs:122: new KillListEntry(CreatureTemplate.Type.BigEel, "Leviathan"),
+Gimmicks\CreatureKillListGimmick.cs:123: new KillListEntry(CreatureTemplate.Type.CicadaA, "White Squid"),
+Gimmicks\CreatureKillListGimmick.cs:124: new KillListEntry(CreatureTemplate.Type.CicadaB, "Black Squid"),
+Gimmicks\CreatureKillListGimmick.cs:127: new KillListEntry(DLCSharedEnums.CreatureTemplateType.ScavengerElite, "Elite Scavenger"),
+Gimmicks\CreatureKillListGimmick.cs:128: new KillListEntry(DLCSharedEnums.CreatureTemplateType.MotherSpider, "Mother Spider"),
+Gimmicks\CreatureKillListGimmick.cs:129: new KillListEntry(DLCSharedEnums.CreatureTemplateType.MirosVulture, "Miros Vulture"),
+Gimmicks\CreatureKillListGimmick.cs:130: new KillListEntry(DLCSharedEnums.CreatureTemplateType.StowawayBug, "Stowaway"),
+Gimmicks\CreatureKillListGimmick.cs:131: new KillListEntry(DLCSharedEnums.CreatureTemplateType.Inspector, "Inspector"),
+Gimmicks\CreatureKillListGimmick.cs:132: new KillListEntry(DLCSharedEnums.CreatureTemplateType.JungleLeech, "Jungle Leech"),
+Gimmicks\CreatureKillListGimmick.cs:133: new KillListEntry(DLCSharedEnums.CreatureTemplateType.EelLizard, "Eel Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:134: new KillListEntry(DLCSharedEnums.CreatureTemplateType.SpitLizard, "Caramel Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:135: new KillListEntry(DLCSharedEnums.CreatureTemplateType.ZoopLizard, "Strawberry Lizard"),
+Gimmicks\CreatureKillListGimmick.cs:136: new KillListEntry(DLCSharedEnums.CreatureTemplateType.AquaCenti, "Coalescipede"),
+Gimmicks\CreatureKillListGimmick.cs:139: new KillListEntry(MoreSlugcatsEnums.CreatureTemplateType.ScavengerKing, "Chieftain Scavenger"),
+Gimmicks\CreatureKillListGimmick.cs:178: internal const string SignalText = "PRIMAL_KILLLIST";
+Gimmicks\CreatureKillListGimmick.cs:197: var button = new Menu.SimpleButton(__instance, __instance.pages[0], "KILL LIST", SignalText, new Vector2(x, y), new Vector2(110f, 30f));
+Gimmicks\CreatureKillListGimmick.cs:314: private const string CloseSignal = "PRIMAL_KILLLIST_CLOSE";
+Gimmicks\CreatureKillListGimmick.cs:335: var title = new Menu.MenuLabel(this, pages[0], $"KILL LIST -- {killed.Count}/{KillListRegistry.All.Length}", new Vector2(pos.x, cursorY - TitleHeight), new Vector2(size.x, TitleHeight), true);
+Gimmicks\CreatureKillListGimmick.cs:339: cursorY = RenderSection("NOT YET KILLED:", notKilled, "(none -- every tracked species killed!)", killedSection: false, cursorY);
+Gimmicks\CreatureKillListGimmick.cs:341: cursorY = RenderSection("KILLED:", killed, "(none yet)", killedSection: true, cursorY);
+Gimmicks\CreatureKillListGimmick.cs:343: var closeButton = new Menu.SimpleButton(this, pages[0], "CLOSE", CloseSignal, new Vector2(pos.x + (size.x - 110f) * 0.5f, pos.y + Mathf.Max(size.y * 0.02f, 10f)), new Vector2(110f, 30f));
+Gimmicks\GimmickRegistry.cs:23: "Misery",
+Gimmicks\GimmickRegistry.cs:24: "Every jump or wall-jump instantly maxes out exhaustion and comes out weak -- you have to let stamina recover between jumps, and even then jumps stay short.",
+Gimmicks\GimmickRegistry.cs:46: "Slugpup",
+Gimmicks\GimmickRegistry.cs:47: "Plays as a slugpup -- small body, pup jump height and speed, and every other creature in the world perceives and reacts to you as a pup instead of an adult slugcat.",
+Gimmicks\GimmickRegistry.cs:67: "Master Spear",
+Gimmicks\GimmickRegistry.cs:68: "Gains Spearmaster's tail spear-pull, his sole means of ever producing a weapon -- but it can only be pulled off a limited number of times for the whole save file; after that, the charge-up never quite finishes again.",
+Gimmicks\GimmickRegistry.cs:83: "Time Limit",
+Gimmicks\GimmickRegistry.cs:84: "The character dies once the configured amount of time has passed, measured either for the whole run or per cycle.",
+Gimmicks\GimmickRegistry.cs:105: "No Hold",
+Gimmicks\GimmickRegistry.cs:106: "Blocks picking up whichever categories are checked in this gimmick's settings -- Spears, Rocks, Bombs, Lanterns, Fruits, Batflies, Squidcadas, Yeeks, Centipedes, and/or Other (everything else grabbable) -- optionally inert until a configured cycle number.",
+Gimmicks\GimmickRegistry.cs:124: "Chains",
+Gimmicks\GimmickRegistry.cs:125: "Entering a room with living creatures in it seals every exit shut -- chained in place by void-chains -- until everything in the room is dead (or a configurable escape timer runs out).",
+Gimmicks\GimmickRegistry.cs:144: "No Yeeks",
+Gimmicks\GimmickRegistry.cs:145: "Yeeks become impossible to pick up -- they act as if they were never grabbable objects at all.",
+Gimmicks\GimmickRegistry.cs:157: "No Squidcadas",
+Gimmicks\GimmickRegistry.cs:158: "Squidcadas (cicadas) become impossible to pick up -- they act as if they were never grabbable objects at all.",
+Gimmicks\GimmickRegistry.cs:171: "No Mauling",
+Gimmicks\GimmickRegistry.cs:172: "Disables the instant-kill maul grab outright (only ever relevant to a character playing under Artificer's own class in the first place).",
+Gimmicks\GimmickRegistry.cs:188: "No Passages",
+Gimmicks\GimmickRegistry.cs:189: "Passages are still shown on the cycle-complete/death screen, but the button to actually use one is disabled."
+Gimmicks\GimmickRegistry.cs:211: "Threat Slowdown",
+Gimmicks\GimmickRegistry.cs:212: "Every tick has a rising chance of the character's real input being dropped entirely as vanilla's own threat meter rises, reaching guaranteed lockout once one pulse-circle is lit (\"threat level 1\").",
+Gimmicks\GimmickRegistry.cs:233: "Threat Panic",
+Gimmicks\GimmickRegistry.cs:234: "As threat rises, the character starts involuntarily firing off random inputs -- a direction, grab, throw, or jump, held briefly -- on top of the player's own real input (which is never blocked), reaching maximum frequency at threat level 1.",
+Gimmicks\GimmickRegistry.cs:255: "Kill List",
+Gimmicks\GimmickRegistry.cs:256: "Tracks every kill this character personally lands against a fixed 55-species roster, banked at the end of any cycle that ends in a successful sleep (a cycle ending in death doesn't count). Progress is shown via a button on the cycle-end screen. No goal/reward yet -- just the tracker."
+Gimmicks\GimmickRegistry.cs:274: "Rain Timer",
+Gimmicks\GimmickRegistry.cs:275: "Rescales how long rain (or Saint's blizzard) takes to arrive each cycle, as a percentage of normal vanilla timing -- 0 is essentially immediate.",
+Gimmicks\GimmickRegistry.cs:295: "Blizzard Timer",
+Gimmicks\GimmickRegistry.cs:296: "Controls how many minutes into the cycle the blizzard's heat-drain mechanic suddenly jumps from a gentle background rate to its maximum severity.",
+Gimmicks\GimmickRegistry.cs:313: "Precycle Timer",
+Gimmicks\GimmickRegistry.cs:314: "Replaces vanilla's own precycle (shelter failure) chance, head-start duration (a percentage multiplier on vanilla's own roll bounds, or always the scaled upper bound), and flood chance with configured values for this character -- with options to also force flooding on Submerged Superstructure and force the current shelter unusable.",
+Gimmicks\MiseryGimmick.cs:52: public const string ID = "Misery";
+Gimmicks\NoCicadasGimmick.cs:26: public const string ID = "NoCicadas";
+Gimmicks\NoHoldGimmick.cs:80: public const string ID = "NoHold";
+Gimmicks\NoHoldGimmick.cs:137: private const string OtherKey = "Other";
+Gimmicks\NoHoldGimmick.cs:146: [MoreSlugcatsEnums.SlugcatStatsName.Spear.value] = new HashSet<string> { "Spears" },
+Gimmicks\NoHoldGimmick.cs:147: [MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel.value] = new HashSet<string> { "Spears", "Yeeks", "Squidcadas" },
+Gimmicks\NoHoldGimmick.cs:157: "Spears", "Rocks", "Bombs", "Lanterns", "Fruits", "Batflies", "Squidcadas", "Yeeks", "Centipedes", OtherKey
+Gimmicks\NoHoldGimmick.cs:190: new CategoryDef("Spears", "Spears", true, obj => obj is Spear),
+Gimmicks\NoHoldGimmick.cs:191: new CategoryDef("Rocks", "Rocks", false, obj => obj is Rock),
+Gimmicks\NoHoldGimmick.cs:192: new CategoryDef("Bombs", "Bombs", false, obj =>
+Gimmicks\NoHoldGimmick.cs:194: new CategoryDef("Lanterns", "Lanterns", false, obj => obj is Lantern || obj is LanternMouse),
+Gimmicks\NoHoldGimmick.cs:195: new CategoryDef("Fruits", "Fruits", false, obj =>
+Gimmicks\NoHoldGimmick.cs:198: new CategoryDef("Batflies", "Batflies", false, obj => obj is Fly),
+Gimmicks\NoHoldGimmick.cs:199: new CategoryDef("Squidcadas", "Squidcadas (cicadas)", false, obj => obj is Cicada),
+Gimmicks\NoHoldGimmick.cs:200: new CategoryDef("Yeeks", "Yeeks", false, obj => obj is MoreSlugcats.Yeek),
+Gimmicks\NoHoldGimmick.cs:201: new CategoryDef("Centipedes", "Centipedes", false, obj => obj is Centipede),
+Gimmicks\NoHoldGimmick.cs:227: characterID + "_NoHold_" + category.Key,
+Gimmicks\NoHoldGimmick.cs:229: new ConfigurableInfo("Checked: this character can no longer pick up " + category.Label + "."));
+Gimmicks\NoHoldGimmick.cs:234: characterID + "_NoHold_Other",
+Gimmicks\NoHoldGimmick.cs:236: new ConfigurableInfo("Checked: this character can no longer pick up anything NOT covered by the categories above -- corpses, unique items, everything else grabbable."));
+Gimmicks\NoHoldGimmick.cs:239: characterID + "_NoHold_inertUntilCycle",
+Gimmicks\NoHoldGimmick.cs:242: "This gimmick does nothing at all until this cycle number is reached (0 = no delay, active from the very first cycle). Every category above still behaves completely normally once that cycle arrives.",
+Gimmicks\NoHoldGimmick.cs:290: items.Add(new OpLabel(20f, topY, "This character can no longer pick up (checked = blocked):", false));
+Gimmicks\NoHoldGimmick.cs:318: items.Add(new OpLabel(columnALabelX, otherY + 4f, "Other (everything else grabbable)", false));
+Gimmicks\NoHoldGimmick.cs:321: items.Add(new OpLabel(20f, inertY + 6f, "Inert until cycle number (0 = active immediately):", false));
+Gimmicks\NoMaulingGimmick.cs:29: public const string ID = "NoMauling";
+Gimmicks\NoPassagesGimmick.cs:49: public const string ID = "NoPassages";
+Gimmicks\NoPassagesGimmick.cs:52: AccessTools.Field(typeof(Menu.SleepAndDeathScreen), "passageButton");
+Gimmicks\NoPassagesGimmick.cs:55: AccessTools.Field(typeof(Menu.ButtonTemplate), "buttonBehav");
+Gimmicks\NoPassagesGimmick.cs:58: AccessTools.Field(typeof(Menu.ButtonBehavior), "greyedOut");
+Gimmicks\NoYeeksGimmick.cs:24: public const string ID = "NoYeeks";
+Gimmicks\OneSpearGimmick.cs:79: Plugin.Log?.LogInfo($"[OneSpear] {characterID}: SlugCatClass -> Spear (via {caller})");
+Gimmicks\OneSpearGimmick.cs:105: public const string ID = "OneSpear";
+Gimmicks\OneSpearGimmick.cs:119: private const string SaveMarkerKey = "ALTCHAR_ONESPEAR";
+Gimmicks\OneSpearGimmick.cs:157: AccessTools.Field(typeof(PlayerGraphics), "player");
+Gimmicks\OneSpearGimmick.cs:198: Plugin.Log?.LogInfo($"[OneSpear] {characterID}: pull #{usesSoFar + 1}/{limit} used");
+Gimmicks\OneSpearGimmick.cs:223: characterID + "_OneSpear_limit",
+Gimmicks\OneSpearGimmick.cs:225: new ConfigurableInfo("How many spears this character can ever pull, for the lifetime of a save file.", new ConfigAcceptableRange<int>(MinLimit, MaxLimit)));
+Gimmicks\OneSpearGimmick.cs:247: items.Add(new OpLabel(20f, topY, "Lifetime spear pulls allowed:", false));
+Gimmicks\PrecycleTimerGimmick.cs:123: public const string ID = "PrecycleTimer";
+Gimmicks\PrecycleTimerGimmick.cs:196: Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: precycle triggered (roll {triggerRoll:F1} < {frequencyPercent}%), duration {durationTicks} ticks ({durationPercent}% of vanilla's {PrecycleTimerSettings.VanillaMinDurationTicks}-{PrecycleTimerSettings.VanillaMaxDurationTicks} range), flood roll {floodRoll * 100f:F1} vs {floodChancePercent}%");
+Gimmicks\PrecycleTimerGimmick.cs:355: characterID + "_PrecycleTimer_frequencyPercent",
+Gimmicks\PrecycleTimerGimmick.cs:358: "Chance, out of 100, that a precycle (shelter failure -- storm already brewing at the start of the next cycle) happens. Replaces vanilla's own per-region chance entirely for this character.",
+Gimmicks\PrecycleTimerGimmick.cs:362: characterID + "_PrecycleTimer_durationPercent",
+Gimmicks\PrecycleTimerGimmick.cs:365: $"Percentage multiplier on BOTH bounds of vanilla's own random head-start roll ({VanillaMinDurationTicks}-{VanillaMaxDurationTicks} ticks, i.e. 2-5 real minutes). 100% rolls within vanilla's own unscaled range; 0% always gives no head start at all. Ignored entirely while \"Force max precycle timer\" is checked.",
+Gimmicks\PrecycleTimerGimmick.cs:369: characterID + "_PrecycleTimer_forceMaxDuration",
+Gimmicks\PrecycleTimerGimmick.cs:371: new ConfigurableInfo("If checked, a precycle's head start always uses the scaled upper bound (the percent above times vanilla's own longest roll) instead of rolling between the scaled bounds."));
+Gimmicks\PrecycleTimerGimmick.cs:374: characterID + "_PrecycleTimer_floodChancePercent",
+Gimmicks\PrecycleTimerGimmick.cs:377: "Chance, out of 100, that a triggered precycle also floods (raises the water level in rooms the region's own level design allows to flood -- this has no visible effect in a region/room that was never built with a flood danger type). Replaces vanilla's own per-region flood chance entirely for this character.",
+Gimmicks\PrecycleTimerGimmick.cs:381: characterID + "_PrecycleTimer_forceSubmergedSuperstructure",
+Gimmicks\PrecycleTimerGimmick.cs:383: new ConfigurableInfo("If checked, the flood chance above also applies on the Submerged Superstructure region (\"MS\"), which vanilla normally exempts from precycle flooding for every character except Rivulet."));
+Gimmicks\PrecycleTimerGimmick.cs:386: characterID + "_PrecycleTimer_forceShelterUnavailable",
+Gimmicks\PrecycleTimerGimmick.cs:388: new ConfigurableInfo("If checked, the character's current shelter becomes unusable to hibernate in during a triggered precycle, in any shelter -- independent of whether that shelter's own room visibly floods."));
+Gimmicks\PrecycleTimerGimmick.cs:442: items.Add(new OpLabel(20f, topY, "Precycle chance, out of 100:", false));
+Gimmicks\PrecycleTimerGimmick.cs:445: var durationLabel = new OpLabel(20f, topY - 44f, "Precycle head start, percent of vanilla:", false);
+Gimmicks\PrecycleTimerGimmick.cs:448: var forceMaxLabel = new OpLabel(416f, topY - 46f, "Force max precycle timer", false);
+Gimmicks\PrecycleTimerGimmick.cs:468: items.Add(new OpLabel(20f, topY - 88f, "Flood chance, out of 100:", false));
+Gimmicks\PrecycleTimerGimmick.cs:472: items.Add(new OpLabel(56f, topY - 128f, "Force Submerged Superstructure Precycles", false));
+Gimmicks\PrecycleTimerGimmick.cs:475: items.Add(new OpLabel(56f, topY - 164f, "Force shelter unavailable", false));
+Gimmicks\PrimalArtificerKillList.cs:27: internal static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource("PrimalArtificerKillList");
+Gimmicks\PrimalArtificerKillList.cs:34: "PinkLizard", "GreenLizard", "BlueLizard", "YellowLizard", "WhiteLizard", "RedLizard", "BlackLizard",
+Gimmicks\PrimalArtificerKillList.cs:35: "Salamander", "CyanLizard", "Fly", "Leech", "SeaLeech", "Snail", "Vulture", "GarbageWorm", "LanternMouse",
+Gimmicks\PrimalArtificerKillList.cs:36: "CicadaA", "CicadaB", "Spider", "JetFish", "BigEel", "TubeWorm", "DaddyLongLegs", "BrotherLongLegs",
+Gimmicks\PrimalArtificerKillList.cs:37: "TentaclePlant", "PoleMimic", "MirosBird", "Centipede", "RedCentipede", "Centiwing", "SmallCentipede",
+Gimmicks\PrimalArtificerKillList.cs:38: "Scavenger", "Overseer", "VultureGrub", "EggBug", "BigSpider", "SpitterSpider", "SmallNeedleWorm",
+Gimmicks\PrimalArtificerKillList.cs:39: "BigNeedleWorm", "DropBug", "KingVulture", "Hazer",
+Gimmicks\PrimalArtificerKillList.cs:40: "MirosVulture", "SpitLizard", "EelLizard", "MotherSpider", "TerrorLongLegs", "AquaCenti", "StowawayBug",
+Gimmicks\PrimalArtificerKillList.cs:41: "ScavengerElite", "Inspector", "Yeek", "BigJelly", "JungleLeech", "ZoopLizard",
+Gimmicks\PrimalArtificerKillList.cs:42: "HunterDaddy", "FireBug", "ScavengerKing", "TrainLizard",
+Gimmicks\PrimalArtificerKillList.cs:46: private static readonly HashSet<string> Excluded = new HashSet<string> { "Deer", "TempleGuard" };
+Gimmicks\PrimalArtificerKillList.cs:48: private static readonly FieldInfo SaveStateField = AccessTools.Field(typeof(KarmaLadderScreen), "saveState");
+Gimmicks\PrimalArtificerKillList.cs:49: private static readonly FieldInfo StateNumberField = AccessTools.Field(typeof(SaveState), "saveStateNumber");
+Gimmicks\PrimalArtificerKillList.cs:50: private static readonly FieldInfo SymbolDataField = AccessTools.Field(typeof(PlayerSessionRecord.KillRecord), "symbolData");
+Gimmicks\PrimalArtificerKillList.cs:51: private static readonly FieldInfo CritTypeField = AccessTools.Field(typeof(IconSymbol.IconSymbolData), "critType");
+Gimmicks\PrimalArtificerKillList.cs:52: private static readonly FieldInfo IntDataField = AccessTools.Field(typeof(IconSymbol.IconSymbolData), "intData");
+Gimmicks\PrimalArtificerKillList.cs:79: if (name == "Centipede")                                 // the three Centipede sizes are separate kills
+Gimmicks\PrimalArtificerKillList.cs:86: Log.LogInfo("Primal Artificer full kill list: " + list.Count + " creature entries available.");
+Gimmicks\PrimalArtificerKillList.cs:94: return (crit != null ? crit.ToString() : "?") + "|" + (intData != null ? intData.ToString() : "?");
+Gimmicks\PrimalArtificerKillList.cs:116: Log.LogInfo("Death/sleep screen kill list: " + (result.Count - added) + " real kill(s) this cycle + " + added + " added.");
+Gimmicks\PrimalArtificerKillList.cs:143: PrimalArtificerKillList.Log.LogError("Full kill list failed (the normal list will show): " + e);
+Gimmicks\PrimalArtificerScene.cs:50: internal static readonly ManualLogSource Log = BepInEx.Logging.Logger.CreateLogSource("PrimalArtificerScene");
+Gimmicks\PrimalArtificerScene.cs:55: private const string VanillaFolderSuffix = "Slugcat - Artificer";
+Gimmicks\PrimalArtificerScene.cs:56: private const string VanillaEndFolderSuffix = "Slugcat End - Artificer";
+Gimmicks\PrimalArtificerScene.cs:58: private const string VanillaAltEndFolderSuffix = "Slugcat End_B - Artificer";
+Gimmicks\PrimalArtificerScene.cs:59: private const string Prefix = "primal artificer ";
+Gimmicks\PrimalArtificerScene.cs:63: "scenes" + Path.DirectorySeparatorChar + "primal artificer";
+Gimmicks\PrimalArtificerScene.cs:68: { "Artificer Background - 5",        Prefix + "background - 5" },
+Gimmicks\PrimalArtificerScene.cs:69: { "Artificer Vines - 4",             Prefix + "vines - 4" },
+Gimmicks\PrimalArtificerScene.cs:70: { "Artificer MidBg - 3",             Prefix + "midbg - 3" },
+Gimmicks\PrimalArtificerScene.cs:71: { "Artificer Smoke - 2",             Prefix + "smoke - 2" },
+Gimmicks\PrimalArtificerScene.cs:72: { "Artificer Slugcat - 1",           Prefix + "slugcat - 1" },
+Gimmicks\PrimalArtificerScene.cs:73: { "Artificer Slugcat - 1 - Dark",    Prefix + "slugcat - 1 - dark" },
+Gimmicks\PrimalArtificerScene.cs:74: { "Artificer Fg - 0",                Prefix + "fg - 0" },
+Gimmicks\PrimalArtificerScene.cs:75: { "Slugcat - Artificer - Flat",      Prefix + "flat" },
+Gimmicks\PrimalArtificerScene.cs:76: { "Slugcat - Artificer Dark - Flat", Prefix + "dark flat" },
+Gimmicks\PrimalArtificerScene.cs:80: { "Artificer Robot - 1",                   Prefix + "slugcat - 1" },
+Gimmicks\PrimalArtificerScene.cs:81: { "Artificer Robot - 2",                   Prefix + "slugcat - 1" },
+Gimmicks\PrimalArtificerScene.cs:82: { "Artificer Robot - 0",                   Prefix + "midbg - 3" },   // empty layer
+Gimmicks\PrimalArtificerScene.cs:83: { "Slugcat - Artificer Robot 1 - Flat",    Prefix + "flat" },
+Gimmicks\PrimalArtificerScene.cs:84: { "Slugcat - Artificer Robot 2 - Flat",    Prefix + "flat" },
+Gimmicks\PrimalArtificerScene.cs:88: { "Artificer Bkg",                         Prefix + "end bkg" },     // depth 4.5
+Gimmicks\PrimalArtificerScene.cs:89: { "Artificer A",                           Prefix + "end a" },       // depth 2.85
+Gimmicks\PrimalArtificerScene.cs:90: { "Artificer B",                           Prefix + "midbg - 3" },   // empty layer
+Gimmicks\PrimalArtificerScene.cs:91: { "Artificer - Flat",                      Prefix + "flat" },
+Gimmicks\PrimalArtificerScene.cs:95: { "Slugcat End_B - Artificer - 5",         Prefix + "background - 5" },
+Gimmicks\PrimalArtificerScene.cs:96: { "Slugcat End_B - Artificer - 4",         Prefix + "vines - 4" },
+Gimmicks\PrimalArtificerScene.cs:97: { "Slugcat End_B - Artificer - 3",         Prefix + "smoke - 2" },
+Gimmicks\PrimalArtificerScene.cs:98: { "Slugcat End_B - Artificer - 2",         Prefix + "slugcat - 1" },
+Gimmicks\PrimalArtificerScene.cs:99: { "Slugcat End_B - Artificer - 1",         Prefix + "midbg - 3" },   // empty layer
+Gimmicks\PrimalArtificerScene.cs:100: { "Slugcat End_B - Artificer - 0",         Prefix + "fg - 0" },
+Gimmicks\PrimalArtificerScene.cs:101: { "Slugcat End_B - Artificer - Flat",      Prefix + "flat" },
+Gimmicks\PrimalArtificerScene.cs:104: private static readonly FieldInfo SceneIdField = AccessTools.Field(typeof(MenuScene), "sceneID");
+Gimmicks\PrimalArtificerScene.cs:105: private static readonly FieldInfo SceneFolderField = AccessTools.Field(typeof(MenuScene), "sceneFolder");
+Gimmicks\PrimalArtificerScene.cs:121: string probe = Path.Combine(Path.Combine(root, PrimalFolder), Prefix + "slugcat - 1.png");
+Gimmicks\PrimalArtificerScene.cs:124: Log.LogWarning("Primal Artificer art not found at '" + probe + "'. Falling back to vanilla Artificer art.");
+Gimmicks\PrimalArtificerScene.cs:128: Log.LogError("AssetsPresent check failed, assuming present: " + e);
+Gimmicks\PrimalArtificerScene.cs:162: Log.LogWarning("Artificer scene layer has no Primal mapping, vanilla art will show for it: '" + key + "'");
+Gimmicks\PrimalArtificerScene.cs:170: Log.LogWarning("Artificer-folder scene with unlisted sceneID '" + sceneId + "' was NOT reskinned.");
+Gimmicks\PrimalArtificerScene.cs:177: Log.LogInfo("Using Primal Artificer scene art from '" + PrimalFolder + "'.");
+Gimmicks\PrimalArtificerScene.cs:240: PrimalArtificerScene.Log.LogError("Illustration redirect failed (vanilla art will load): " + e);
+Gimmicks\PrimalArtificerScene.cs:274: PrimalArtificerScene.Log.LogError("Shader override failed: " + e);
+Gimmicks\PrimalArtificerScene.cs:294: PrimalArtificerScene.Log.LogError("Positions redirect failed: " + e);
+Gimmicks\PrimalCharacterNames.cs:63: private const string NotImplementedDescription = "Primal version not implemented";
+Gimmicks\PrimalCharacterNames.cs:66: AccessTools.Field(typeof(Menu.SlugcatSelectMenu.SlugcatPageNewGame), "difficultyLabel");
+Gimmicks\PrimalCharacterNames.cs:69: AccessTools.Field(typeof(Menu.SlugcatSelectMenu.SlugcatPageNewGame), "infoLabel");
+Gimmicks\PrimalCharacterNames.cs:83: name = "PRIMAL GOURMAND";
+Gimmicks\PrimalCharacterNames.cs:86: "A glutton reduced to the simplest pleasures of life. Capable only of sluggish rolling, one must seek out their home to regain some semblance of power.");
+Gimmicks\PrimalCharacterNames.cs:90: name = "PRIMAL SPEARMASTER";
+Gimmicks\PrimalCharacterNames.cs:93: "A deteriorating abnormality with its crucial needles running out. A traveller from a very far away land; A feeling in your hollow depths rushes you, messenger...");
+Gimmicks\PrimalCharacterNames.cs:100: name = "PRIMAL ???";
+Gimmicks\PrimalCharacterNames.cs:103: "Thanks Rockman.");
+Gimmicks\PrimalCharacterNames.cs:109: name = "PRIMAL ARTIFICER";
+Gimmicks\PrimalCharacterNames.cs:112: "A violent combatant, master of explosives, cursed to seek out any prey in sight. A journey of endless bloodshed and warfare.");
+Gimmicks\PrimalCharacterNames.cs:116: name = "PRIMAL SURVIVOR";
+Gimmicks\PrimalCharacterNames.cs:121: name = "PRIMAL MONK";
+Gimmicks\PrimalCharacterNames.cs:126: name = "PRIMAL HUNTER";
+Gimmicks\PrimalCharacterNames.cs:131: name = "PRIMAL RIVULET";
+Gimmicks\PrimalCharacterNames.cs:136: name = "PRIMAL SAINT";
+Gimmicks\PrimalCharacterNames.cs:141: name = "PRIMAL WATCHER";
+Gimmicks\PrimalCharacterNames.cs:180: ? "Active traits: " + string.Join(", ", activeNames) + "."
+Gimmicks\PrimalCharacterNames.cs:181: : "No primal traits assigned yet -- set some in this mod's Remix options.";
+Gimmicks\PrimalKillTracker.cs:65: private const string SaveMarkerKey = "PRIMAL_KILLLIST";
+Gimmicks\PrimalKillTracker.cs:69: internal static readonly FieldInfo KillTagField = AccessTools.Field(typeof(Creature), "killTag");
+Gimmicks\PrimalMenuAccess.cs:26: AccessTools.Field(typeof(Menu.KarmaLadderScreen), "saveState");
+Gimmicks\PrimalMenuAccess.cs:53: AccessTools.Field(typeof(Menu.StoryGameStatisticsScreen), "allDone");
+Gimmicks\PrimalMenuAccess.cs:56: AccessTools.Field(typeof(Menu.StoryGameStatisticsScreen), "scoreKeeper");
+Gimmicks\PrimalMenuAccess.cs:59: AccessTools.Field(typeof(Menu.StoryGameStatisticsScreen.ScoreKeeper), "score");
+Gimmicks\PrimalOptions.cs:127: new CharacterEntry(SlugcatStats.Name.White, "Survivor"),
+Gimmicks\PrimalOptions.cs:128: new CharacterEntry(SlugcatStats.Name.Yellow, "Monk"),
+Gimmicks\PrimalOptions.cs:129: new CharacterEntry(SlugcatStats.Name.Red, "Hunter"),
+Gimmicks\PrimalOptions.cs:134: characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Gourmand, "Gourmand"));
+Gimmicks\PrimalOptions.cs:135: characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Artificer, "Artificer"));
+Gimmicks\PrimalOptions.cs:136: characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Rivulet, "Rivulet"));
+Gimmicks\PrimalOptions.cs:137: characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Saint, "Saint"));
+Gimmicks\PrimalOptions.cs:138: characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Spear, "Spearmaster"));
+Gimmicks\PrimalOptions.cs:147: characters.Add(new CharacterEntry(MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel, "Inv"));
+Gimmicks\PrimalOptions.cs:152: characters.Add(new CharacterEntry(Watcher.WatcherEnums.SlugcatStatsName.Watcher, "Watcher"));
+Gimmicks\PrimalOptions.cs:453: internal bool IsReadOnly => _modeConfig != null && _modeConfig.Value == "Primal";
+Gimmicks\PrimalOptions.cs:475: _tab = new OpTab(this, "Primal");
+Gimmicks\PrimalOptions.cs:536: SaveConfigNow("the screen mode (" + mode + ")");
+Gimmicks\PrimalOptions.cs:550: new OpLabel(ContentLeft, TitleY, "Primal", true),
+Gimmicks\PrimalOptions.cs:551: new OpLabel(ChangeModeButtonX - 150f, TitleY, IsReadOnly ? "Mode: Primal (read-only)" : "Mode: Custom", false)
+Gimmicks\PrimalOptions.cs:557: "Change\nMode")
+Gimmicks\PrimalOptions.cs:559: description = "Return to the Primal/Custom mode selection screen."
+Gimmicks\PrimalOptions.cs:580: description = "Edit " + entry.DisplayName + "'s gimmicks and requirements."
+Gimmicks\PrimalOptions.cs:608: SaveConfigNow("the selected character (" + id + ")");
+Gimmicks\PrimalOptions.cs:620: items.Add(new OpLabel(ContentLeft, ModeAuthorY, "by " + mod.authors, false));
+Gimmicks\PrimalOptions.cs:629: items.Add(new OpLabel(ContentLeft, ModeChoiceHeadingY, "Choose how this screen behaves:", true));
+Gimmicks\PrimalOptions.cs:634: "PRIMAL MODE",
+Gimmicks\PrimalOptions.cs:635: "View every character's current gimmick and requirement assignments. Nothing can be changed while in this mode.",
+Gimmicks\PrimalOptions.cs:636: () => SelectMode("Primal"));
+Gimmicks\PrimalOptions.cs:641: "CUSTOM MODE",
+Gimmicks\PrimalOptions.cs:642: "Freely assign gimmicks and requirements to any character, exactly like before.",
+Gimmicks\PrimalOptions.cs:643: () => SelectMode("Custom"));
+Gimmicks\PrimalOptions.cs:739: "SelectedCharacter",
+Gimmicks\PrimalOptions.cs:741: new ConfigurableInfo("Character currently shown on the Primal config screen."));
+Gimmicks\PrimalOptions.cs:753: "ScreenMode",
+Gimmicks\PrimalOptions.cs:755: new ConfigurableInfo("Whether this screen is in read-only Primal mode or fully editable Custom mode."));
+Gimmicks\PrimalOptions.cs:766: new ConfigurableInfo(gimmick.DisplayName + " on " + character.DisplayName + ". " + gimmick.Description));
+Gimmicks\PrimalOptions.cs:784: string key = character.ID + "_Requirement_" + requirement.ID;
+Gimmicks\PrimalOptions.cs:789: new ConfigurableInfo("Track the \"" + requirement.DisplayName + "\" requirement for " + character.DisplayName + "."));
+Gimmicks\PrimalOptions.cs:842: AccessTools.Method(typeof(PlayerGraphics), "DefaultSlugcatColor", new Type[] { typeof(SlugcatStats.Name) });
+Gimmicks\PrimalOptions.cs:886: Plugin.Log?.LogError($"PlayerGraphics.DefaultSlugcatColor threw while coloring for {key} -- leaving it uncolored: {ex}");
+Gimmicks\PrimalOptions.cs:984: SaveConfigNow("an assignment (" + characterID + "/" + id + " -> " + value + ")");
+Gimmicks\PrimalOptions.cs:998: Plugin.Log?.LogError($"ConfigHolder.Save() threw while persisting {whatChanged} -- the change is still in effect this session, but may not survive a restart: {ex}");
+Gimmicks\PrimalOptions.cs:1010: private static readonly MethodInfo ConfigSaveMethod = AccessTools.Method(typeof(ConfigHolder), "Save");
+Gimmicks\PrimalOptions.cs:1181: OpSimpleButton addGimmickButton = new OpSimpleButton(new Vector2(LeftColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Gimmick")
+Gimmicks\PrimalOptions.cs:1183: description = "Add a gameplay-altering gimmick to " + character.DisplayName,
+Gimmicks\PrimalOptions.cs:1210: OpSimpleButton addRequirementButton = new OpSimpleButton(new Vector2(RightColumnX, ColumnAddButtonY), new Vector2(ColumnWidth, ColumnAddButtonHeight), "+ Add Requirement")
+Gimmicks\PrimalOptions.cs:1212: description = "Add a run-completion requirement to track for " + character.DisplayName,
+Gimmicks\PrimalOptions.cs:1274: description = "Remove " + gimmick.DisplayName + " from " + character.DisplayName,
+Gimmicks\PrimalOptions.cs:1284: gimmickRowItems.Add(new OpLabel(ColumnSidePadding, gimmickContentHeight - ColumnRowHeight, "No gimmicks assigned yet.", false));
+Gimmicks\PrimalOptions.cs:1313: nameButton.description = "Configure " + requirement.DisplayName + " for " + character.DisplayName;
+Gimmicks\PrimalOptions.cs:1323: description = "Stop tracking " + requirement.DisplayName + " for " + character.DisplayName,
+Gimmicks\PrimalOptions.cs:1333: requirementRowItems.Add(new OpLabel(ColumnSidePadding, requirementContentHeight - ColumnRowHeight, "No requirements tracked yet.", false));
+Gimmicks\PrimalOptions.cs:1359: OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+Gimmicks\PrimalOptions.cs:1363: items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, gimmick.DisplayName + " settings -- " + character.DisplayName, true)
+Gimmicks\PrimalOptions.cs:1370: items.Add(new OpLabel(ContentLeft + 10f, ModalListViewportTop, "This gimmick has no additional settings.", false));
+Gimmicks\PrimalOptions.cs:1447: OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+Gimmicks\PrimalOptions.cs:1451: items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, requirement.DisplayName + " settings -- " + character.DisplayName, true));
+Gimmicks\PrimalOptions.cs:1519: OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+Gimmicks\PrimalOptions.cs:1523: items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, "Add a gimmick to " + character.DisplayName + ":", true));
+Gimmicks\PrimalOptions.cs:1530: OpSimpleButton generalTab = new OpSimpleButton(new Vector2(ContentLeft, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
+Gimmicks\PrimalOptions.cs:1542: OpSimpleButton specializedTab = new OpSimpleButton(new Vector2(ContentLeft + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Specialized");
+Gimmicks\PrimalOptions.cs:1556: items.Add(new OpLabel(ContentLeft + 10f, PickerListViewportTop, "No gimmicks in this category are available to add.", false));
+Gimmicks\PrimalOptions.cs:1643: OpSimpleButton back = new OpSimpleButton(new Vector2(ContentLeft, ModalTop - 30f), new Vector2(120f, 30f), "< Back");
+Gimmicks\PrimalOptions.cs:1647: items.Add(new OpLabel(ContentLeft + 130f, ModalTop - 30f, "Add a requirement to " + character.DisplayName + ":", true));
+Gimmicks\PrimalOptions.cs:1654: OpSimpleButton generalTab = new OpSimpleButton(new Vector2(ContentLeft, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "General");
+Gimmicks\PrimalOptions.cs:1666: OpSimpleButton communityTab = new OpSimpleButton(new Vector2(ContentLeft + PickerCategoryTabWidth + PickerCategoryTabGap, PickerCategoryTabY), new Vector2(PickerCategoryTabWidth, PickerCategoryTabHeight), "Community Challenges");
+Gimmicks\PrimalOptions.cs:1680: items.Add(new OpLabel(ContentLeft + 10f, PickerListViewportTop, "No requirements in this category are available to add.", false));
+Gimmicks\PrimalPortraitOverride.cs:109: AccessTools.Field(typeof(Menu.SlugcatSelectMenu.SlugcatPage), "slugcatNumber");
+Gimmicks\PrimalPortraitOverride.cs:153: new[] { "Slugcat - White" },
+Gimmicks\PrimalPortraitOverride.cs:154: new[] { "Slugcat End_B - White" },
+Gimmicks\PrimalPortraitOverride.cs:155: new[] { "White Ghost Slugcat" }),
+Gimmicks\PrimalPortraitOverride.cs:157: new[] { "Slugcat - Yellow" },
+Gimmicks\PrimalPortraitOverride.cs:158: new[] { "Slugcat End_B - Yellow" },
+Gimmicks\PrimalPortraitOverride.cs:159: new[] { "Yellow Ghost Slugcat" }),
+Gimmicks\PrimalPortraitOverride.cs:161: new[] { "Slugcat - Red" },
+Gimmicks\PrimalPortraitOverride.cs:163: new[] { "Red Ghost Slugcat" }),
+Gimmicks\PrimalPortraitOverride.cs:169: new[] { "Slugcat - Gourmand" },
+Gimmicks\PrimalPortraitOverride.cs:170: new[] { "Slugcat End_B - Gourmand" },
+Gimmicks\PrimalPortraitOverride.cs:171: new[] { "Slugcat End - Gourmand" });
+Gimmicks\PrimalPortraitOverride.cs:173: new[] { "Slugcat - Artificer" },
+Gimmicks\PrimalPortraitOverride.cs:174: new[] { "Slugcat End_B - Artificer" },
+Gimmicks\PrimalPortraitOverride.cs:175: new[] { "Slugcat End - Artificer" });
+Gimmicks\PrimalPortraitOverride.cs:177: new[] { "Slugcat - Rivulet" },
+Gimmicks\PrimalPortraitOverride.cs:178: new[] { "Slugcat End_B - Rivulet" },
+Gimmicks\PrimalPortraitOverride.cs:179: new[] { "Slugcat End - Rivulet" });
+Gimmicks\PrimalPortraitOverride.cs:181: new[] { "Slugcat - Saint" },
+Gimmicks\PrimalPortraitOverride.cs:183: new[] { "Slugcat End - Saint" });
+Gimmicks\PrimalPortraitOverride.cs:185: new[] { "Slugcat - Spearmaster" },
+Gimmicks\PrimalPortraitOverride.cs:186: new[] { "Slugcat End_B - Spearmaster" },
+Gimmicks\PrimalPortraitOverride.cs:187: new[] { "Slugcat End - Spearmaster" });
+Gimmicks\PrimalPortraitOverride.cs:190: new[] { "Slugcat - White", "Inv Screen" },
+Gimmicks\PrimalPortraitOverride.cs:192: new[] { "White Ghost Slugcat", "Inv Screen" });
+Gimmicks\PrimalPortraitOverride.cs:200: new[] { "Slugcat - Watcher" },
+Gimmicks\PrimalPortraitOverride.cs:202: new[] { "slugcat end_a - watcher" });
+Gimmicks\PrimalPortraitOverride.cs:259: string[] parts = Regex.Split(candidate, "<progDivB>");
+Gimmicks\PrimalPortraitOverride.cs:260: if (parts.Length == 2 && parts[0] == "SAVE STATE" && BackwardsCompatibilityRemix.ParseSaveNumber(parts[1]) == character)
+Gimmicks\PrimalPortraitOverride.cs:296: string vanillaPrefix = "Scenes" + Path.DirectorySeparatorChar + vanillaFolder + Path.DirectorySeparatorChar;
+Gimmicks\PrimalPortraitOverride.cs:303: string targetFolder = "primal-" + _characterID + (_complete ? "-complete" : "-default");
+Gimmicks\PrimalPortraitOverride.cs:304: string targetRelative = "Scenes" + Path.DirectorySeparatorChar + targetFolder;
+Gimmicks\PrimalPortraitOverride.cs:328: private const string CompleteKey = "PrimalAllRequirementsComplete";
+Gimmicks\PrimalSaveMarkers.cs:44: public const string Delimiter = "<dpB>";
+Gimmicks\PrimalSettings.cs:35: "Primal_slotSwitchKey",
+Gimmicks\PrimalSettings.cs:37: new ConfigurableInfo("Key that switches between a save slot and its Primal counterpart on the character-select screen."));
+Gimmicks\PrimalSlotOptionsMenuHooks.cs:77: "PRIMAL SLOT",
+Gimmicks\PrimalSlotOptionsMenuHooks.cs:78: "SaveSlot",
+Gimmicks\PrimalSlotOptionsMenuHooks.cs:113: if (series == "SaveSlot" && PrimalSlot.IsActive(__instance.manager.rainWorld))
+Gimmicks\PrimalSlotOptionsMenuHooks.cs:132: && button.signalText == "SaveSlot"
+Gimmicks\PrimalSlotOptionsMenuHooks.cs:135: __result = "Switch to this save slot's own Primal save";
+Gimmicks\PrimalSlotOptionsMenuHooks.cs:155: if (series == "SaveSlot" && to == PrimalSlotButtonConstructionHook.VirtualIndex)
+Gimmicks\PrimalSlotTabSwitchHook.cs:412: AccessTools.Field(typeof(RainWorld), "progression");
+Gimmicks\PrimalSlotTabSwitchHook.cs:416: AccessTools.Method(typeof(PlayerProgression), "Destroy", new[] { typeof(int) });
+Gimmicks\PrimalSlotTabSwitchHook.cs:418: AccessTools.Property(typeof(PlayerProgression), "progressionLoaded");
+Gimmicks\PrimalSlotTabSwitchHook.cs:420: AccessTools.Field(typeof(PlayerProgression), "progressionLoadedResult");
+Gimmicks\PrimalSlotTabSwitchHook.cs:422: AccessTools.Method(typeof(ProcessManager), "RequestMainProcessSwitch", new[] { typeof(ProcessManager.ProcessID) });
+Gimmicks\PrimalSlotTabSwitchHook.cs:424: AccessTools.Property(typeof(ProcessManager), "IsRunningAnyDialog");
+Gimmicks\PrimalSlotTabSwitchHook.cs:430: AccessTools.Field(typeof(Menu.Menu), "container");
+Gimmicks\PrimalSlotTabSwitchHook.cs:436: AccessTools.Field(typeof(Menu.SlugcatSelectMenu), "slugcatPages");
+Gimmicks\PrimalSlotTabSwitchHook.cs:438: AccessTools.Field(typeof(Menu.SlugcatSelectMenu), "slugcatPageIndex");
+Gimmicks\PrimalSlotTabSwitchHook.cs:440: AccessTools.Field(typeof(Menu.SlugcatSelectMenu), "scroll");
+Gimmicks\PrimalSlotTabSwitchHook.cs:442: AccessTools.Field(typeof(Menu.SlugcatSelectMenu), "lastScroll");
+Gimmicks\PrimalSlotTabSwitchHook.cs:444: AccessTools.Field(typeof(Menu.SlugcatSelectMenu), "quedSideInput");
+Gimmicks\PrimalSlotTabSwitchHook.cs:446: AccessTools.Field(typeof(Menu.SlugcatSelectMenu.SlugcatPage), "slugcatNumber");
+Gimmicks\PrimalSlotTabSwitchHook.cs:448: AccessTools.Method(typeof(Menu.SlugcatSelectMenu), "UpdateSelectedSlugcatInMiscProg");
+Gimmicks\PrimalSlotTabSwitchHook.cs:469: Plugin.Log?.LogWarning($"PrimalSlotSwitcher.GetMenuContainer: reading Menu.container threw: {ex.Message}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:497: Plugin.Log?.LogWarning($"PrimalSlotSwitcher.GetSelectedSlugcat threw -- switching without preserving the current character: {ex.Message}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:515: Plugin.Log?.LogWarning("PrimalSlotSwitcher.ApplyCharacterFix: couldn't resolve slugcatPages/slugcatPageIndex/slugcatNumber via reflection -- leaving whichever character the new slot defaulted to.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:544: Plugin.Log?.LogWarning($"PrimalSlotSwitcher.ApplyCharacterFix: {targetSlugcat.value} not found on the rebuilt menu's roster -- leaving whichever character the new slot defaulted to.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:556: Plugin.Log?.LogWarning($"PrimalSlotSwitcher.ApplyCharacterFix threw -- leaving whichever character the new slot defaulted to: {ex.Message}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:572: Plugin.Log?.LogWarning($"PrimalSlotSwitcher.IsAnyDialogRunning reflection failed, assuming no dialog is running: {ex.Message}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:602: Plugin.Log?.LogWarning("PrimalSlotSwitcher.BeginSlideOut: menu.container was null -- switching instantly instead.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:666: Plugin.Log?.LogError("PrimalSlotSwitcher.BeginSwitch: couldn't resolve PlayerProgression's constructor/Destroy via reflection -- aborting rather than risk a half-done switch. See this file's GOTCHA #1 note.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:692: Plugin.Log?.LogError($"PrimalSlotSwitcher.BeginSwitch threw -- reverting saveSlot to {state.LeavingSlot} and giving up on this Tab-press: {ex}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:738: Plugin.Log?.LogWarning("PrimalSlotSwitcher: black screen still up 5 seconds after requesting the process switch -- force-clearing it.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:758: Plugin.Log?.LogError($"PrimalSlotSwitcher.Poll: reading progressionLoaded threw, giving up on this switch: {ex}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:779: Plugin.Log?.LogError($"PrimalSlotSwitcher.Poll: reading progressionLoadedResult threw, treating this load as a failure: {ex}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:814: Plugin.Log?.LogError($"PrimalSlotSwitcher.Poll: RequestMainProcessSwitch threw: {ex}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:821: Plugin.Log?.LogError("PrimalSlotSwitcher.Poll: couldn't resolve ProcessManager.RequestMainProcessSwitch via reflection -- the new slot is mounted, but the menu won't rebuild on its own. See this file's GOTCHA #1 note.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:829: Plugin.Log?.LogError($"PrimalSlotSwitcher: reverting to slot {state.LeavingSlot} after a failed switch ALSO failed (result={result}). Giving up here -- check BepInEx's log and that slot's save data by hand.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:836: Plugin.Log?.LogError($"PrimalSlotSwitcher: switching to slot {rainWorld.options.saveSlot} failed (result={result}) -- reverting to slot {state.LeavingSlot}.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:852: Plugin.Log?.LogError($"PrimalSlotSwitcher: reverting after a failed switch threw: {ex}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:891: Plugin.Log?.LogWarning("PrimalSlotSwitcher.BeginSlideIn: newMenu.container was null -- skipping the entrance animation.");
+Gimmicks\PrimalSlotTabSwitchHook.cs:924: FSprite blackScreen = new FSprite("Futile_White", true)
+Gimmicks\PrimalSlotTabSwitchHook.cs:936: Plugin.Log?.LogError($"PrimalSlotSwitcher.ShowBlackScreen threw -- continuing the slot switch without a visible loading cover: {ex}");
+Gimmicks\PrimalSlotTabSwitchHook.cs:952: Plugin.Log?.LogWarning($"PrimalSlotSwitcher.HideBlackScreen threw while removing the cover sprite: {ex.Message}");
+Gimmicks\PrimalUnimplementedPortraits.cs:77: if (__instance?.fileName == null || __instance.fileName.IndexOf("Slugcat", StringComparison.OrdinalIgnoreCase) < 0)
+Gimmicks\RainTimerGimmick.cs:87: public const string ID = "RainTimer";
+Gimmicks\RainTimerGimmick.cs:137: Plugin.Log?.LogInfo($"[RainTimer] {characterID}: timer disabled -- rain effectively never arrives");
+Gimmicks\RainTimerGimmick.cs:148: Plugin.Log?.LogInfo($"[RainTimer] {characterID}: cycle length {originalCycleLength} -> {scaledCycleLength} ticks ({percent}%)");
+Gimmicks\RainTimerGimmick.cs:260: characterID + "_RainTimer_percent",
+Gimmicks\RainTimerGimmick.cs:263: "How long rain (or Saint's blizzard) takes to arrive, as a percentage of the normal vanilla timing. 100 = unmodified. Below 100 arrives faster (0 = essentially immediate), above 100 arrives slower. Ignored entirely while \"Disable timer\" is checked.",
+Gimmicks\RainTimerGimmick.cs:267: characterID + "_RainTimer_disabled",
+Gimmicks\RainTimerGimmick.cs:269: new ConfigurableInfo("If checked, rain (or Saint's blizzard) effectively never arrives -- the percentage above is ignored while this is checked."));
+Gimmicks\RainTimerGimmick.cs:299: var label = new OpLabel(20f, topY, "Timer multiplier (% of normal, 0 = immediate):", false);
+Gimmicks\RainTimerGimmick.cs:302: var disableLabel = new OpLabel(416f, topY - 2f, "Disable timer", false);
+Gimmicks\RainWorldHooks.cs:57: Plugin.Log?.LogError($"GimmickDefaults.Apply() threw -- default gimmick assignments may be missing (still fully assignable by hand in Remix): {ex}");
+Gimmicks\RainWorldHooks.cs:69: Plugin.Log?.LogError($"RequirementDefaults.Apply() threw -- default requirement assignments may be missing (still fully assignable by hand in Remix): {ex}");
+Gimmicks\RainWorldHooks.cs:86: Plugin.Log?.LogError($"PrimalOptions.EnsureConfigBound() threw -- gimmick assignments may not persist across game restarts this session (still fully assignable by hand in Remix): {ex}");
+Gimmicks\RainWorldHooks.cs:99: Plugin.Log?.LogError($"SurvivorRegionMarkers.Init() threw -- Survivor community-challenge tracking may be incomplete this session: {ex}");
+Gimmicks\RainWorldHooks.cs:111: Plugin.Log?.LogError($"RequirementRegistry.RegisterAll() threw -- one or more requirements may not be active this session: {ex}");
+Gimmicks\RainWorldHooks.cs:122: Plugin.Log?.LogError($"CommunityChallengesNotifications.Init() threw -- the live challenge-complete popup may not fire this session: {ex}");
+Gimmicks\RainWorldHooks.cs:135: Plugin.Log?.LogError($"RequirementCompletionSummary.Init() threw -- the Primal-mode character-select portrait override may not reflect real completion state this session: {ex}");
+Gimmicks\Requirement.cs:280: private const string CompletedKey = "PrimalRequirementCompleted";
+Gimmicks\RequirementDefaults.cs:76: private const string ReachEndingRequirement_ID = "ReachEnding";
+Gimmicks\RequirementDefaults.cs:77: private const string GourmandFoodQuestRequirement_ID = "GourmandFoodQuest";
+Gimmicks\RequirementDefaults.cs:78: private const string VisitShelterRequirement_ID = "VisitShelter";
+Gimmicks\Requirements.cs:76: public override string ID => "Descension";
+Gimmicks\Requirements.cs:132: public override string ID => "Ranger";
+Gimmicks\Requirements.cs:169: public override string ID => "Spearfisher";
+Gimmicks\Requirements.cs:194: public override string ID => "Foe";
+Gimmicks\Requirements.cs:237: public override string ID => "Massacre";
+Gimmicks\Requirements.cs:267: public override string ID => "Mother";
+Gimmicks\Requirements.cs:307: public override string ID => "Sleepover";
+Gimmicks\Requirements.cs:355: public override string ID => "Passages";
+Gimmicks\Requirements.cs:397: public override string ID => "Tasty";
+Gimmicks\Requirements.cs:436: public override string ID => "Leukocyte";
+Gimmicks\Requirements.cs:468: public override string ID => "Visions";
+Gimmicks\Requirements.cs:509: public override string ID => "Mycologist";
+Gimmicks\Requirements.cs:571: public override string ID => "Usurper";
+Gimmicks\Requirements.cs:640: public override string ID => "Perseverance";
+Gimmicks\Requirements.cs:680: public override string ID => "Feast";
+Gimmicks\Requirements.cs:725: public override string ID => "Safari";
+Gimmicks\Requirements.cs:794: public override string ID => "Pilgrimage";
+Gimmicks\Requirements.cs:805: private static string TrackerKeyFor(string characterID) => "Pilgrimage:" + characterID;
+Gimmicks\Requirements.cs:896: public override string ID => "Chef";
+Gimmicks\Requirements.cs:904: private static string TrackerKeyFor(string characterID) => "Chef:" + characterID;
+Gimmicks\Requirements.cs:1021: public override string ID => "Offering";
+Gimmicks\Requirements.cs:1027: private static string TrackerKeyFor(string characterID) => "Offering:" + characterID;
+Gimmicks\Requirements.cs:1127: public override string ID => "Ornaments";
+Gimmicks\Requirements.cs:1173: public override string ID => "Collector";
+Gimmicks\Requirements.cs:1222: public override string ID => "Devotee";
+Gimmicks\Requirements.cs:1224: private const string DepthsRoom = "SB_E05";
+Gimmicks\Requirements.cs:1308: public override string ID => "Martyr";
+Gimmicks\Requirements.cs:1311: private static readonly string[] RotlessMemoryConfluxRooms = { "SS_LAB7", "SS_A01" };
+Gimmicks\Requirements.cs:1389: public override string ID => "Guardian";
+Gimmicks\Requirements.cs:1392: private const string GuardiansRoom = "SB_D03";
+Gimmicks\Requirements.cs:1396: private static string TrackerKeyFor(string characterID) => "Guardian:" + characterID;
+Gimmicks\Requirements.cs:1482: public override string ID => "Despicable";
+Gimmicks\Requirements.cs:1524: public override string ID => "Enlightenment";
+Gimmicks\Requirements.cs:1527: private const string PassagedMarkerKey = "PRIMAL_ENLIGHTENMENT_PASSAGED";
+Gimmicks\Requirements.cs:1571: public override string ID => "Flytrap";
+Gimmicks\Requirements.cs:1613: public override string ID => "Manslaughter";
+Gimmicks\Requirements.cs:1676: public override string ID => "Chieftain";
+Gimmicks\Requirements.cs:1679: private const string MoonRoom = "SL_AI";
+Gimmicks\Requirements.cs:1682: private static string TrackerKeyFor(string characterID) => "Chieftain:" + characterID;
+Gimmicks\Requirements.cs:1769: public override string ID => "Criminal";
+Gimmicks\Requirements.cs:1850: public override string ID => "Nomad";
+Gimmicks\Requirements.cs:1852: private static readonly string[] KarmaGates = { "GATE_HI_GW", "GATE_SU_HI", "GATE_HI_CC", "GATE_HI_SH" };
+Gimmicks\Requirements.cs:1905: public override string ID => "Circuit";
+Gimmicks\Requirements.cs:1907: private const string StartShelter = "SS_S05";
+Gimmicks\Requirements.cs:1923: run = new SurvivorCheckpointRun("SS_D04", "SS_I03", "SS_A03");
+Gimmicks\Requirements.cs:1966: public override string ID => "Desperado";
+Gimmicks\Requirements.cs:1968: private const string DeerPearlRoom = "LF_D07";
+Gimmicks\Requirements.cs:2022: public override string ID => "UTurn";
+Gimmicks\Requirements.cs:2023: public override string DisplayName => "U-Turn";
+Gimmicks\Requirements.cs:2025: private const string StartShelter = "SU_S04";
+Gimmicks\Requirements.cs:2076: public override string ID => "Symbiote";
+Gimmicks\Requirements.cs:2078: private const string StartShelter = "UW_S01";
+Gimmicks\Requirements.cs:2079: private const string EndShelter = "UW_S07";
+Gimmicks\Requirements.cs:2081: private static string TrackerKeyFor(string characterID) => "Symbiote:" + characterID;
+Gimmicks\Requirements.cs:2148: public override string ID => "Charged";
+Gimmicks\Requirements.cs:2150: private const string TargetShelter = "DS_S02";
+Gimmicks\Requirements.cs:2152: private static string TrackerKeyFor(string characterID) => "Charged:" + characterID;
+Gimmicks\Requirements.cs:2246: public override string ID => "Catalogue";
+Gimmicks\Requirements.cs:2298: public override string ID => "Ascension";
+Gimmicks\Requirements.cs:2340: public override string ID => "Friend";
+Gimmicks\Requirements.cs:2342: private const string TamedMarkerKey = "PRIMAL_FRIEND_TAMED";
+Gimmicks\Requirements.cs:2406: public override string ID => "Scholar";
+Gimmicks\Requirements.cs:2453: public override string ID => "Elder";
+Gimmicks\Requirements.cs:2535: public override string ID => "Heist";
+Gimmicks\Requirements.cs:2537: private const string LowestGarbageWastesToll = "GW_C11";
+Gimmicks\Requirements.cs:2624: internal const string RequirementID = "Triplopia";
+Gimmicks\Requirements.cs:2748: internal const string RequirementID = "Outlaw";
+Gimmicks\Requirements.cs:2804: characterID + "_Outlaw_requiredScore",
+Gimmicks\Requirements.cs:2807: "The final-score-screen score this character needs to reach or exceed to satisfy this requirement.",
+Gimmicks\Requirements.cs:2831: items.Add(new OpLabel(20f, topY, "Score required (final score screen):", false));
+Gimmicks\Requirements.cs:2865: public override string ID => "Journey";
+Gimmicks\Requirements.cs:2867: private const string HighestFivePebblesShelter = "SS_S04";
+Gimmicks\Requirements.cs:2868: private const string DepthsRoom = "SB_E05";
+Gimmicks\Requirements.cs:2937: public override string ID => "Visitor";
+Gimmicks\Requirements.cs:2939: private const string SpawnRoom = "SU_C04";
+Gimmicks\Requirements.cs:2943: "SU_C04", "SU_A41", "SU_A42", "SU_A43", "SU_A44", "SU_A22",
+Gimmicks\Requirements.cs:2986: public override string ID => "Fishtank";
+Gimmicks\Requirements.cs:3028: public override string ID => "Vegan";
+Gimmicks\Requirements.cs:3030: private const string PostGapRoom = "SU_A22";
+Gimmicks\Requirements.cs:3119: public override string ID => "Saint";
+Gimmicks\Requirements.cs:3277: public override string ID => "Broadcast";
+Gimmicks\Requirements.cs:3279: private const string StartShelter = "SI_S03";
+Gimmicks\Requirements.cs:3280: private const string TopRoom = "SI_A07";
+Gimmicks\Requirements.cs:3394: public override string ID => "UniqueKills";
+Gimmicks\Requirements.cs:3395: public override string DisplayName => "Unique Kills";
+Gimmicks\Requirements.cs:3448: public override string ID => "GourmandFoodQuest";
+Gimmicks\Requirements.cs:3454: public override string DisplayName => "Food Quest";
+Gimmicks\Requirements.cs:3487: public override string ID => "SpearmasterFastEnding";
+Gimmicks\Requirements.cs:3490: public override string DisplayName => "Quick Broadcast";
+Gimmicks\Requirements.cs:3566: internal const string RequirementID = "InvHighestPoint";
+Gimmicks\Requirements.cs:3571: public override string DisplayName => "King";
+Gimmicks\Requirements.cs:3578: internal const string TargetRoom = "LC_highestpoint";
+Gimmicks\Requirements.cs:3710: characterID + "_InvHighestPoint_requireHighestSpot",
+Gimmicks\Requirements.cs:3712: new ConfigurableInfo("Checked: must be standing in the room's own highest screen."));
+Gimmicks\Requirements.cs:3715: characterID + "_InvHighestPoint_requireCloak",
+Gimmicks\Requirements.cs:3717: new ConfigurableInfo("Checked: must be wearing the Moon's cloak."));
+Gimmicks\Requirements.cs:3720: characterID + "_InvHighestPoint_requireSlugpup",
+Gimmicks\Requirements.cs:3722: new ConfigurableInfo("Checked: must be holding a slugpup."));
+Gimmicks\Requirements.cs:3725: characterID + "_InvHighestPoint_requireMask",
+Gimmicks\Requirements.cs:3727: new ConfigurableInfo("Checked: must be carrying a vulture mask."));
+Gimmicks\Requirements.cs:3768: items.Add(new OpLabel(20f, topY, "Conditions required to satisfy this requirement (checked = required):", false));
+Gimmicks\Requirements.cs:3774: items.Add(new OpLabel(56f, y + 4f, "Standing in the room's highest screen", false));
+Gimmicks\Requirements.cs:3778: items.Add(new OpLabel(56f, y + 4f, "Wearing the cloak", false));
+Gimmicks\Requirements.cs:3782: items.Add(new OpLabel(56f, y + 4f, "Holding a slugpup", false));
+Gimmicks\Requirements.cs:3786: items.Add(new OpLabel(56f, y + 4f, "Carrying a vulture mask", false));
+Gimmicks\Requirements.cs:3843: public override string ID => "ReachEnding";
+Gimmicks\Requirements.cs:3844: public override string DisplayName => "Ending";
+Gimmicks\Requirements.cs:3886: private const string StoryValue = "Story";
+Gimmicks\Requirements.cs:3887: private const string AscensionValue = "Ascension";
+Gimmicks\Requirements.cs:3888: private const string EitherValue = "Either";
+Gimmicks\Requirements.cs:3913: characterID + "_ReachEnding_endingType",
+Gimmicks\Requirements.cs:3915: new ConfigurableInfo("Which ending type satisfies this requirement for this character -- the standard story ending, the separate void-sea/ascension ending, or Either (satisfied by whichever one happens)."));
+Gimmicks\Requirements.cs:3953: items.Add(new OpLabel(20f, topY, "Ending type that satisfies this requirement:", false));
+Gimmicks\Requirements.cs:4008: public override string ID => "VisitShelter";
+Gimmicks\Requirements.cs:4009: public override string DisplayName => "Visit Shelter";
+Gimmicks\Requirements.cs:4012: private const string RegionCompleteMarkerKey = "PrimalShelterRegionComplete";
+Gimmicks\SlugpupGimmick.cs:70: public const string ID = "Slugpup";
+Gimmicks\SlugpupGimmick.cs:267: AccessTools.Field(typeof(Player), "npcCharacterStats");
+Gimmicks\SlugpupGimmick.cs:269: private static readonly FieldInfo RunspeedFacField = AccessTools.Field(typeof(SlugcatStats), "runspeedFac");
+Gimmicks\SlugpupGimmick.cs:270: private static readonly FieldInfo BodyWeightFacField = AccessTools.Field(typeof(SlugcatStats), "bodyWeightFac");
+Gimmicks\SlugpupGimmick.cs:271: private static readonly FieldInfo GeneralVisibilityBonusField = AccessTools.Field(typeof(SlugcatStats), "generalVisibilityBonus");
+Gimmicks\SlugpupGimmick.cs:272: private static readonly FieldInfo VisualStealthInSneakModeField = AccessTools.Field(typeof(SlugcatStats), "visualStealthInSneakMode");
+Gimmicks\SlugpupGimmick.cs:273: private static readonly FieldInfo LoudnessFacField = AccessTools.Field(typeof(SlugcatStats), "loudnessFac");
+Gimmicks\SlugpupGimmick.cs:274: private static readonly FieldInfo LungsFacField = AccessTools.Field(typeof(SlugcatStats), "lungsFac");
+Gimmicks\SlugpupGimmick.cs:275: private static readonly FieldInfo PoleClimbSpeedFacField = AccessTools.Field(typeof(SlugcatStats), "poleClimbSpeedFac");
+Gimmicks\SlugpupGimmick.cs:276: private static readonly FieldInfo CorridorClimbSpeedFacField = AccessTools.Field(typeof(SlugcatStats), "corridorClimbSpeedFac");
+Gimmicks\SlugpupGimmick.cs:277: private static readonly FieldInfo ThrowingSkillField = AccessTools.Field(typeof(SlugcatStats), "throwingSkill");
+Gimmicks\SlugpupGimmick.cs:313: Plugin.Log?.LogInfo($"[Slugpup] {characterID}: npcCharacterStats rescaled from real stats (bodyWeightFac {(float)BodyWeightFacField.GetValue(real):F2} -> {(float)BodyWeightFacField.GetValue(pupStats):F2})");
+Gimmicks\SlugpupGimmick.cs:360: AccessTools.Method(typeof(PlayerGraphics), "SlugcatColor", new Type[] { typeof(SlugcatStats.Name) });
+Gimmicks\SlugpupGimmick.cs:467: Plugin.Log?.LogInfo($"[Slugpup] {characterID}: beat the game -- the gimmick stays assigned but stops applying for the rest of this save file.");
+Gimmicks\SlugpupGimmick.cs:481: private const string SaveMarkerKey = "PRIMAL_SLUGPUP_ENDED";
+Gimmicks\SlugpupGimmick.cs:549: characterID + "_Slugpup_endsOnBeatingGame",
+Gimmicks\SlugpupGimmick.cs:551: new ConfigurableInfo("Once this character beats the game (any standard ending -- Outer Expanse, or any character's own alt ending), stop being a slugpup for the rest of this save file. The gimmick stays assigned -- it just no longer does anything."));
+Gimmicks\SlugpupGimmick.cs:574: items.Add(new OpLabel(56f, topY - 36f, "Stop being a slugpup once this character beats the game", false));
+Gimmicks\SurvivorCreatureVariant.cs:63: private static readonly FieldInfo BigEelAlbinoField = AccessTools.Field(typeof(BigEel), "albino");
+Gimmicks\SurvivorCreatureVariant.cs:64: private static readonly FieldInfo JetFishAlbinoField = AccessTools.Field(typeof(JetFish), "albino");
+Gimmicks\SurvivorEvents.cs:450: __state = message == "PASSAGE" && __instance != null && __instance.proceedWithEndgameID == null;
+Gimmicks\SurvivorRegionMarkers.cs:22: private const string FallDeathKey = "SurvivorFallDeath";
+Gimmicks\ThreatPanicGimmick.cs:99: public const string ID = "ThreatPanic";
+Gimmicks\ThreatPanicGimmick.cs:127: AccessTools.Property(typeof(Player), "input");
+Gimmicks\ThreatPanicGimmick.cs:133: AccessTools.Field(typeof(Player.InputPackage), "jmp");
+Gimmicks\ThreatPanicGimmick.cs:135: AccessTools.Field(typeof(Player.InputPackage), "thrw");
+Gimmicks\ThreatPanicGimmick.cs:137: AccessTools.Field(typeof(Player.InputPackage), "pckp");
+Gimmicks\ThreatPanicGimmick.cs:139: AccessTools.Field(typeof(Player.InputPackage), "analogueDir");
+Gimmicks\ThreatPanicGimmick.cs:158: Plugin.Log?.LogWarning("ThreatPanicGimmick: couldn't resolve one or more Player.input/InputPackage members via reflection -- leaving input untouched. See GOTCHA #1.");
+Gimmicks\ThreatPanicGimmick.cs:273: Plugin.Log?.LogWarning($"ThreatPanicGimmick: forcing this tick's input threw: {ex.Message}");
+Gimmicks\ThreatPanicGimmick.cs:298: characterID + "_ThreatPanic_frequency",
+Gimmicks\ThreatPanicGimmick.cs:300: new ConfigurableInfo("Roughly how many forced random inputs happen per second, at threat level 1 (scales down as threat eases off).", new ConfigAcceptableRange<int>(MinFrequency, MaxFrequency)));
+Gimmicks\ThreatPanicGimmick.cs:323: items.Add(new OpLabel(20f, topY, "Forced inputs per second, at threat level 1:", false));
+Gimmicks\ThreatReader.cs:42: AccessTools.Field(typeof(ProcessManager), "musicPlayer");
+Gimmicks\ThreatReader.cs:44: AccessTools.Field(typeof(Music.MusicPlayer), "threatTracker");
+Gimmicks\ThreatReader.cs:46: AccessTools.Field(typeof(Music.PlayerThreatTracker), "currentMusicAgnosticThreat");
+Gimmicks\ThreatReader.cs:48: AccessTools.Field(typeof(ProcessManager), "fallbackThreatDetermination");
+Gimmicks\ThreatReader.cs:50: AccessTools.Field(typeof(ThreatDetermination), "currentMusicAgnosticThreat");
+Gimmicks\ThreatReader.cs:116: Plugin.Log?.LogWarning($"ThreatReader.CurrentThreat threw -- treating threat as 0 for this frame: {ex.Message}");
+Gimmicks\ThreatSlowdownGimmick.cs:124: public const string ID = "ThreatSlowdown";
+Gimmicks\ThreatSlowdownGimmick.cs:127: AccessTools.Property(typeof(Player), "input");
+Gimmicks\ThreatSlowdownGimmick.cs:133: AccessTools.Field(typeof(Player.InputPackage), "jmp");
+Gimmicks\ThreatSlowdownGimmick.cs:135: AccessTools.Field(typeof(Player.InputPackage), "thrw");
+Gimmicks\ThreatSlowdownGimmick.cs:137: AccessTools.Field(typeof(Player.InputPackage), "pckp");
+Gimmicks\ThreatSlowdownGimmick.cs:141: AccessTools.Field(typeof(Player.InputPackage), "spec");
+Gimmicks\ThreatSlowdownGimmick.cs:143: AccessTools.Field(typeof(Player.InputPackage), "crouchToggle");
+Gimmicks\ThreatSlowdownGimmick.cs:145: AccessTools.Field(typeof(Player.InputPackage), "analogueDir");
+Gimmicks\ThreatSlowdownGimmick.cs:147: AccessTools.Field(typeof(Player.InputPackage), "downDiagonal");
+Gimmicks\ThreatSlowdownGimmick.cs:167: Plugin.Log?.LogWarning("ThreatSlowdownGimmick: couldn't resolve one or more Player.input/InputPackage members via reflection -- leaving input untouched. See GOTCHA #1.");
+Gimmicks\ThreatSlowdownGimmick.cs:208: Plugin.Log?.LogWarning($"ThreatSlowdownGimmick: suppressing this tick's input threw: {ex.Message}");
+Gimmicks\TimeLimitGimmick.cs:42: public const string ID = "TimeLimit";
+Gimmicks\TimeLimitGimmick.cs:86: Plugin.Log?.LogInfo($"[TimeLimit] {characterID}: limit reached ({currentTicks}/{limitTicks} ticks, {(perCycle ? "per cycle" : "per run")}) -- killing character");
+Gimmicks\TimeLimitGimmick.cs:112: characterID + "_TimeLimit_minutes",
+Gimmicks\TimeLimitGimmick.cs:114: new ConfigurableInfo("Minutes of play before the character dies.", new ConfigAcceptableRange<int>(MinMinutes, MaxMinutes)));
+Gimmicks\TimeLimitGimmick.cs:117: characterID + "_TimeLimit_perCycle",
+Gimmicks\TimeLimitGimmick.cs:119: new ConfigurableInfo("If checked, the limit resets every cycle instead of counting the whole run."));
+Gimmicks\TimeLimitGimmick.cs:148: items.Add(new OpLabel(20f, topY, "Time limit, in minutes:", false));
+Gimmicks\TimeLimitGimmick.cs:152: items.Add(new OpLabel(56f, topY - 40f, "Measure per cycle instead of per run", false)
+Gimmicks\TimeLimitGimmick.cs:154: description = "Unchecked (default): the limit counts the whole continuous run. Checked: the limit resets every cycle."
+mod\modinfo.json:2: "id": "rokas.primal",
+mod\modinfo.json:3: "name": "Primal",
+mod\modinfo.json:4: "version": "0.1.0",
+mod\modinfo.json:5: "authors": "Rokas",
+mod\modinfo.json:6: "description": "Adds a fourth save slot per vanilla slot. On those slots only, the ordinary vanilla slugcats can have extra gameplay modifiers ('gimmicks') layered on top of them - configured per character in this mod's Remix options. Every other save slot plays completely unmodified.",
+mod\modinfo.json:7: "tags": [ "Gameplay" ]
+Plugin.cs:47: Logger.LogInfo($"{PluginInfo.Name} v{PluginInfo.Version} loaded");
+Plugin.cs:51: Logger.LogError($"{PluginInfo.Name} v{PluginInfo.Version} FAILED TO LOAD: {ex}");
+Plugin.cs:58: public const string GUID = "rokas.primal";
+Plugin.cs:59: public const string Name = "Primal";
+Plugin.cs:60: public const string Version = "0.1.0";
