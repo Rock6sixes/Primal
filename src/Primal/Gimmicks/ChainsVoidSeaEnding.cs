@@ -75,8 +75,11 @@ namespace Primal.Gimmicks
     /// sprite with a plain drift-and-fade and no terrain collision (there is no terrain down there
     /// to collide with).
     ///
-    /// **Not yet confirmed in-game** -- compiles against the reference assembly; every vanilla
-    /// line referenced above was read from reference/GameSource, not assumed.
+    /// **In-game status.** First test (2026-11-14): the chains attached at y=-804 as intended, then
+    /// the game crashed one screen later with "MethodAccessException: Method
+    /// MoreSlugcats.VoidChain.ConnectToWalls() is inaccessible from PullChain.Update" -- Gotcha #1
+    /// exactly. Fixed by re-typing the two private helpers and reflecting VoidWorm.behavior (see
+    /// WormBehaviorField); the rest of the sequence has not yet been seen running.
     /// </summary>
     internal static class ChainsVoidSeaEnding
     {
@@ -137,6 +140,12 @@ namespace Primal.Gimmicks
         }
 
         private static readonly ConditionalWeakTable<VoidSeaScene, State> States = new ConditionalWeakTable<VoidSeaScene, State>();
+
+        /// <summary>Real accessibility, checked by reflecting the game's own Assembly-CSharp.dll
+        /// (not the publicized reference copy) after the first in-game test crashed: of everything
+        /// this file touches, only VoidChain.ConnectToWalls, VoidChain.Connect and VoidWorm.behavior
+        /// are private. The first two are re-typed in PullChain; this handle covers the third.</summary>
+        private static readonly System.Reflection.FieldInfo WormBehaviorField = AccessTools.Field(typeof(VoidWorm), "behavior");
 
         private static bool IsEligible(RainWorldGame game, VoidSeaScene scene)
         {
@@ -280,7 +289,8 @@ namespace Primal.Gimmicks
                     {
                         continue;
                     }
-                    if (worm.behavior is VoidWorm.MainWormBehavior main && main.phase == VoidWorm.MainWormBehavior.Phase.SwimDown)
+                    // VoidWorm.behavior is private in the real assembly (Gotcha #1) -- reflected, cached.
+                    if (WormBehaviorField?.GetValue(worm) is VoidWorm.MainWormBehavior main && main.phase == VoidWorm.MainWormBehavior.Phase.SwimDown)
                     {
                         float wormDownSpeed = -worm.chunks[0].vel.y;
                         if (wormDownSpeed > target)
@@ -411,17 +421,17 @@ namespace Primal.Gimmicks
                 segments[j, 0] += segments[j, 2];
                 segments[j, 2] *= 0.599f;
             }
-            ConnectToWalls();
+            PinEnds();
             for (int k = count - 1; k > 0; k--)
             {
-                Connect(k, k - 1);
+                Link(k, k - 1);
             }
-            ConnectToWalls();
+            PinEnds();
             for (int k = 1; k < count; k++)
             {
-                Connect(k, k - 1);
+                Link(k, k - 1);
             }
-            ConnectToWalls();
+            PinEnds();
 
             // --- stiffening: pull every segment toward the straight body-to-anchor line ---
             if (Stiffness > 0f)
@@ -444,6 +454,38 @@ namespace Primal.Gimmicks
 
             graphic.Update();
             halo.Update();
+        }
+
+        /// <summary>VoidChain.ConnectToWalls, re-typed here because the real one is PRIVATE in the
+        /// game assembly (the publicized reference DLL and the decompiled source both show it as
+        /// public -- Gotcha #1; calling it crashed the game with MethodAccessException on the first
+        /// real test). Pins the two end segments to the endpoints and kills their velocity.</summary>
+        private void PinEnds()
+        {
+            int last = segments.GetLength(0) - 1;
+            segments[0, 0] = stuckPosA;
+            segments[0, 2] *= 0f;
+            segments[last, 0] = stuckPosB;
+            segments[last, 2] *= 0f;
+        }
+
+        /// <summary>VoidChain.Connect, re-typed for the same reason as PinEnds: a spring between
+        /// two neighbouring segments toward rest length conRad.</summary>
+        private void Link(int a, int b)
+        {
+            Vector2 delta = segments[a, 0] - segments[b, 0];
+            float dist = delta.magnitude;
+            if (dist <= 0f)
+            {
+                return;
+            }
+            Vector2 normalized = delta / dist;
+            float strength = Mathf.InverseLerp(0f, conRad, dist);
+            Vector2 push = normalized * ((conRad - dist) * 0.5f * strength);
+            segments[a, 0] += push;
+            segments[a, 2] += push;
+            segments[b, 0] -= push;
+            segments[b, 2] -= push;
         }
 
         /// <summary>Shatter: scatter fragments from the on-screen part of the chain, then remove it.</summary>

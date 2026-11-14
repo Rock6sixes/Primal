@@ -90,9 +90,22 @@ overload resolution needs that assembly even when the Vector2 overload is meant.
 `Vector2` math was used instead; `Custom.LerpMap` has the same problem. No other file in this
 project calls those four helpers, so this is the first time it has come up.
 
-**Built, compiles clean, NOT yet tested in-game.** First real test should watch BepInEx's log
-for the `[ChainsVoidSeaEnding]` lines (attached / stiffening / pull started / broken) and check
-that the ArtificerOutro slideshow still follows.
+First in-game test (2026-11-14): chains attached (log line at y=-804), then the game crashed one
+screen later -- `exceptionLog.txt` in the game folder: "MethodAccessException: Method
+`MoreSlugcats.VoidChain.ConnectToWalls()' is inaccessible from `PullChain.Update`". Gotcha #1:
+`reference/GameSource` AND `lib/PUBLIC-Assembly-CSharp.dll` both show that method as public; the
+real game has it private. **Fast, reliable way to check real accessibility, now proven:** a
+PowerShell 5.1 one-off that `ReflectionOnlyLoadFrom`s the REAL
+`RainWorld_Data\Managed\Assembly-CSharp.dll` (with a `ReflectionOnlyAssemblyResolve` handler
+pointing at that Managed folder) and prints `IsPublic`/`IsPrivate` for each member by name --
+every member the new file touches was checked that way in one call; only `VoidChain.ConnectToWalls`,
+`VoidChain.Connect` and `VoidWorm.behavior` turned out private. Fixed by re-typing the two
+helpers inside `PullChain` and reflecting `behavior` via a cached `AccessTools.Field`. Note
+`exceptionLog.txt`/`consoleLog.txt` in the game's root folder are where a hard crash's managed
+stack trace actually lands -- BepInEx's `LogOutput.log` only had the mod's own last Info line.
+
+Redeployed after the fix; the rest of the sequence (stiffen / pull / break / slideshow still
+follows) is still unconfirmed in-game -- watch for the remaining `[ChainsVoidSeaEnding]` lines.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
