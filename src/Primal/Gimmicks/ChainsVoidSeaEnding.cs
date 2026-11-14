@@ -14,21 +14,23 @@ namespace Primal.Gimmicks
     /// on the reserved Primal slot. Nothing here touches the Chains gimmick's own room-lock logic,
     /// any other character, any other ending, or any ordinary save slot.
     ///
-    /// **The sequence, as requested:**
-    ///  1. When Artificer swims down out of SB_L01 into the void sea proper (main body chunk more
-    ///     than TriggerDepth below the scene origin -- the room's bottom edge, so the room itself
-    ///     has scrolled off the top of the screen), InitialChains void chains attach to her body,
-    ///     each running from her down to an anchor far below the bottom of the screen. They are
-    ///     the loose, drifting, slowly-following kind the Chains gimmick draws (same VoidChain
-    ///     class, same colour pulse).
+    /// **The sequence, as requested (revised after the second in-game test, 2026-11-14):**
+    ///  1. When Artificer has swum down past the lit gold band of the void sea (main body chunk
+    ///     more than TriggerDepth -- ~10 screens -- below the scene origin, SB_L01's bottom edge),
+    ///     InitialChains void chains attach to her body with the Chains gimmick's own room-locked
+    ///     stinger (Chain_Lock), each running from her down to an anchor far below the bottom of
+    ///     the screen. They are the loose, drifting, slowly-following kind the gimmick draws (same
+    ///     VoidChain class, same colour pulse).
     ///  2. After LooseTicks (~10 s) every chain quickly eases into being rigid (StiffenTicks).
-    ///  3. StiffHoldTicks (~1 s) later the chains start pulling her straight down at the void
-    ///     worm's own swim-down speed, and keep adding one more chain every ExtraChainInterval
-    ///     ticks while the pull lasts (capped at MaxChains for sprite-count sanity).
-    ///  4. The moment vanilla's own dissolve animation finishes (see DissolveEndTimer), every
-    ///     chain shatters into fragments and a louder, layered version of the Chains gimmick's
-    ///     room-clear sound (MSCSoundID.Chain_Break) plays. Vanilla's black fade and slideshow
-    ///     exit then proceed untouched.
+    ///  3. StiffHoldTicks (~1 s) later the chains start pulling her straight down at ten times
+    ///     the void worm's swim-down speed (PullSpeedMultiplier), the player's input is taken away
+    ///     (Player.NullController), and one more chain is added every ExtraChainInterval ticks
+    ///     (capped at MaxChains for sprite-count sanity).
+    ///  4. When vanilla's dissolve begins (DissolveStartTimer, "starts breaking apart") the chains
+    ///     stop being added and are released one at a time, evenly spaced, each with the gimmick's
+    ///     ordinary room-clear stinger (Chain_Break), the pull continuing on the remaining ones.
+    ///  5. One second before the slideshow (ExitTimer - FinalReleaseLead) the last chain goes with
+    ///     a louder, layered Chain_Break. Vanilla's black fade and slideshow exit proceed untouched.
     ///
     /// **How vanilla's Artificer void-sea route works, from the decompiled source (not guessed),
     /// and where this hooks in.** Room.cs adds a VoidSeaScene to any room with the VoidSea room
@@ -84,9 +86,11 @@ namespace Primal.Gimmicks
     internal static class ChainsVoidSeaEnding
     {
         /// <summary>How far below the scene origin (SB_L01's bottom edge) Artificer has to be
-        /// before the chains appear. The void-sea camera sits ~400 px above the player, so at this
-        /// depth the room itself is already off the top of the screen.</summary>
-        private const float TriggerDepth = 800f;
+        /// before the chains appear. Raised 2026-11-14 (second test) from 800 to ~10 screens per
+        /// explicit request: "wait for arti to go past the yellow background" -- the lit, gold
+        /// upper band of the void sea, which vanilla's own player light fades out across
+        /// -2000..-8000 (VoidSeaTreatment's lightSource LerpMap). 10 x 768 px rounded up.</summary>
+        private const float TriggerDepth = 8000f;
 
         private const int InitialChains = 10;
         private const int MaxChains = 30;
@@ -107,27 +111,33 @@ namespace Primal.Gimmicks
         /// instead of hanging taut.</summary>
         private const float LooseSlack = 1.3f;
 
-        /// <summary>Baseline pull speed, px/tick: the worm's own SuperSwim(-40) thrust. While the
-        /// main worm is actually in its SwimDown phase its live head speed is used instead when
-        /// faster (capped at MaxPullSpeed), so "as fast as the void worm" tracks the real worm.</summary>
+        /// <summary>Pull speed, px/tick. The worm reference is its own SuperSwim(-40) thrust, or
+        /// its live head speed while it is actually in SwimDown if faster (capped); the whole thing
+        /// is then multiplied by PullSpeedMultiplier -- "10x faster", explicit request after the
+        /// second in-game test (2026-11-14). At 400 px/tick she covers 10 screens a second.</summary>
         private const float BasePullSpeed = 40f;
-        private const float MaxPullSpeed = 160f;
+        private const float MaxWormSpeed = 160f;
+        private const float PullSpeedMultiplier = 10f;
 
         /// <summary>Vertical distance below Artificer each chain's deep anchor sits (randomised a
         /// little per chain) -- several screens below the bottom edge.</summary>
         private const float AnchorDepth = 3000f;
         private const float AnchorSpreadX = 900f;
 
-        /// <summary>ArtificerEndUpdate's own num + num2 (960 + 1400): the timer value at which
-        /// Player.dissolved stops ramping and the black fade is created -- "finishes the breaking
-        /// apart animation".</summary>
-        private const int DissolveEndTimer = 960 + 1400;
+        /// <summary>ArtificerEndUpdate timer values (its argument is fadeOutLightsTimer - 1000):
+        /// 720 is Player.InitiateDissolve -- "artificer starts breaking apart"; 960 + 1400 = 2360
+        /// is where the 200-tick black FadeOut is created (MoreSlugcats.FadeOut steps fade by
+        /// 1/duration per tick), so the slideshow exit lands at 2560. The final chain goes one
+        /// second (FinalReleaseLead) before that.</summary>
+        private const int DissolveStartTimer = 720;
+        private const int ExitTimer = 960 + 1400 + 200;
+        private const int FinalReleaseLead = 40;
 
         /// <summary>Only chain segments within this distance of Artificer spawn fragments on break
         /// (the rest of each chain is off-screen anyway).</summary>
         private const float FragmentRadius = 1400f;
 
-        private enum Phase { Waiting, Loose, Stiffening, Stiff, Pulling, Done }
+        private enum Phase { Waiting, Loose, Stiffening, Stiff, Pulling, Releasing, Done }
 
         private sealed class State
         {
@@ -137,6 +147,16 @@ namespace Primal.Gimmicks
             public float Stiffness;
             public float PullSpeed;
             public readonly List<PullChain> Chains = new List<PullChain>();
+
+            /// <summary>Set once the pull takes the player's input away (Player.NullController),
+            /// so Abort knows to hand it back.</summary>
+            public bool ControlTaken;
+
+            /// <summary>Releasing phase: ArtificerEndUpdate timer value at which the next
+            /// single chain lets go, and the spacing between releases (computed once when the
+            /// dissolve starts so the chains run out just before the final one).</summary>
+            public int NextReleaseAt;
+            public int ReleaseInterval;
         }
 
         private static readonly ConditionalWeakTable<VoidSeaScene, State> States = new ConditionalWeakTable<VoidSeaScene, State>();
@@ -177,7 +197,7 @@ namespace Primal.Gimmicks
             {
                 if (state.Phase != Phase.Waiting)
                 {
-                    Abort(state, "player left the void sea room");
+                    Abort(state, player, "player left the void sea room");
                 }
                 return;
             }
@@ -197,9 +217,11 @@ namespace Primal.Gimmicks
                 {
                     AddChain(state, room, player, i);
                 }
+                // The Chains gimmick's own "room locked" stinger (LockNow's exact call), per request.
+                room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Lock, 0f, 1f, UnityEngine.Random.value * 0.5f + 0.8f);
                 state.Phase = Phase.Loose;
                 state.Ticks = 0;
-                Plugin.Log?.LogInfo($"[ChainsVoidSeaEnding] Artificer passed below SB_L01 (y={player.mainBodyChunk.pos.y:0}) -- {InitialChains} chains attached.");
+                Plugin.Log?.LogInfo($"[ChainsVoidSeaEnding] Artificer past the lit band (y={player.mainBodyChunk.pos.y:0}) -- {InitialChains} chains attached.");
                 return;
             }
 
@@ -234,7 +256,12 @@ namespace Primal.Gimmicks
                         state.Ticks = 0;
                         state.ExtraChainTimer = 0;
                         state.PullSpeed = 0f;
-                        Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] pull started.");
+                        // "Take away control from the player" once the chains start moving her:
+                        // the same NullController vanilla hands the other players during Saint's
+                        // void-worm cutscene (VoidWorm.cs, MainWormBehavior.Update).
+                        player.controller = new Player.NullController();
+                        state.ControlTaken = true;
+                        Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] pull started, player control taken.");
                     }
                     break;
 
@@ -249,11 +276,35 @@ namespace Primal.Gimmicks
                         AddChain(state, room, player, state.Chains.Count);
                     }
 
-                    // Vanilla's dissolve has run its course (or, as a safety net, the exit has
-                    // already been requested): shatter everything.
-                    if ((scene.fadeOutLights && scene.fadeOutLightsTimer - 1000 >= DissolveEndTimer) || scene.endingSavedFlag)
+                    // Vanilla's dissolve has begun ("artificer starts breaking apart"): stop adding
+                    // and start letting go, one chain at a time, spaced so the last-but-one has gone
+                    // shortly before the final release at ExitTimer - FinalReleaseLead.
+                    if (scene.fadeOutLights && scene.fadeOutLightsTimer - 1000 >= DissolveStartTimer)
                     {
-                        BreakAll(state, room, player);
+                        int endTimer = scene.fadeOutLightsTimer - 1000;
+                        int releasesBeforeFinal = Mathf.Max(1, state.Chains.Count - 1);
+                        int window = (ExitTimer - FinalReleaseLead) - endTimer;
+                        state.ReleaseInterval = Mathf.Max(10, window / (releasesBeforeFinal + 1));
+                        state.NextReleaseAt = endTimer + state.ReleaseInterval;
+                        state.Phase = Phase.Releasing;
+                        Plugin.Log?.LogInfo($"[ChainsVoidSeaEnding] dissolve started -- releasing {state.Chains.Count} chains, one every {state.ReleaseInterval} ticks.");
+                    }
+                    break;
+
+                case Phase.Releasing:
+                    state.Stiffness = StiffnessMax;
+                    Pull(state, scene, player);
+                    {
+                        int endTimer = scene.fadeOutLightsTimer - 1000;
+                        if (endTimer >= ExitTimer - FinalReleaseLead || scene.endingSavedFlag)
+                        {
+                            FinalRelease(state, room, player);
+                        }
+                        else if (state.Chains.Count > 1 && endTimer >= state.NextReleaseAt)
+                        {
+                            state.NextReleaseAt += state.ReleaseInterval;
+                            ReleaseOne(state, room, player);
+                        }
                     }
                     break;
             }
@@ -295,11 +346,12 @@ namespace Primal.Gimmicks
                         float wormDownSpeed = -worm.chunks[0].vel.y;
                         if (wormDownSpeed > target)
                         {
-                            target = Mathf.Min(wormDownSpeed, MaxPullSpeed);
+                            target = Mathf.Min(wormDownSpeed, MaxWormSpeed);
                         }
                     }
                 }
             }
+            target *= PullSpeedMultiplier;
 
             // Ease into the pull over roughly half a second rather than snapping to full speed.
             state.PullSpeed = Mathf.Lerp(state.PullSpeed, target, 0.08f);
@@ -311,7 +363,22 @@ namespace Primal.Gimmicks
             }
         }
 
-        private static void BreakAll(State state, Room room, Player player)
+        /// <summary>Lets one chain go (the most recently added, so the original ten linger
+        /// longest) with the Chains gimmick's ordinary room-clear stinger -- FreePlayer's exact call.</summary>
+        private static void ReleaseOne(State state, Room room, Player player)
+        {
+            int last = state.Chains.Count - 1;
+            if (last < 0)
+            {
+                return;
+            }
+            state.Chains[last].Break(player.mainBodyChunk.pos, FragmentRadius);
+            state.Chains.RemoveAt(last);
+            room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Break, 0f, 1f, UnityEngine.Random.value * 0.5f + 0.8f);
+        }
+
+        /// <summary>The last chain(s) go a second before the slideshow, with the louder stinger.</summary>
+        private static void FinalRelease(State state, Room room, Player player)
         {
             Vector2 focus = player.mainBodyChunk.pos;
             foreach (PullChain chain in state.Chains)
@@ -327,10 +394,10 @@ namespace Primal.Gimmicks
             room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Break, 0f, 1f, 0.6f);
             room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Break, 0f, 1f, 0.85f);
             room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Break, 0f, 1f, 1.1f);
-            Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] dissolve finished -- all chains broken.");
+            Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] final chain released.");
         }
 
-        private static void Abort(State state, string why)
+        private static void Abort(State state, Player player, string why)
         {
             foreach (PullChain chain in state.Chains)
             {
@@ -338,6 +405,10 @@ namespace Primal.Gimmicks
             }
             state.Chains.Clear();
             state.Phase = Phase.Done;
+            if (state.ControlTaken && player != null && player.controller is Player.NullController)
+            {
+                player.controller = null;
+            }
             Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] aborted: " + why);
         }
     }

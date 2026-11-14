@@ -104,8 +104,14 @@ helpers inside `PullChain` and reflecting `behavior` via a cached `AccessTools.F
 `exceptionLog.txt`/`consoleLog.txt` in the game's root folder are where a hard crash's managed
 stack trace actually lands -- BepInEx's `LogOutput.log` only had the mod's own last Info line.
 
-Redeployed after the fix; the rest of the sequence (stiffen / pull / break / slideshow still
-follows) is still unconfirmed in-game -- watch for the remaining `[ChainsVoidSeaEnding]` lines.
+Second in-game test (2026-11-14, after the fix): **the whole sequence worked.** Revisions then
+requested and made in the same session: trigger moved from 800 px below SB_L01 to ~10 screens
+(8000 px, "past the yellow background"); `Chain_Lock` stinger when the chains appear; pull speed
+x10 (`PullSpeedMultiplier`); player input taken away at pull start (`Player.NullController`,
+handed back only on abort); instead of one break at dissolve-end, chains are released one at a
+time from dissolve START (ArtificerEndUpdate timer 720), each with a normal `Chain_Break`, evenly
+spaced so the last one goes one second before the slideshow (timer 2560 - 40) with the louder
+layered stinger. Third test pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
