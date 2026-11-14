@@ -46,9 +46,11 @@ Built but **not yet tested in-game**:
 - Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
   second. See "Chains: creatures left unchained" below.
 - Survivor Community Challenges count requirement (2026-11-10), see its section below.
-- Primal Spearmaster portrait art (2026-11-14): confirmed *loading* in-game (log line, no warnings),
-  but nobody has actually looked at it on screen yet — check framing/parallax at each depth and the
-  two ending scenes. See its own section below.
+- Primal Spearmaster portrait art (2026-11-14): confirmed loading AND seen on screen; the user
+  reported the first build was mis-framed (ran off the top, collided with the title text) and the
+  framing was reworked against the Artificer reference — see Gotcha #10. The reframed art is
+  deployed but **the corrected framing has not itself been seen on screen yet**. Still unseen at
+  any point: the two ending scenes (`End_Spear`, `AltEnd_Spearmaster`).
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -84,9 +86,16 @@ scene art from 'scenes\primal spearmaster'`, with no unmapped-layer warnings and
 - **The art pipeline is new and worth reusing.** The user supplies hand-drawn layers on one shared
   canvas; `scripts/build-spearmaster-scene.py` turns them into the 1366x768 per-layer PNGs the game
   wants. Sources live in `src/Primal/art-source/primal spearmaster/` (NOT deployed); generated
-  output goes to `src/Primal/scenes/primal spearmaster/` (deployed). The 1024 -> 1366x768 step is a
-  pure translate, no scaling — content union `(209,214)-(951,852)` centred on `(683,384)` at offset
-  `(+103,-149)`. Re-run the script after any source edit; don't hand-edit the generated PNGs.
+  output goes to `src/Primal/scenes/primal spearmaster/` (deployed). Re-run the script after any
+  source edit; don't hand-edit the generated PNGs.
+- **Framing took two tries — see Gotcha #10 before making art for another character.** The first
+  build placed the source 1:1 and centred its whole drawn area; in-game it ran off the top of the
+  screen and collided with the name/description text. The first *correction* was also wrong, for a
+  more interesting reason: it targeted coordinates measured off a screenshot, but the game draws a
+  layer ~83px higher than its position in the PNG, so the screenshot numbers already had that
+  offset baked in and applying them re-applied it. The fix that worked frames the art purely in PNG
+  space against the known-good Artificer art (`x 401..963, y 132..670`), which lands it on exactly
+  the same on-screen band the reference occupies.
 - **Layer sizing rule, now confirmed from `MenuDepthIllustration`'s own constructor** (worth knowing
   before making art for character #3): it sets `size = (width, height/2)` and then, for `Basic`/`Rain`
   ONLY, doubles `size.y` back and resets `scaleY` to 1. So `Basic` = a plain image drawn 1:1; every
@@ -730,6 +739,34 @@ that needs nudging — anything going through `OpScrollBox`, or any other framew
 own child-tracking, is a candidate. Also: synthetic/automated clicks against this game window have
 been unreliable in testing (hover state updates correctly, but `OnClick` itself is intermittent) —
 a real in-person test is still the reliable way to confirm any Remix UI fix.
+
+### Gotcha #10 — a portrait layer renders ~83px HIGHER than its own position in the PNG
+
+Framing new scene art by measuring a screenshot and treating those coordinates as PNG coordinates
+produces art that sits too high and gets clipped at the top edge. **The game draws a portrait layer
+about 83px higher (in 1366x768 canvas units) than where the content sits in its own PNG.**
+
+Measured, not guessed: composite a character's layer PNGs, then search for the (dx, dy) shift that
+best aligns that composite's mask against a real screenshot of it (best intersection-over-union).
+Artificer came out at `dy=-88` (IoU 0.889) and Spearmaster at `dy=-78` (IoU 0.959), consistently,
+across every scene variant. The ~10px spread between them is parallax — `MenuDepthIllustration`
+moves a layer by up to `80/depth` (~22-38px) depending on the instant the shot was taken — so treat
+the offset as ~83px ± parallax, not an exact constant. Horizontal is 1:1 (dx within a few px).
+
+**The cause is not identified.** `MenuDepthIllustration.GrafUpdate` overwrites `sprite.y` with its
+own `pos.y - CamPos.y*80/depth`, discarding the owner's position, and with `anchorY = 0` and
+`positions.txt` all `0, 0` a 1366x768 texture should land exactly on the screen — yet it measurably
+does not. Don't spend time rederiving this from the decompiled source before checking whether it
+still reproduces; it may be a Futile/atlas or screen-scaling detail outside `MenuScene` entirely.
+
+**How to avoid the whole problem:** never frame new art against screen coordinates. Frame it in PNG
+space against an existing, known-good portrait — the Artificer art occupies x 401..963, y 132..670
+in its own PNGs, and anything placed on that same box lands where Artificer lands, offset and all.
+`scripts/build-spearmaster-scene.py` does exactly this and documents the numbers in its header.
+
+**Lesson:** when matching new art to existing art, compare the two ASSETS in their own coordinate
+space, not two screenshots — a screenshot has the engine's own unexplained transforms already baked
+into it, and copying numbers out of one silently imports those transforms a second time.
 
 ### Gotcha #9 — changing a `Configurable<T>`'s default in source code never retroactively changes an already-saved value
 
