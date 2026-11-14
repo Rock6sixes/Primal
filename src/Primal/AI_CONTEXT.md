@@ -53,6 +53,8 @@ Built but **not yet tested in-game**:
 Waiting on a user decision:
 - No design yet for Watcher (and any character missing from CHARACTER_DESIGN_STATUS.md).
 - TimeLimit game-over screen: deliberately deferred by the user.
+- Void Sea ending (Primal Artificer): investigated 2026-11-14, not yet designed or implemented --
+  see "Void Sea ending sequence (investigation only, 2026-11-14)" below for the full vanilla trace.
 
 Older items this doc still lists as untested (from Sept. 2026 -- may since have been checked by
 the user; confirm and prune): Threat Slowdown, NoPassages, Inv roster entry, gimmick-assignment
@@ -61,6 +63,74 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Void Sea ending sequence (investigation only, 2026-11-14)
+
+User wants a future gimmick-gated change to Primal Artificer's void-sea ending (reached via
+SB_L01 -> swim into the lake -> special no-drowning room -> dragged down -> cutscene), but asked
+explicitly to find and understand the vanilla mechanism FIRST, before any code changes. **Nothing
+in this section is implemented. No code was touched.** All `reference/GameSource/` paths below;
+none of this is patched by Primal yet (confirmed by grepping `src/Primal/` for `VoidSea`,
+`VoidSpawn`, `VoidWorm`, `SB_L01` -- zero hits).
+
+**The no-drowning swim room.** Any room carrying the `RoomSettings.RoomEffect.Type.VoidSea` effect
+(`RoomSettings.cs:89`) gets a `VoidSeaScene` object attached generically, by room EFFECT, not by
+room name (`Room.cs:943-945`). That scene sets `Player.inVoidSea = true` once the player's Y
+crosses its internal "horizon" line (`VoidSeaScene.cs:1047`), and every tick thereafter
+`VoidSeaScene.VoidSeaTreatment()` forcibly resets `player.airInLungs = 1f; player.lungsExhausted =
+false;` (`VoidSeaScene.cs:1307-1308`) -- not a one-time flag check, a continuous override, alongside
+custom buoyancy/velocity math replacing normal swim physics.
+
+**The drag-down creature is NOT `VoidSpawn`.** First guess was wrong: `VoidSpawn`/
+`VoidSpawnKeeper`/`VoidSpawnWorldAI` (found via an SB_L01 grep hit) are purely cosmetic ambient
+fish/particle swarms drifting through any void-sea room -- they never touch the player. The real
+drag mechanism is **`VoidWorm`** (`VoidSea/VoidWorm.cs`), a `Phase` state machine: `Idle ->
+GetToPlayer -> Looking -> AttachingString -> StringAttached -> SwimUp -> SwimDown ->
+DepthReached` (plus a separate Saint-only ascension branch, irrelevant here). Triggers once the
+player swims below Y < -25000 (`VoidWorm.cs:803-805`). The "drag" itself is direct velocity
+injection into the player's body chunk (`VoidWorm.cs:936`), not a grab/parent relationship --
+the player keeps normal physics/input the whole time, just continuously shoved toward the worm.
+
+**Artificer's ending is a hard character-check branch, confirmed distinct from every other
+character -- not a drowning death, a "dissolve" visual.** Two separate Artificer-specific checks in
+`VoidWorm.cs`:
+- `VoidWorm.cs:905-908`: while `Looking`, Artificer skips the normal `AttachingString` tether phase
+  entirely and jumps straight to `SwimDown`.
+- `VoidWorm.cs:966-995`: inside `SwimDown`, every OTHER character's path progressively destroys the
+  ceiling/worms/distant-worms/etc. as they go deeper, eventually reaching `Phase.DepthReached` ->
+  worm releases the player -> `TheEgg` (`VoidSeaScene.cs:325-439`, the literal "light" object)
+  activates and the player swims into it for the real ending fade. For Artificer specifically
+  (`VoidWorm.cs:966`'s `if` is skipped), none of that happens -- `Phase.DepthReached`/`TheEgg` are
+  **never reached at all**. Instead, once the worm passes Y -35000 (`VoidWorm.cs:992-994`), it sets
+  `voidSea.fadeOutLights = true`, which activates a wholly separate method:
+  `VoidSeaScene.ArtificerEndUpdate()` (`VoidSeaScene.cs:1751-1807`). On a fixed timer tick it calls
+  `player.InitiateDissolve()` (`Player.cs:3632-3640`: sets `player.dissolved = 0.01f` + a shockwave
+  effect), then ramps `player.dissolved` up to 0.4 over ~1400 ticks (a looping "Core" sound plays
+  throughout) -- this `dissolved` field IS the breaking-apart visual (consistent with Artificer
+  being a machine, not flesh). Then a BLACK fade (`FadeOut`, not `TheEgg`'s white-then-grey fade),
+  and once that completes, `ExitToVoidSeaSlideShow()` fires directly -- same final trigger everyone
+  else reaches, via a completely different visual path. `inVoidSea` still prevents drowning for
+  Artificer throughout -- this is not a breathing/drowning death, it is a scripted dissolve.
+
+**The cutscene/ending trigger**, same for everyone once reached: `TheEgg` (non-Artificer) or
+`ArtificerEndUpdate`'s black fade (Artificer) calls `RainWorldGame.ExitToVoidSeaSlideShow()`
+(`RainWorldGame.cs:1769-1780`), which calls `BeatGameMode(this, standardVoidSea: true)`
+(`RainWorldGame.cs:3056` on) -- sets `deathPersistentSaveData.ascended = true`, finalizes stats.
+Primal already has a generic Postfix hook on `BeatGameMode` itself
+(`SurvivorEvents.cs:308-318` -> `OnGameEnding` event, consumed by `AscensionRequirement`/
+`PerseveranceRequirement`/`ReachEndingSettings` in `Requirements.cs`) -- but that only fires AFTER
+the ending has already fully played out, so it's useless for intercepting or altering the
+swim/drag/dissolve-or-egg sequence itself. Any gimmick-gated change to the sequence would need new
+Harmony patches on `VoidSeaScene`/`VoidWorm` directly (and `Player.InitiateDissolve`/`TheEgg` if the
+change needs to touch the visual side) -- none of which exist yet.
+
+**SB_L01's actual role**: the whole chain above is generic, gated purely on the `VoidSea` room
+effect -- `VoidWorm`'s state machine never checks room name. SB_L01 is just the one room in the
+base SB region that happens to carry that effect for the standard ending; it's ALSO
+hardcoded in a few places, but only in the cosmetic `VoidSpawn` ambient-particle layer (mill-around
+rectangle `VoidSpawn.cs:129`, "always viewed" special case `VoidSpawnKeeper.cs:37`, pathing
+behavior assignment `VoidSpawnKeeper.cs:173,224`, region flow-destination `VoidSpawnWorldAI.cs:38`)
+-- none of which affect the actual drag/dissolve/cutscene mechanism traced above.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
