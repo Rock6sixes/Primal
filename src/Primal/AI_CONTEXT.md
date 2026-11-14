@@ -121,7 +121,17 @@ the 800 px Looking radius). Changes made: pull staged on the worm's phase (100 p
 top of the requested 100/400 so the worm can actually hold position beside her); control handed
 back (NullController removed; only vel.y is owned, vel.x eased so her input still works);
 sideways wander on the pull with the chains leaning to match (`Wander*` constants, `PullChain.Lean`);
-stiffness 0.92 -> 0.98. Fourth test pending.
+stiffness 0.92 -> 0.98.
+
+Fourth in-game test (2026-11-15): worked. Changes made: trigger 8000 -> 4000 px (~5 screens);
+sideways wander REVERTED (chains visibly swayed) -- chains are straight down again and
+"shaky" is now per-tick velocity jitter + `Room.ScreenMovement` camera shake scaled by speed;
+slugcat stretch while dragged, done the way vanilla's worm thread does it (only `bodyChunks[0]`
+gets the full pull, `bodyChunks[1]` lags by `StretchLag` so the 17 px body connection
+over-stretches); chains moved from the "Foreground" sprite layer to "Background" (behind the
+player's Midground sprites, above the void backdrop, same layer as the worms) -- done by
+re-listing `IDrawable` on `PullChain` and re-implementing `InitiateSprites`/`AddToContainer`,
+because `VoidChain.InitiateSprites` calls its own `AddToContainer` non-virtually. Fifth test pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 

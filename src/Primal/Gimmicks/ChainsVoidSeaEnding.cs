@@ -22,12 +22,13 @@ namespace Primal.Gimmicks
     ///     the screen. They are the loose, drifting, slowly-following kind the gimmick draws (same
     ///     VoidChain class, same colour pulse).
     ///  2. After LooseTicks (~10 s) every chain quickly eases into being rigid (StiffenTicks).
-    ///  3. StiffHoldTicks (~1 s) later the chains start pulling her down -- not straight down but
-    ///     with a slowly wandering sideways component the chains lean along with -- at 100 px/tick
-    ///     until the main worm has reached her, ~50 while it hovers beside her looking, and 400
-    ///     once it dives away (see the PullSpeed* constants). She keeps her own controls and can
-    ///     swim around on top of the pull. One more chain is added every ExtraChainInterval ticks
-    ///     (capped at MaxChains for sprite-count sanity).
+    ///  3. StiffHoldTicks (~1 s) later the chains start pulling her straight down, a little
+    ///     shakily (velocity jitter + camera shake), head first with her body stretched the way
+    ///     the void worm's thread stretches other slugcats -- at 100 px/tick until the main worm
+    ///     has reached her, ~50 while it hovers beside her looking, and 400 once it dives away
+    ///     (see the PullSpeed* constants). She keeps her own controls and can swim around on top
+    ///     of the pull. One more chain is added every ExtraChainInterval ticks (capped at
+    ///     MaxChains for sprite-count sanity). The chains are drawn behind her, above the backdrop.
     ///  4. When vanilla's dissolve begins (DissolveStartTimer, "starts breaking apart") the chains
     ///     stop being added and are released one at a time, evenly spaced, each with the gimmick's
     ///     ordinary room-clear stinger (Chain_Break), the pull continuing on the remaining ones.
@@ -88,11 +89,10 @@ namespace Primal.Gimmicks
     internal static class ChainsVoidSeaEnding
     {
         /// <summary>How far below the scene origin (SB_L01's bottom edge) Artificer has to be
-        /// before the chains appear. Raised 2026-11-14 (second test) from 800 to ~10 screens per
-        /// explicit request: "wait for arti to go past the yellow background" -- the lit, gold
-        /// upper band of the void sea, which vanilla's own player light fades out across
-        /// -2000..-8000 (VoidSeaTreatment's lightSource LerpMap). 10 x 768 px rounded up.</summary>
-        private const float TriggerDepth = 8000f;
+        /// before the chains appear. 800 at first; raised to ~10 screens after the second test
+        /// ("wait for arti to go past the yellow background"); settled at ~5 screens after the
+        /// fourth (2026-11-15, "a bit earlier, around 5 screens down"). 5 x 768 px rounded up.</summary>
+        private const float TriggerDepth = 4000f;
 
         private const int InitialChains = 10;
         private const int MaxChains = 30;
@@ -124,16 +124,21 @@ namespace Primal.Gimmicks
         private const float PullSpeedDive = 400f;
         private const float PullSpeedEase = 0.1f;
 
-        /// <summary>"Not directly down but a little random": a slowly wandering sideways component,
-        /// as a fraction of the vertical speed. A new target in [-WanderMax, WanderMax] is rolled
-        /// every WanderRerollMin..Max ticks and eased toward, and the chains lean the same way.</summary>
-        private const float WanderMax = 0.35f;
-        private const int WanderRerollMin = 40;
-        private const int WanderRerollMax = 140;
-        private const float WanderEase = 0.03f;
-        /// <summary>How hard the sideways pull overrides her own swimming: the sideways velocity is
-        /// eased toward the wander target by this much per tick, leaving her input room to nudge.</summary>
-        private const float LateralEase = 0.06f;
+        /// <summary>"Make the downward movement a little shaky" (fourth test, 2026-11-15; replaced
+        /// the earlier sideways wander, which made the chains visibly sway). Per-tick random jitter
+        /// on her velocity as fractions of the current pull speed, plus a steady camera shake
+        /// (Room.ScreenMovement's shake term, 0..1 scale) proportional to speed.</summary>
+        private const float JitterVertical = 0.06f;
+        private const float JitterLateral = 0.04f;
+        private const float ShakeAtFullSpeed = 0.3f;
+
+        /// <summary>"Stretch slugcat when it is being moved quickly, like the void worm does":
+        /// vanilla's worm thread only pulls mainBodyChunk and lets the other chunk trail through
+        /// the body connection (VoidWorm.Arm.Update: mainBodyChunk.pos/vel += ...), which is what
+        /// visibly elongates the slugcat. Same here: bodyChunks[0] gets the full pull speed and
+        /// bodyChunks[1] this fraction less, so the 17 px connection (elasticity 0.5) settles
+        /// about that many px over-stretched -- ~24 px at 400 px/tick.</summary>
+        private const float StretchLag = 0.06f;
 
         /// <summary>Vertical distance below Artificer each chain's deep anchor sits (randomised a
         /// little per chain) -- several screens below the bottom edge.</summary>
@@ -168,11 +173,6 @@ namespace Primal.Gimmicks
             /// scene's light fade has begun -- from then on the pull targets PullSpeedDive.</summary>
             public bool WormLeft;
 
-            /// <summary>Sideways wander: current eased value, the target it eases toward, and ticks
-            /// until the next re-roll.</summary>
-            public float Wander;
-            public float WanderTarget;
-            public int WanderRerollIn;
 
             /// <summary>Releasing phase: ArtificerEndUpdate timer value at which the next
             /// single chain lets go, and the spacing between releases (computed once when the
@@ -278,7 +278,6 @@ namespace Primal.Gimmicks
                         state.Ticks = 0;
                         state.ExtraChainTimer = 0;
                         state.PullSpeed = 0f;
-                        state.WanderRerollIn = 0;
                         // Control deliberately stays with the player (third test reversed the
                         // earlier NullController hand-off: "give artificer back control ... allow
                         // her to move around") -- only the vertical velocity is owned by the pull.
@@ -333,7 +332,6 @@ namespace Primal.Gimmicks
             foreach (PullChain chain in state.Chains)
             {
                 chain.Stiffness = state.Stiffness;
-                chain.Lean = state.Wander;
             }
         }
 
@@ -393,23 +391,25 @@ namespace Primal.Gimmicks
             }
             state.PullSpeed = Mathf.Lerp(state.PullSpeed, target, PullSpeedEase);
 
-            // --- sideways wander ---
-            if (state.WanderRerollIn <= 0)
-            {
-                state.WanderTarget = Mathf.Lerp(-WanderMax, WanderMax, UnityEngine.Random.value);
-                state.WanderRerollIn = UnityEngine.Random.Range(WanderRerollMin, WanderRerollMax + 1);
-            }
-            state.WanderRerollIn--;
-            state.Wander = Mathf.Lerp(state.Wander, state.WanderTarget, WanderEase);
-
-            float lateral = state.Wander * state.PullSpeed;
+            // --- straight down, a little shaky, head first ---
+            float speedFrac = Mathf.Clamp01(state.PullSpeed / PullSpeedDive);
             for (int i = 0; i < player.bodyChunks.Length; i++)
             {
                 BodyChunk chunk = player.bodyChunks[i];
-                chunk.vel.y = -state.PullSpeed;
-                // Eased, not assigned: her own swimming input still adds on top each tick, so she
-                // can move around while being dragged.
-                chunk.vel.x = Mathf.Lerp(chunk.vel.x, lateral, LateralEase);
+                float speed = state.PullSpeed * (1f + Mathf.Lerp(-JitterVertical, JitterVertical, UnityEngine.Random.value));
+                if (i > 0)
+                {
+                    // The trailing chunk lags the lead one so the body connection over-stretches
+                    // (see StretchLag) -- same mechanism as vanilla's worm thread.
+                    speed -= state.PullSpeed * StretchLag;
+                }
+                chunk.vel.y = -speed;
+                // Only a jitter is added sideways; her own swimming input is otherwise untouched.
+                chunk.vel.x += state.PullSpeed * Mathf.Lerp(-JitterLateral, JitterLateral, UnityEngine.Random.value);
+            }
+            if (speedFrac > 0.05f)
+            {
+                player.room.ScreenMovement(null, Vector2.zero, ShakeAtFullSpeed * speedFrac);
             }
         }
 
@@ -484,7 +484,7 @@ namespace Primal.Gimmicks
     /// <summary>One chain from one of Artificer's body chunks down to a deep anchor that moves
     /// with her. See ChainsVoidSeaEnding's header for why Update is re-implemented rather than
     /// inherited, why the endpoints are the way round they are, and why the halo is hidden.</summary>
-    internal sealed class PullChain : VoidChain
+    internal sealed class PullChain : VoidChain, IDrawable
     {
         private readonly Player _player;
         private readonly int _chunkIndex;
@@ -494,10 +494,6 @@ namespace Primal.Gimmicks
         /// <summary>0 = the gimmick's ordinary loose, drifting chain; 1 = a straight rigid line
         /// from body to anchor. Set every tick by ChainsVoidSeaEnding.</summary>
         public float Stiffness;
-
-        /// <summary>Sideways lean of the deep anchor as a fraction of its depth -- the pull's own
-        /// wander value, so the chains point where she is actually being dragged.</summary>
-        public float Lean;
 
         public PullChain(Room room, Player player, int chunkIndex, Vector2 anchorOffset, float slack)
             : base(room, player.bodyChunks[chunkIndex].pos, player.bodyChunks[chunkIndex].pos + anchorOffset)
@@ -521,7 +517,7 @@ namespace Primal.Gimmicks
 
             Vector2 bodyPos = _player.bodyChunks[_chunkIndex].pos;
             stuckPosA = bodyPos;
-            stuckPosB = bodyPos + _anchorOffset + new Vector2(Lean * -_anchorOffset.y, 0f);
+            stuckPosB = bodyPos + _anchorOffset;
 
             float loose = 1f - Stiffness;
             int count = segments.GetLength(0);
@@ -607,6 +603,30 @@ namespace Primal.Gimmicks
             segments[a, 2] += push;
             segments[b, 0] -= push;
             segments[b, 2] -= push;
+        }
+
+        /// <summary>IDrawable re-implementation (the class re-lists IDrawable above so the camera's
+        /// SpriteLeaser constructor dispatches here). VoidChain.InitiateSprites parks its sprites in
+        /// "Foreground" via a direct, non-virtual call to its own AddToContainer, which drew the
+        /// chains over the slugcat (fourth test, 2026-11-15: "draw them behind the slugcat, but
+        /// above the background"). So: let the base build the sprites, then move them into
+        /// "Background" -- RoomCamera's layer order is Shadows, BackgroundShortcuts, Background,
+        /// Midground (where PlayerGraphics lives), Items, Foreground, ... -- the same layer the void
+        /// worms and distant lights use, so the chains sit above the void backdrop and below her.</summary>
+        public new void InitiateSprites(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam)
+        {
+            base.InitiateSprites(sLeaser, rCam);
+            AddToContainer(sLeaser, rCam, null);
+        }
+
+        public new void AddToContainer(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, FContainer newContatiner)
+        {
+            FContainer target = newContatiner ?? rCam.ReturnFContainer("Background");
+            for (int i = 0; i < sLeaser.sprites.Length; i++)
+            {
+                sLeaser.sprites[i].RemoveFromContainer();
+                target.AddChild(sLeaser.sprites[i]);
+            }
         }
 
         /// <summary>Shatter: scatter fragments from the on-screen part of the chain, then remove it.</summary>
