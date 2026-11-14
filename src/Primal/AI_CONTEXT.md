@@ -46,6 +46,9 @@ Built but **not yet tested in-game**:
 - Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
   second. See "Chains: creatures left unchained" below.
 - Survivor Community Challenges count requirement (2026-11-10), see its section below.
+- Primal Spearmaster portrait art (2026-11-14): confirmed *loading* in-game (log line, no warnings),
+  but nobody has actually looked at it on screen yet — check framing/parallax at each depth and the
+  two ending scenes. See its own section below.
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -61,6 +64,43 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Primal Spearmaster portrait scene (2026-11-14)
+
+Second character to get custom select-screen art, built to the `PrimalArtificerScene.cs` pattern at
+the user's explicit request ("as done by example for primal artificer"). **Confirmed loading
+in-game** the same session: `LogOutput.log` shows `[PrimalSpearmasterScene] Using Primal Spearmaster
+scene art from 'scenes\primal spearmaster'`, with no unmapped-layer warnings and no
+`exceptionLog.txt`. Whether it *looks* right at every depth/parallax still wants a real eyeball pass.
+
+- `Gimmicks/PrimalSpearmasterScene.cs` (new) — a deliberate near-copy of `PrimalArtificerScene.cs`,
+  not a shared generalisation of it: that file is the only scene reskin confirmed working, and
+  mirroring kept this one's risk at zero. **If a third character gets scene art, factor the three
+  patches out into one table-driven reskin and port both characters at once** — two copies is where
+  that stops being premature. Covers all three Spearmaster scenes (`Slugcat_Spear`, `End_Spear`,
+  `AltEnd_Spearmaster`); its `FileMap`'s 15 keys were verified to be an exact bijection with the
+  layer names `MenuScene.cs`'s own `BuildSpearScene`/`BuildSpearEndScene`/`BuildSpearAltEndScene`
+  actually pass — no extras, none missed.
+- **The art pipeline is new and worth reusing.** The user supplies hand-drawn layers on one shared
+  canvas; `scripts/build-spearmaster-scene.py` turns them into the 1366x768 per-layer PNGs the game
+  wants. Sources live in `src/Primal/art-source/primal spearmaster/` (NOT deployed); generated
+  output goes to `src/Primal/scenes/primal spearmaster/` (deployed). The 1024 -> 1366x768 step is a
+  pure translate, no scaling — content union `(209,214)-(951,852)` centred on `(683,384)` at offset
+  `(+103,-149)`. Re-run the script after any source edit; don't hand-edit the generated PNGs.
+- **Layer sizing rule, now confirmed from `MenuDepthIllustration`'s own constructor** (worth knowing
+  before making art for character #3): it sets `size = (width, height/2)` and then, for `Basic`/`Rain`
+  ONLY, doubles `size.y` back and resets `scaleY` to 1. So `Basic` = a plain image drawn 1:1; every
+  other shader = a `W x 2H` stack, colour over a red depth map, drawn at `W x H`. Both reskins force
+  `Basic` on every layer and ship plain 1366x768 PNGs.
+- **Fixed a live landmine while here:** the repo's own copy of the *Artificer* art was still the
+  pre-fix 1366x1536 doubled version (exactly the "stretched the portrait 2x" bug this doc already
+  described), while the working 1366x768 art existed only in the game install — the fix had been made
+  by hand to the install and never committed back. Since `build-deploy-run.sh` now deploys `scenes/`,
+  shipping that stale art would have actively re-broken a working portrait. The installed (good)
+  copies were synced back into the repo. General lesson: **an asset fix applied straight to the
+  install is invisible to the repo** — check both when a "known gap" says art is deployed by hand.
+- `scripts/build-deploy-run.sh` now deploys `scenes/` too, closing this doc's own long-standing
+  "Known gaps" entry about scene art needing a manual copy.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
@@ -354,10 +394,9 @@ sessions, most recently 2026-11-02:
   bound (see **Gotcha #9**) — check this file directly, not just the source code, whenever a
   "changed the default and nothing happened" report comes in.
 - `scripts/build-deploy-run.sh` does build + copy-to-install + launch in one step
-  (`--no-build`/`--no-launch` for a partial run); see Build & deploy workflow below. It currently
-  only copies `modinfo.json` + `Primal.dll` — the artificer scene art under
-  `src/Primal/scenes/` is deployed by hand and isn't covered by this script (a real gap, not yet
-  fixed — see Current status).
+  (`--no-build`/`--no-launch` for a partial run); see Build & deploy workflow below. As of
+  2026-11-14 it copies `modinfo.json` + `Primal.dll` **and** the whole `src/Primal/scenes/` tree
+  (the portrait art), so scene art no longer needs a manual copy.
 - No `.NET` decompiler is installed by default; `ilspycmd` has been present as a `dotnet` global
   tool in at least one past session (`~/.dotnet/tools/ilspycmd.exe`) — check before assuming it's
   there. When no decompiler is available, a hand-rolled pure-Python ECMA-335 metadata/IL reader is
@@ -461,8 +500,13 @@ this list is for orientation, not a substitute for reading the file.
   `NoPassagesGimmick.cs`, `ThreatSlowdownGimmick.cs`, `ThreatPanicGimmick.cs`,
   `CreatureKillListGimmick.cs`, `RainTimerGimmick.cs`,
   `BlizzardTimerGimmick.cs`, `PrecycleTimerGimmick.cs` — one file per gimmick (see Current
-  architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` reskins
-  Artificer's ending-cutscene art for the Primal slot (see `scenes/primal artificer/`).
+  architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` and
+  `PrimalSpearmasterScene.cs` reskin those two characters' select-screen/ending portrait art for the
+  Primal slot (see `scenes/primal artificer/`, `scenes/primal spearmaster/`, and the 2026-11-14
+  section above — including the "factor these two into one table-driven reskin before adding a
+  third" note). Generated portrait art is built from `art-source/<character>/` by
+  `scripts/build-<character>-scene.py`; `scenes/` holds only generated output and is deployed, while
+  `art-source/` is the hand-drawn input and is not.
   `PrimalKillTracker.cs` is the global (not per-gimmick) "which creature types has this character
   ever killed" tracker both `CreatureKillListGimmick` and the Unique Kills requirement read.
 - `Gimmicks/Survivor*.cs` (CheckpointRun, CreatureTracking, CreatureVariant, DreamState,
@@ -932,9 +976,10 @@ and hash-verified after the game was closed.
   on this unprompted.**
 
 **Known gaps, not bugs:**
-- `scripts/build-deploy-run.sh` doesn't deploy the Artificer scene art under `src/Primal/scenes/`
-  (only `modinfo.json` + `Primal.dll`) — that art has to be copied to the install by hand. Worth
-  fixing the script if this becomes a recurring friction point.
+- ~~`scripts/build-deploy-run.sh` doesn't deploy the scene art under `src/Primal/scenes/`.~~
+  **Fixed 2026-11-14** — the script now copies `scenes/` into the install alongside the DLL. See
+  the "Primal Spearmaster portrait scene" section above (which also records the stale-repo-art
+  landmine that gap had been quietly hiding).
 - Rivulet now has both of her originally-designed gimmicks (Rain Timer + Precycle Timer) and
   requirements (Visit Shelter + Ending) defaulted — see the new entry above. No gimmick/requirement
   has been designed yet for Survivor beyond the "all 50 community challenges" requirement intent
@@ -964,11 +1009,13 @@ separate file:
 ```
 ...\Rain World\RainWorld_Data\StreamingAssets\mods\Primal\plugins\Primal.dll
 ```
-Either run `./scripts/build-deploy-run.sh` (build + copy `modinfo.json`+`Primal.dll` + launch, in
-one step — override `PRIMAL_SRC_DIR`/`RAINWORLD_GAME_DIR`/`RAINWORLD_MOD_DEST` env vars if those
-paths ever drift), or copy `mod/plugins/Primal.dll`(+ the `bin/Debug/Primal.pdb` for symbol-matched
-stack traces) to that path by hand. The script does not currently copy `src/Primal/scenes/` — see
-"Known gaps" above.
+Either run `./scripts/build-deploy-run.sh` (build + copy `modinfo.json`+`Primal.dll`+`scenes/` +
+launch, in one step — override `PRIMAL_SRC_DIR`/`RAINWORLD_GAME_DIR`/`RAINWORLD_MOD_DEST` env vars if
+those paths ever drift), or copy `mod/plugins/Primal.dll`(+ the `bin/Debug/Primal.pdb` for
+symbol-matched stack traces) to that path by hand.
+
+**The DLL is locked while Rain World is running** — `cp`/`Copy-Item` fails with "a file with a
+user-mapped section open". Close the game before deploying.
 
 **If diagnosing a "silently doesn't work" report, in order:**
 1. `BepInEx\LogOutput.log` — does the mod show a "loaded" line? Any `LogError`? Any `[GimmickName]`
