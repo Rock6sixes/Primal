@@ -22,9 +22,11 @@ namespace Primal.Gimmicks
     ///     the screen. They are the loose, drifting, slowly-following kind the gimmick draws (same
     ///     VoidChain class, same colour pulse).
     ///  2. After LooseTicks (~10 s) every chain quickly eases into being rigid (StiffenTicks).
-    ///  3. StiffHoldTicks (~1 s) later the chains start pulling her straight down at ten times
-    ///     the void worm's swim-down speed (PullSpeedMultiplier), the player's input is taken away
-    ///     (Player.NullController), and one more chain is added every ExtraChainInterval ticks
+    ///  3. StiffHoldTicks (~1 s) later the chains start pulling her down -- not straight down but
+    ///     with a slowly wandering sideways component the chains lean along with -- at 100 px/tick
+    ///     until the main worm has reached her, ~50 while it hovers beside her looking, and 400
+    ///     once it dives away (see the PullSpeed* constants). She keeps her own controls and can
+    ///     swim around on top of the pull. One more chain is added every ExtraChainInterval ticks
     ///     (capped at MaxChains for sprite-count sanity).
     ///  4. When vanilla's dissolve begins (DissolveStartTimer, "starts breaking apart") the chains
     ///     stop being added and are released one at a time, evenly spaced, each with the gimmick's
@@ -104,20 +106,34 @@ namespace Primal.Gimmicks
         /// <summary>One more chain every 2.5 s while pulling.</summary>
         private const int ExtraChainInterval = 100;
 
-        /// <summary>Fully "very stiff" still leaves a sliver of give so the lines don't read as
-        /// drawn rulers.</summary>
-        private const float StiffnessMax = 0.92f;
+        /// <summary>"Only 98% stiff" (explicit request, third test) -- a sliver of give so the
+        /// lines don't read as drawn rulers.</summary>
+        private const float StiffnessMax = 0.98f;
         /// <summary>Extra rest length (x1.3) given to the loose chains so they sag and drift
         /// instead of hanging taut.</summary>
         private const float LooseSlack = 1.3f;
 
-        /// <summary>Pull speed, px/tick. The worm reference is its own SuperSwim(-40) thrust, or
-        /// its live head speed while it is actually in SwimDown if faster (capped); the whole thing
-        /// is then multiplied by PullSpeedMultiplier -- "10x faster", explicit request after the
-        /// second in-game test (2026-11-14). At 400 px/tick she covers 10 screens a second.</summary>
-        private const float BasePullSpeed = 40f;
-        private const float MaxWormSpeed = 160f;
-        private const float PullSpeedMultiplier = 10f;
+        /// <summary>Pull speeds, px/tick, staged around the main worm's own state machine (third
+        /// in-game test, 2026-11-14: at a flat 400 the worm never caught up, so the ending never
+        /// started). Approach: until the worm has reached her. Looking: while it hovers beside her
+        /// for its 600-tick look -- its Float() movement tops out around 50 px/tick, so anything
+        /// faster leaves it behind. Dive: once it has gone (SwimDown / fadeOutLights), "quickly
+        /// ramp up to 400". Each is approached with PullSpeedEase per tick.</summary>
+        private const float PullSpeedApproach = 100f;
+        private const float PullSpeedLooking = 50f;
+        private const float PullSpeedDive = 400f;
+        private const float PullSpeedEase = 0.1f;
+
+        /// <summary>"Not directly down but a little random": a slowly wandering sideways component,
+        /// as a fraction of the vertical speed. A new target in [-WanderMax, WanderMax] is rolled
+        /// every WanderRerollMin..Max ticks and eased toward, and the chains lean the same way.</summary>
+        private const float WanderMax = 0.35f;
+        private const int WanderRerollMin = 40;
+        private const int WanderRerollMax = 140;
+        private const float WanderEase = 0.03f;
+        /// <summary>How hard the sideways pull overrides her own swimming: the sideways velocity is
+        /// eased toward the wander target by this much per tick, leaving her input room to nudge.</summary>
+        private const float LateralEase = 0.06f;
 
         /// <summary>Vertical distance below Artificer each chain's deep anchor sits (randomised a
         /// little per chain) -- several screens below the bottom edge.</summary>
@@ -148,9 +164,15 @@ namespace Primal.Gimmicks
             public float PullSpeed;
             public readonly List<PullChain> Chains = new List<PullChain>();
 
-            /// <summary>Set once the pull takes the player's input away (Player.NullController),
-            /// so Abort knows to hand it back.</summary>
-            public bool ControlTaken;
+            /// <summary>Latched the first tick the main worm is seen diving away (SwimDown) or the
+            /// scene's light fade has begun -- from then on the pull targets PullSpeedDive.</summary>
+            public bool WormLeft;
+
+            /// <summary>Sideways wander: current eased value, the target it eases toward, and ticks
+            /// until the next re-roll.</summary>
+            public float Wander;
+            public float WanderTarget;
+            public int WanderRerollIn;
 
             /// <summary>Releasing phase: ArtificerEndUpdate timer value at which the next
             /// single chain lets go, and the spacing between releases (computed once when the
@@ -256,12 +278,11 @@ namespace Primal.Gimmicks
                         state.Ticks = 0;
                         state.ExtraChainTimer = 0;
                         state.PullSpeed = 0f;
-                        // "Take away control from the player" once the chains start moving her:
-                        // the same NullController vanilla hands the other players during Saint's
-                        // void-worm cutscene (VoidWorm.cs, MainWormBehavior.Update).
-                        player.controller = new Player.NullController();
-                        state.ControlTaken = true;
-                        Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] pull started, player control taken.");
+                        state.WanderRerollIn = 0;
+                        // Control deliberately stays with the player (third test reversed the
+                        // earlier NullController hand-off: "give artificer back control ... allow
+                        // her to move around") -- only the vertical velocity is owned by the pull.
+                        Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] pull started.");
                     }
                     break;
 
@@ -312,6 +333,7 @@ namespace Primal.Gimmicks
             foreach (PullChain chain in state.Chains)
             {
                 chain.Stiffness = state.Stiffness;
+                chain.Lean = state.Wander;
             }
         }
 
@@ -331,35 +353,63 @@ namespace Primal.Gimmicks
 
         private static void Pull(State state, VoidSeaScene scene, Player player)
         {
-            float target = BasePullSpeed;
-            if (scene.worms != null)
+            // --- vertical speed, staged on what the main worm is doing (see the constants) ---
+            float target = PullSpeedApproach;
+            if (!state.WormLeft && scene.fadeOutLights)
+            {
+                state.WormLeft = true;
+            }
+            if (!state.WormLeft && scene.worms != null)
             {
                 foreach (VoidWorm worm in scene.worms)
                 {
-                    if (worm == null || !worm.mainWorm || worm.chunks == null || worm.chunks.Length == 0)
+                    if (worm == null || !worm.mainWorm)
                     {
                         continue;
                     }
                     // VoidWorm.behavior is private in the real assembly (Gotcha #1) -- reflected, cached.
-                    if (WormBehaviorField?.GetValue(worm) is VoidWorm.MainWormBehavior main && main.phase == VoidWorm.MainWormBehavior.Phase.SwimDown)
+                    if (WormBehaviorField?.GetValue(worm) is VoidWorm.MainWormBehavior main)
                     {
-                        float wormDownSpeed = -worm.chunks[0].vel.y;
-                        if (wormDownSpeed > target)
+                        if (main.phase == VoidWorm.MainWormBehavior.Phase.SwimDown
+                            || main.phase == VoidWorm.MainWormBehavior.Phase.DepthReached
+                            || main.phase == VoidWorm.MainWormBehavior.Phase.SwimBackUp)
                         {
-                            target = Mathf.Min(wormDownSpeed, MaxWormSpeed);
+                            state.WormLeft = true;
+                            Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] worm has left -- ramping to full pull speed.");
+                        }
+                        else if (main.phase == VoidWorm.MainWormBehavior.Phase.Looking
+                            || main.phase == VoidWorm.MainWormBehavior.Phase.AttachingString
+                            || main.phase == VoidWorm.MainWormBehavior.Phase.StringAttached)
+                        {
+                            target = PullSpeedLooking;
                         }
                     }
+                    break;
                 }
             }
-            target *= PullSpeedMultiplier;
+            if (state.WormLeft)
+            {
+                target = PullSpeedDive;
+            }
+            state.PullSpeed = Mathf.Lerp(state.PullSpeed, target, PullSpeedEase);
 
-            // Ease into the pull over roughly half a second rather than snapping to full speed.
-            state.PullSpeed = Mathf.Lerp(state.PullSpeed, target, 0.08f);
+            // --- sideways wander ---
+            if (state.WanderRerollIn <= 0)
+            {
+                state.WanderTarget = Mathf.Lerp(-WanderMax, WanderMax, UnityEngine.Random.value);
+                state.WanderRerollIn = UnityEngine.Random.Range(WanderRerollMin, WanderRerollMax + 1);
+            }
+            state.WanderRerollIn--;
+            state.Wander = Mathf.Lerp(state.Wander, state.WanderTarget, WanderEase);
+
+            float lateral = state.Wander * state.PullSpeed;
             for (int i = 0; i < player.bodyChunks.Length; i++)
             {
                 BodyChunk chunk = player.bodyChunks[i];
                 chunk.vel.y = -state.PullSpeed;
-                chunk.vel.x *= 0.85f;
+                // Eased, not assigned: her own swimming input still adds on top each tick, so she
+                // can move around while being dragged.
+                chunk.vel.x = Mathf.Lerp(chunk.vel.x, lateral, LateralEase);
             }
         }
 
@@ -405,10 +455,6 @@ namespace Primal.Gimmicks
             }
             state.Chains.Clear();
             state.Phase = Phase.Done;
-            if (state.ControlTaken && player != null && player.controller is Player.NullController)
-            {
-                player.controller = null;
-            }
             Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] aborted: " + why);
         }
     }
@@ -449,6 +495,10 @@ namespace Primal.Gimmicks
         /// from body to anchor. Set every tick by ChainsVoidSeaEnding.</summary>
         public float Stiffness;
 
+        /// <summary>Sideways lean of the deep anchor as a fraction of its depth -- the pull's own
+        /// wander value, so the chains point where she is actually being dragged.</summary>
+        public float Lean;
+
         public PullChain(Room room, Player player, int chunkIndex, Vector2 anchorOffset, float slack)
             : base(room, player.bodyChunks[chunkIndex].pos, player.bodyChunks[chunkIndex].pos + anchorOffset)
         {
@@ -471,7 +521,7 @@ namespace Primal.Gimmicks
 
             Vector2 bodyPos = _player.bodyChunks[_chunkIndex].pos;
             stuckPosA = bodyPos;
-            stuckPosB = bodyPos + _anchorOffset;
+            stuckPosB = bodyPos + _anchorOffset + new Vector2(Lean * -_anchorOffset.y, 0f);
 
             float loose = 1f - Stiffness;
             int count = segments.GetLength(0);

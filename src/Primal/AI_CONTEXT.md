@@ -111,7 +111,17 @@ x10 (`PullSpeedMultiplier`); player input taken away at pull start (`Player.Null
 handed back only on abort); instead of one break at dissolve-end, chains are released one at a
 time from dissolve START (ArtificerEndUpdate timer 720), each with a normal `Chain_Break`, evenly
 spaced so the last one goes one second before the slideshow (timer 2560 - 40) with the louder
-layered stinger. Third test pending.
+layered stinger.
+
+Third in-game test (2026-11-14): worked, but "void worm could not catch up" at a flat 400 px/tick
+(the ending's own trigger is the worm reaching her and looking for 600 ticks -- its Float()
+movement is only ~50 px/tick once it is within 2000 px, so a fast-moving target keeps it out of
+the 800 px Looking radius). Changes made: pull staged on the worm's phase (100 px/tick approach,
+50 while it looks, 400 once SwimDown/fadeOutLights -- the 50 is this session's own addition on
+top of the requested 100/400 so the worm can actually hold position beside her); control handed
+back (NullController removed; only vel.y is owned, vel.x eased so her input still works);
+sideways wander on the pull with the chains leaning to match (`Wander*` constants, `PullChain.Lean`);
+stiffness 0.92 -> 0.98. Fourth test pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
