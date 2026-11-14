@@ -96,6 +96,18 @@ scene art from 'scenes\primal spearmaster'`, with no unmapped-layer warnings and
   offset baked in and applying them re-applied it. The fix that worked frames the art purely in PNG
   space against the known-good Artificer art (`x 401..963, y 132..670`), which lands it on exactly
   the same on-screen band the reference occupies.
+- **Depth layers must be alpha-cut, never opaque rectangles (fixed 2026-11-14, affected BOTH
+  characters).** The menu draws its rain effect *behind* the portrait scene, so an opaque backdrop
+  layer hides the rain everywhere it covers — the user saw rain only outside the art. Vanilla's own
+  depth layers are painted shapes with real alpha (opaque fraction 0.14–0.72 across the stock
+  Artificer/Spearmaster scenes, checked directly in
+  `StreamingAssets/mods/moreslugcats/scenes/`), transparent wherever nothing is painted. Flat-mode
+  `- Flat` assets are the opposite — every stock one is a fully opaque 1366x768 composite — so those
+  keep their black field. Spearmaster simply stopped using its source's `black.PNG` for the depth
+  backdrop; Artificer has no source layers in this repo, so its black field was keyed out of the
+  finished PNGs by `scripts/unmatte-black-backdrop.py` (that script is the only record of how, and
+  explains its luminance thresholds). **When adding a character, audit every depth layer's opaque
+  fraction before shipping** — anything at 1.00 that isn't a `- Flat` asset is this bug.
 - **Layer sizing rule, now confirmed from `MenuDepthIllustration`'s own constructor** (worth knowing
   before making art for character #3): it sets `size = (width, height/2)` and then, for `Basic`/`Rain`
   ONLY, doubles `size.y` back and resets `scaleY` to 1. So `Basic` = a plain image drawn 1:1; every

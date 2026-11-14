@@ -78,9 +78,17 @@ def main():
 
     foliage, poles, vines, scug = (layer(n) for n in
                                    ("backgorujnd.PNG", "poles.PNG", "vines.PNG", "scug.PNG"))
-    # black.PNG is a uniform opaque black field, so it is regenerated at full screen size rather
-    # than translated -- a translated copy would leave transparent gutters at the screen edges.
-    backdrop = stack(Image.new("RGBA", SCREEN, (0, 0, 0, 255)), foliage)
+
+    # The source's black.PNG (a uniform opaque black field) is deliberately NOT used for the depth
+    # layers. The menu draws its rain effect behind the portrait, so an opaque backdrop hides the
+    # rain everywhere the backdrop covers -- which is what shipped first and looked wrong. Vanilla's
+    # own depth layers are alpha-cut painted shapes (opaque fraction 0.14-0.72 across the stock
+    # Artificer/Spearmaster scenes), transparent wherever nothing is painted, precisely so the rain
+    # shows through. So the depth backdrop is just the painted foliage, keeping its own alpha.
+    backdrop = foliage
+    # Flat mode is the exception and matches vanilla the other way: every stock "- Flat" asset is a
+    # fully opaque 1366x768 composite, so those do get the black field behind them.
+    flat_base = stack(Image.new("RGBA", SCREEN, (0, 0, 0, 255)), foliage)
     scug_dark = darken(scug)
 
     written = {
@@ -91,8 +99,8 @@ def main():
         "slugcat - 1 - dark": scug_dark,
         "midground": stack(vines, poles),
         "foreground": stack(vines, poles, scug),
-        "flat": stack(backdrop, vines, poles, scug),
-        "dark flat": stack(backdrop, vines, poles, scug_dark),
+        "flat": stack(flat_base, vines, poles, scug),
+        "dark flat": stack(flat_base, vines, poles, scug_dark),
         "empty": Image.new("RGBA", SCREEN, (0, 0, 0, 0)),
     }
 
