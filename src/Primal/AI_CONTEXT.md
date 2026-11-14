@@ -62,6 +62,38 @@ character names.
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
 
+## Chains: Primal Artificer's void-sea ending (2026-11-14)
+
+Explicit request: when Artificer has the Chains gimmick enabled and takes the void-sea
+(ascension) route, swimming down past SB_L01 attaches 10 custom void chains to her that come up
+from far below; after ~10 s they quickly stiffen, a second later they drag her down at the void
+worm's speed (more chains keep being added while pulling), and when vanilla's dissolve animation
+finishes every chain shatters with a louder version of the Chains room-clear sound. Purely
+cosmetic and entirely self-contained: no gameplay effect, no other gimmick/requirement involved,
+nothing outside this one ending on this one character touched.
+
+Implemented in `Gimmicks/ChainsVoidSeaEnding.cs` -- one Postfix on `VoidSeaScene.Update`
+(namespace `VoidSea`, not global -- the decompiled source uses a file-scoped namespace line that's
+easy to miss when reading from line 12 down), a `PullChain : VoidChain` subclass that re-implements
+`VoidChain.Update` with a stiffness blend, and a `PullChainFragment` for the break (vanilla's
+`ChainFragment` self-deletes below y = -100, i.e. instantly in the void sea). The file's header
+has the full trace of vanilla's Artificer void-sea route (worm `SwimDown` -> `fadeOutLights` ->
+`ArtificerEndUpdate` -> dissolve 960..2360 -> black fade -> `ExitToVoidSeaSlideShow`) and of
+every design decision (anchors relative to Artificer, endpoints swapped so the bright end is on
+her, halo hidden, layered sound). It reads vanilla's public timers and never alters them, so the
+ending fires exactly when vanilla would.
+
+Gotcha found while building: `Custom.DirVec` / `Custom.DistLess` / `Custom.RNV` fail to compile
+from this project with "type 'float2' is defined in an assembly that is not referenced
+(Unity.Mathematics)" -- the game assembly has overloads taking Unity.Mathematics types, and
+overload resolution needs that assembly even when the Vector2 overload is meant. Plain
+`Vector2` math was used instead; `Custom.LerpMap` has the same problem. No other file in this
+project calls those four helpers, so this is the first time it has come up.
+
+**Built, compiles clean, NOT yet tested in-game.** First real test should watch BepInEx's log
+for the `[ChainsVoidSeaEnding]` lines (attached / stiffening / pull started / broken) and check
+that the ArtificerOutro slideshow still follows.
+
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
 Explicit request: Survivor's goal is "complete N of the 50 community challenges", N configurable,
@@ -462,7 +494,11 @@ this list is for orientation, not a substitute for reading the file.
   `CreatureKillListGimmick.cs`, `RainTimerGimmick.cs`,
   `BlizzardTimerGimmick.cs`, `PrecycleTimerGimmick.cs` — one file per gimmick (see Current
   architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` reskins
-  Artificer's ending-cutscene art for the Primal slot (see `scenes/primal artificer/`).
+  Artificer's character-select PORTRAIT scenes (new game / Robo / ascended / alt-ending select
+  screens) for the Primal slot (see `scenes/primal artificer/`) -- NOT the ending cutscene; the
+  void-sea ending slideshow (`ArtificerOutro`, `Outro_Artificer1..5`) is untouched by art.
+  `ChainsVoidSeaEnding.cs` is the one file that changes what happens during that ending (see the
+  2026-11-14 section near the top).
   `PrimalKillTracker.cs` is the global (not per-gimmick) "which creature types has this character
   ever killed" tracker both `CreatureKillListGimmick` and the Unique Kills requirement read.
 - `Gimmicks/Survivor*.cs` (CheckpointRun, CreatureTracking, CreatureVariant, DreamState,
