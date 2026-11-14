@@ -10,10 +10,13 @@ namespace Primal.Gimmicks
     /// While playing on this mod's reserved alt slot (PrimalSlot.ReservedSlot), every character
     /// shows up on the "choose your character" screen as "PRIMAL &lt;NAME&gt;" instead of their
     /// vanilla name. Gourmand, Spearmaster, Sofanthiel, and Artificer -- the four this mod
-    /// currently has real content for -- get a written intro line plus a description that lists
-    /// whichever of this mod's gimmicks are currently assigned to them (see GimmickAssignments;
-    /// Sofanthiel has no gimmick of its own as of this writing, so its description will just read
-    /// "No primal traits assigned yet"). Every other character (Survivor, Monk, Hunter, Rivulet,
+    /// currently has real content for -- get a written intro line. Gourmand, Sofanthiel and
+    /// Artificer follow that with a line listing whichever of this mod's gimmicks are currently
+    /// assigned to them (see GimmickAssignments and BuildDescription; Sofanthiel has no gimmick of
+    /// its own as of this writing, so its description will just read "No primal traits assigned
+    /// yet"). **Spearmaster is the exception** -- as of 2026-11-14 its description is a fixed two-
+    /// line piece of writing with no traits line at all, by explicit request, so it does not go
+    /// through BuildDescription. Every other character (Survivor, Monk, Hunter, Rivulet,
     /// Saint, Watcher -- added 2026-09-15) gets the same "PRIMAL X" name treatment but a plain,
     /// static description: "Primal version not implemented". Off the alt slot, every character is
     /// shown completely unmodified -- this only ever touches how they're *labeled* on this one
@@ -51,7 +54,8 @@ namespace Primal.Gimmicks
     /// reference/GameSource/Menu/MenuLabel.cs), not a field access, so that part is safe as
     /// ordinary compiled code.
     ///
-    /// **Not yet tested in-game as of this doc** -- see AI_CONTEXT.md's Outstanding items.
+    /// Confirmed working in-game 2026-11-14 (screenshot of the Spearmaster page showing both the
+    /// "PRIMAL SPEARMASTER" name and this file's description text in the right places).
     /// </summary>
     [HarmonyPatch(typeof(Menu.SlugcatSelectMenu.SlugcatPageNewGame), MethodType.Constructor, typeof(Menu.Menu), typeof(Menu.MenuObject), typeof(int), typeof(SlugcatStats.Name))]
     internal static class PrimalCharacterNameHook
@@ -88,9 +92,14 @@ namespace Primal.Gimmicks
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Spear)
             {
                 name = "PRIMAL SPEARMASTER";
-                description = BuildDescription(
-                    slugcatNumber.value,
-                    "A deteriorating abnormality with its crucial needles running out. A traveller from a very far away land; A feeling in your hollow depths rushes you, messenger...");
+                // 2026-11-14, explicit request: this character's description is the literal text
+                // below, deliberately NOT run through BuildDescription -- no "Active traits" line,
+                // and the break falls after "a very far away land;" rather than wherever the label
+                // happens to wrap.
+                description =
+                    "A deteriorating abnormality with its crucial needles running out. A traveller from a very far away land;"
+                    + Environment.NewLine
+                    + "A feeling in your hollow depths rushes you, messenger...";
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Sofanthiel)
             {
