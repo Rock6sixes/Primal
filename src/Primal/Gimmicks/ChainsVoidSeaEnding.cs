@@ -28,7 +28,8 @@ namespace Primal.Gimmicks
     ///     has reached her, ~50 while it hovers beside her looking, and 400 once it dives away
     ///     (see the PullSpeed* constants). She keeps her own controls and can swim around on top
     ///     of the pull. One more chain is added every ExtraChainInterval ticks (capped at
-    ///     MaxChains for sprite-count sanity). The chains are drawn behind her, above the backdrop.
+    ///     MaxChains for sprite-count sanity). The chains are drawn behind her, above the backdrop,
+    ///     vibrate under stress while pulling, and fade to half alpha over the last tile at her body.
     ///  4. When vanilla's dissolve begins (DissolveStartTimer, "starts breaking apart") the chains
     ///     stop being added and are released one at a time, evenly spaced, each with the gimmick's
     ///     ordinary room-clear stinger (Chain_Break), the pull continuing on the remaining ones.
@@ -141,6 +142,19 @@ namespace Primal.Gimmicks
         /// bodyChunks[1] this fraction less, so the 17 px connection (elasticity 0.5) settles
         /// about that many px over-stretched -- ~24 px at 400 px/tick.</summary>
         private const float StretchLag = 0.06f;
+
+        /// <summary>Sixth test (2026-11-15): "as you are being pulled by the chains, they are
+        /// essentially static ... make them shake a little to make them look like they are under
+        /// stress". Each chain's Stress (0..1, the pull speed as a fraction of PullSpeedDive) is
+        /// handed to PullChain every tick; see its StressAmplitude/StressWave* constants.</summary>
+        private static float StressFor(State state)
+        {
+            if (state.Phase != Phase.Pulling && state.Phase != Phase.Releasing)
+            {
+                return 0f;
+            }
+            return Mathf.Clamp01(state.PullSpeed / PullSpeedDive);
+        }
 
         /// <summary>Vertical distance below Artificer each chain's deep anchor sits (randomised a
         /// little per chain) -- several screens below the bottom edge.</summary>
@@ -331,9 +345,11 @@ namespace Primal.Gimmicks
                     break;
             }
 
+            float stress = StressFor(state);
             foreach (PullChain chain in state.Chains)
             {
                 chain.Stiffness = state.Stiffness;
+                chain.Stress = stress;
             }
         }
 
@@ -497,6 +513,25 @@ namespace Primal.Gimmicks
         /// from body to anchor. Set every tick by ChainsVoidSeaEnding.</summary>
         public float Stiffness;
 
+        /// <summary>0..1, how hard the chain is being yanked (set every tick by
+        /// ChainsVoidSeaEnding; 0 outside the pull). Drives the under-stress shake below.</summary>
+        public float Stress;
+
+        /// <summary>Under-stress shake, applied AFTER the stiffness pass so the stiff line itself
+        /// vibrates rather than the slack drifting: a per-tick random sideways jitter plus a wave
+        /// travelling down the chain, both scaled by Stress and ramped in over the first few
+        /// segments so the attach point on her body stays put. Px / rad per tick / rad per segment.</summary>
+        private const float StressAmplitude = 4f;
+        private const float StressWaveAmplitude = 5f;
+        private const float StressWaveSpeed = 0.9f;
+        private const float StressWavePhase = 0.45f;
+
+        /// <summary>"Fade out to 50% right next to artificer -- start fading out around one tile
+        /// away and get to 50% at artificer": vertex alpha multiplier at her body (NearBodyAlpha)
+        /// reaching 1 at NearBodyFadeDistance px (one 20 px tile) along the chain.</summary>
+        private const float NearBodyAlpha = 0.5f;
+        private const float NearBodyFadeDistance = 20f;
+
         public PullChain(Room room, Player player, int chunkIndex, Vector2 anchorOffset, float slack)
             : base(room, player.bodyChunks[chunkIndex].pos, player.bodyChunks[chunkIndex].pos + anchorOffset)
         {
@@ -560,6 +595,20 @@ namespace Primal.Gimmicks
                     Vector2 target = Vector2.Lerp(stuckPosA, stuckPosB, i / (float)(count - 1));
                     segments[i, 0] = Vector2.Lerp(segments[i, 0], target, Stiffness);
                     segments[i, 2] *= loose;
+                }
+            }
+
+            // --- under-stress shake (see the Stress* constants) ---
+            if (Stress > 0f)
+            {
+                Vector2 along = stuckPosB - stuckPosA;
+                Vector2 perp = along.sqrMagnitude > 0f ? new Vector2(-along.y, along.x).normalized : Vector2.right;
+                for (int i = 1; i < count - 1; i++)
+                {
+                    float envelope = Mathf.Min(1f, i / 3f);
+                    float jitter = StressAmplitude * Mathf.Lerp(-1f, 1f, UnityEngine.Random.value);
+                    float wave = StressWaveAmplitude * Mathf.Sin(driftTime * StressWaveSpeed + i * StressWavePhase);
+                    segments[i, 0] += perp * (Stress * envelope * (jitter + wave));
                 }
             }
 
@@ -628,6 +677,33 @@ namespace Primal.Gimmicks
             {
                 sLeaser.sprites[i].RemoveFromContainer();
                 target.AddChild(sLeaser.sprites[i]);
+            }
+        }
+
+        /// <summary>Near-body fade: after VoidChain's own draw has positioned and coloured the
+        /// chain mesh (sprite 0, a TriangleMesh whose vertices are already in camera space),
+        /// scale each vertex's alpha by how far it is from her body end -- NearBodyAlpha right at
+        /// stuckPosA, back to 1 one tile out. Done on the mesh rather than in a ChainGraphic
+        /// subclass so nothing about how vanilla builds or draws the chain is duplicated.</summary>
+        public new void DrawSprites(RoomCamera.SpriteLeaser sLeaser, RoomCamera rCam, float timeStacker, Vector2 camPos)
+        {
+            base.DrawSprites(sLeaser, rCam, timeStacker, camPos);
+            if (slatedForDeletetion || sLeaser.sprites == null || sLeaser.sprites.Length == 0 || !(sLeaser.sprites[0] is TriangleMesh mesh))
+            {
+                return;
+            }
+            Vector2 bodyOnScreen = stuckPosA - camPos;
+            int n = Mathf.Min(mesh.vertices.Length, mesh.verticeColors.Length);
+            for (int j = 0; j < n; j++)
+            {
+                float dist = Vector2.Distance(mesh.vertices[j], bodyOnScreen);
+                if (dist >= NearBodyFadeDistance)
+                {
+                    break; // vertices run body -> anchor, so everything past the first tile is untouched
+                }
+                Color c = mesh.verticeColors[j];
+                c.a *= Mathf.Lerp(NearBodyAlpha, 1f, dist / NearBodyFadeDistance);
+                mesh.verticeColors[j] = c;
             }
         }
 

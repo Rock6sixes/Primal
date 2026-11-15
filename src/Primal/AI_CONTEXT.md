@@ -134,7 +134,16 @@ re-listing `IDrawable` on `PullChain` and re-implementing `InitiateSprites`/`Add
 because `VoidChain.InitiateSprites` calls its own `AddToContainer` non-virtually.
 
 Fifth test (2026-11-15): worked; one tweak -- `StiffnessMax` 0.98 -> 0.75 ("down from 100%
-being what you have now to around 75%"). Sixth test pending.
+being what you have now to around 75%").
+
+Sixth test (2026-11-15): lower stiffness did NOT give the wanted effect -- "as you are being pulled
+by the chains, they are essentially static". Added an under-stress shake instead (per-tick
+sideways jitter + travelling wave, scaled by pull speed, applied AFTER the stiffness pass so the
+stiff line itself vibrates; `PullChain.Stress`, `Stress*` constants), anchors untouched. Also a
+near-body fade: `PullChain` now re-implements `IDrawable.DrawSprites` and scales the chain
+mesh's vertex alpha from 0.5 at her body to 1 one tile (20 px) out (`NearBody*` constants) --
+`TriangleMesh.vertices`/`verticeColors` confirmed public in the real assembly first. Seventh test
+pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
