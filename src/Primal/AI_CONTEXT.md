@@ -148,7 +148,17 @@ Seventh test (2026-11-15): worked. Tweaks: initial `Chain_Lock` now layered x3 (
 0.85 / 1.1) like the final `Chain_Break`, for volume; `StretchLag` 0.06 -> 0.085 so the body is
 ~1.5x at 100 px/tick and ~3x at 400 (PhysicalObject.Update integrates chunks before the
 connection halves the excess, so steady-state over-stretch == per-tick lag; 17 px rest length).
-Eighth test pending.
+
+Eighth test (2026-11-15): no stretch visible. A `Player.Update` Postfix that hard-set
+`bodyChunks[1]` to a stretched distance from `bodyChunks[0]` was built (commit e8374f1), then
+**reverted on request** (0b7c3b3) -- the lag-based version above is what's in the file now.
+Two facts from that round are still true and worth keeping: `PhysicalObject.BodyChunkConnection`'s
+constructor order is `(chunk1, chunk2, distance, type, elasticity, weightSymmetry)` and `Player`
+passes `1f, 0.5f`, i.e. elasticity 1 (gap fully re-closed every tick), and
+`Player.MovementUpdate` resets `bodyChunkConnections[0].distance` to 17 every tick -- so neither
+chunk-velocity lag nor a one-off distance change can produce a lasting visual stretch. Any future
+stretch attempt needs to act after her physics and before `graphicsModule.Update` (Room.Update
+runs those back to back per object), as that reverted commit did.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
