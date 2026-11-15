@@ -106,9 +106,11 @@ namespace Primal.Gimmicks
         /// <summary>One more chain every 2.5 s while pulling.</summary>
         private const int ExtraChainInterval = 100;
 
-        /// <summary>"Only 98% stiff" (explicit request, third test) -- a sliver of give so the
-        /// lines don't read as drawn rulers.</summary>
-        private const float StiffnessMax = 0.98f;
+        /// <summary>How rigid a "stiff" chain is: the per-tick lerp of every segment toward the
+        /// straight body-to-anchor line. 0.92 at first, 0.98 after the third test ("98% stiff"),
+        /// then "down from 100% being what you have now to around 75%" after the fifth
+        /// (2026-11-15) -- 0.75 x 0.98 rounded.</summary>
+        private const float StiffnessMax = 0.75f;
         /// <summary>Extra rest length (x1.3) given to the loose chains so they sag and drift
         /// instead of hanging taut.</summary>
         private const float LooseSlack = 1.3f;

@@ -131,7 +131,10 @@ gets the full pull, `bodyChunks[1]` lags by `StretchLag` so the 17 px body conne
 over-stretches); chains moved from the "Foreground" sprite layer to "Background" (behind the
 player's Midground sprites, above the void backdrop, same layer as the worms) -- done by
 re-listing `IDrawable` on `PullChain` and re-implementing `InitiateSprites`/`AddToContainer`,
-because `VoidChain.InitiateSprites` calls its own `AddToContainer` non-virtually. Fifth test pending.
+because `VoidChain.InitiateSprites` calls its own `AddToContainer` non-virtually.
+
+Fifth test (2026-11-15): worked; one tweak -- `StiffnessMax` 0.98 -> 0.75 ("down from 100%
+being what you have now to around 75%"). Sixth test pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
