@@ -148,7 +148,19 @@ Seventh test (2026-11-15): worked. Tweaks: initial `Chain_Lock` now layered x3 (
 0.85 / 1.1) like the final `Chain_Break`, for volume; `StretchLag` 0.06 -> 0.085 so the body is
 ~1.5x at 100 px/tick and ~3x at 400 (PhysicalObject.Update integrates chunks before the
 connection halves the excess, so steady-state over-stretch == per-tick lag; 17 px rest length).
-Eighth test pending.
+
+Eighth test (2026-11-15): **no stretch visible at all.** Root cause, found by re-reading
+`PhysicalObject.BodyChunkConnection`'s constructor: its parameters are `(chunk1, chunk2,
+distance, type, elasticity, weightSymmetry)`, and `Player` passes `(.., 17f, Normal, 1f, 0.5f)` --
+so elasticity is 1 (gap fully re-closed every tick), not 0.5 as the earlier reasoning assumed.
+Any velocity lag between the chunks is therefore invisible. Setting the connection's `distance`
+alone doesn't work either: `Player.MovementUpdate` writes it back to 17 every tick. What works:
+new `ChainsVoidSeaStretchHook`, a Postfix on `Player.Update` (Room.Update calls each object's
+Update and then its graphicsModule.Update immediately, so a Postfix lands between physics and
+drawing) that hard-sets `bodyChunks[1]` to `17 x (1 + PullSpeed/200)` from `bodyChunks[0]`
+(1.5x at 100, 3x at 400), eased toward hanging straight above so she dives head first, and
+writes the same distance into the connection. `StretchLag` is gone; hand-off is via
+`ChainsVoidSeaEnding.StretchedPlayer`/`StretchFactor`. Ninth test pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
