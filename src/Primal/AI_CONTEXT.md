@@ -67,6 +67,28 @@ character names.
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
 
+## Primal Artificer layer order fix (2026-11-15)
+
+Reported from live play with a reference image: the yellow chains were drawn behind Artificer and
+the ground/grass ring cut across its legs. Both wrong — the chains belong in front, the ground
+behind.
+
+- **The trap: two component files sit in slots their names contradict.** `primal artificer
+  smoke - 2.png` is actually the yellow CHAINS and `primal artificer fg - 0.png` is actually the
+  GROUND. The names come from whichever vanilla slot they originally occupied, and the fix moves
+  them: the ground now takes the `Smoke - 2` slot (behind `Slugcat - 1`) and the chains take the
+  `Fg - 0` slot (in front). Same swap applied to the alt-ending scene's `- 3`/`- 0` slots. Don't
+  "tidy" the FileMap by matching file names back to slot names — that re-introduces this bug.
+- **Half the art is flattened, so remapping alone was not enough.** `flat`, `dark flat`, `end bkg`
+  and `end a` are pre-composited stacks of the five component layers, which is why the *ending*
+  scene (what the statistics/continue page shows) still had the old order baked in. Confirmed
+  exactly rather than assumed: each shipped plate matched a stack of components with 0.00% of
+  pixels differing by more than rounding. `scripts/build-artificer-plates.py` now regenerates all
+  four from the components in the corrected order and is the authority on that stack.
+- Artificer has **no `art-source/` tree** — the component layer PNGs *are* its source. That is why
+  it needs this plate-rebuild script plus `unmatte-black-backdrop.py`, where Spearmaster just
+  re-runs its own build script.
+
 ## Primal Spearmaster portrait scene (2026-11-14)
 
 Second character to get custom select-screen art, built to the `PrimalArtificerScene.cs` pattern at
