@@ -1016,11 +1016,24 @@ and hash-verified after the game was closed.
   gimmick file exists. **Open feature request.**
 - **"Spearmaster's death timer (TimeLimit), set to per-run by default, acted cycle-based instead —
   died after a minute in a shelter, and respawning didn't instantly re-kill, had to wait another
-  minute."** `TimeLimitGimmick.cs` does correctly distinguish `RainWorldGame.clock` (per-run) from
-  `World.rainCycle.timer` (per-cycle) in its own code — but the reported behavior (surviving a
-  shelter sleep, then the timer effectively restarting after respawn) suggests either `game.clock`
-  doesn't behave as documented across a sleep/respawn boundary, or something else resets the
-  tracked ConditionalWeakTable guard. **Unresolved — needs investigation**, not yet root-caused.
+  minute."** **RESOLVED 2026-11-15** — it was two independent causes, which is why it read as one
+  confusing bug:
+  1. *"After a minute"* was not a rate bug at all: the live config had
+     `Spear_TimeLimit_minutes = 1` while the source default is 60. Classic **Gotcha #9** — a saved
+     Remix value outranks the source default forever. Set back to 60 in
+     `ModConfigs\rokas.primal.txt` at the user's request. **Check the saved value before
+     suspecting the code on any "it fired too early/late" report.**
+  2. *"Per run acted cycle-based"* was a real code bug, now fixed. `RainWorldGame.clock` is a plain
+     field on a RainWorldGame that `ProcessManager` reconstructs on **every** switch into
+     `ProcessID.Game` (ProcessManager.cs:1004) — and `KarmaLadderScreen`, the base class of both
+     the sleep and death screens, continues by requesting exactly that switch
+     (KarmaLadderScreen.cs:278). So it restarted at 0 every cycle and after every death. "Per run"
+     now reads vanilla's own persistent campaign clock instead — `SaveState.totTime +
+     DeathPersistentSaveData.deathTime` (seconds, committed per cycle by
+     `StoryGameSession.AppendTimeOnCycleEnd`, never reset anywhere in the game's code) plus the
+     in-progress cycle from `playerSessionRecords[0].time`. That is the same number the continue
+     page and statistics screen show. Not yet re-tested in-game.
+  **Don't reintroduce `game.clock` for anything run-scoped** — it is per-cycle in all but name.
 - **"Saint doesn't need the inert-until-cycle-1 gimmick anymore — default to 0, but keep the
   functionality, since it works."** **Resolved.** `NoHoldGimmick.cs`'s generic "inert until cycle
   N" setting already defaults to 0 for every character including Saint (confirmed in

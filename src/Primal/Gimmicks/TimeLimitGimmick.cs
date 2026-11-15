@@ -14,27 +14,55 @@ namespace Primal.Gimmicks
     /// presentation yet -- per the user's own spec, that's a later step; for now this is just the
     /// kill.
     ///
-    /// Two clocks are available, both real vanilla fields:
-    ///  - RainWorldGame.clock ("per run"): an int the game itself increments by exactly 1 every
-    ///    Player.Update() tick, for as long as the current RainWorldGame instance exists. Resets
-    ///    only when a fresh RainWorldGame is created (a brand new game, or continuing/reloading
-    ///    one) -- NOT between cycles.
-    ///  - World.rainCycle.timer ("per cycle"): the same kind of incrementing tick counter, but for
-    ///    the CURRENT cycle only -- it's what vanilla itself compares against cycle length to
-    ///    decide when rain starts, and it resets to 0 at the start of every new cycle.
-    /// Both tick at MainLoopProcess's fixed simulation rate of 40 ticks/second (framesPerSecond =
-    /// 40, set in MainLoopProcess's own constructor and never changed by RainWorldGame), so
-    /// N minutes = N * 60 * 40 ticks either way.
+    /// Two clocks are available:
+    ///  - "per run": vanilla's own persistent campaign play time, `SaveState.totTime +
+    ///    DeathPersistentSaveData.deathTime` (seconds) plus the cycle in progress. See RunSeconds
+    ///    below for the full derivation. This is the same number the character-select "continue"
+    ///    page and the end-of-campaign statistics screen show.
+    ///  - "per cycle": World.rainCycle.timer, an incrementing tick counter for the CURRENT cycle
+    ///    only -- it's what vanilla itself compares against cycle length to decide when rain
+    ///    starts, and it resets to 0 at the start of every new cycle.
     ///
-    /// RainWorldGame.clock, World.rainCycle.timer, and Creature.Die() are all accessed directly
-    /// here (not through reflection) despite this codebase's usual caution around direct member
+    /// **Fixed 2026-11-15: "per run" previously did not measure a run.** It read
+    /// RainWorldGame.clock, and this comment claimed that field resets "only when a fresh
+    /// RainWorldGame is created (a brand new game, or continuing/reloading one) -- NOT between
+    /// cycles". The first half is true and the conclusion was false, because *continuing from a
+    /// shelter is itself a fresh RainWorldGame*: ProcessManager does `if (ID == ProcessID.Game)
+    /// currentMainLoop = new RainWorldGame(this)` unconditionally (ProcessManager.cs:1004), and
+    /// KarmaLadderScreen -- the base class of BOTH the sleep and death screens -- continues by
+    /// requesting exactly that switch (KarmaLadderScreen.cs:278). `clock` is a plain int field with
+    /// no save/restore, so it restarted from 0 every cycle AND after every death, making "per run"
+    /// behave almost identically to "per cycle" and contradicting its own UI description. That was
+    /// the root cause of the long-standing report that the timer "acted cycle-based" and that
+    /// "respawning didn't instantly re-kill, had to wait another minute". `game.clock` is no longer
+    /// read by this gimmick at all -- don't reintroduce it for anything run-scoped.
+    ///
+    /// Tick rate (still relevant for the per-cycle path): RainWorldGame sets framesPerSecond = 40
+    /// at the top of every RawUpdate. It can be lowered from there (Adrenaline, VoidMelt,
+    /// redsIllness, MMF slow-time, ghostMode) or forced to 10/400 by dev-tools keys, but it is
+    /// never raised above 40 in ordinary play -- and a lower rate means fewer ticks per real
+    /// second, i.e. the limit takes LONGER in real time, never shorter. So a too-early kill is not
+    /// a tick-rate problem; check the character's saved `_TimeLimit_minutes` value first, which is
+    /// what actually caused the 2026-11-15 report (it was 1, not the source default of 60 -- see
+    /// AI_CONTEXT.md's Gotcha #9).
+    ///
+    /// World.rainCycle.timer and Creature.Die() are accessed directly here (not through
+    /// reflection) despite this codebase's usual caution around direct member
     /// access against the game's real assembly (see AI_CONTEXT.md's Gotcha #1 -- the publicized
     /// reference DLL this mod compiles against marks everything public whether or not it really is
-    /// in the shipped game). All three were specifically verified for this exact game install (not
+    /// in the shipped game). They were specifically verified for this exact game install (not
     /// just assumed) by disassembling other already-installed, already-working mods with ikdasm
     /// and confirming they perform the exact same direct access without incident: Rain Meadow
     /// (workshop 3388224007) reads RainWorldGame.clock and World.rainCycle.timer via plain field
     /// access, and separately calls Creature.Die() via a plain virtual call, in several places.
+    ///
+    /// The per-run path additionally reads StoryGameSession.saveState / .playerSessionRecords and
+    /// SaveState.totTime / .deathPersistentSaveData.deathTime directly. The
+    /// `GetStorySession?.saveState?...` chain is already load-bearing elsewhere in this mod
+    /// (NoHoldGimmick, OneSpearGimmick, PermanentShelterFailureGimmick, PrimalKillTracker) and is
+    /// confirmed working in-game, so it carries no new Gotcha #1 risk; totTime/deathTime/
+    /// playerSessionRecords are new surface, and if they ever throw FieldAccessException it will
+    /// show up in exceptionLog.txt as a per-tick exception rather than a BepInEx error.
     /// </summary>
     [HarmonyPatch(typeof(Player), nameof(Player.Update), new Type[] { typeof(bool) })]
     internal static class TimeLimitGimmick
@@ -68,11 +96,13 @@ namespace Primal.Gimmicks
                 return;
             }
 
-            int limitTicks = TimeLimitSettings.GetMinutes(characterID) * 60 * TicksPerSecond;
             bool perCycle = TimeLimitSettings.GetPerCycle(characterID);
-            int currentTicks = perCycle ? (self.room?.world?.rainCycle?.timer ?? 0) : game.clock;
+            int limitSeconds = TimeLimitSettings.GetMinutes(characterID) * 60;
+            int elapsedSeconds = perCycle
+                ? (self.room?.world?.rainCycle?.timer ?? 0) / TicksPerSecond
+                : RunSeconds(game);
 
-            if (currentTicks < limitTicks)
+            if (elapsedSeconds < limitSeconds)
             {
                 return;
             }
@@ -83,8 +113,55 @@ namespace Primal.Gimmicks
             }
             _alreadyKilled.Add(self, null);
 
-            Plugin.Log?.LogInfo($"[TimeLimit] {characterID}: limit reached ({currentTicks}/{limitTicks} ticks, {(perCycle ? "per cycle" : "per run")}) -- killing character");
+            // Logs the LIVE limit, not just that something happened -- per Gotcha #9, a saved
+            // Remix value silently outranks the source default forever, and this line is what
+            // makes "it killed me way too early" answerable without guessing.
+            Plugin.Log?.LogInfo($"[TimeLimit] {characterID}: limit reached ({elapsedSeconds}/{limitSeconds} s, {(perCycle ? "per cycle" : "per run")}) -- killing character");
             self.Die();
+        }
+
+        /// <summary>Total play time for this save, in seconds -- vanilla's own persistent campaign
+        /// clock, i.e. the number the character-select "continue" page and the end-of-campaign
+        /// statistics screen both report.
+        ///
+        /// `SaveState.totTime` accumulates survived cycles and
+        /// `DeathPersistentSaveData.deathTime` accumulates died/ghosted ones; StoryGameSession
+        /// .AppendTimeOnCycleEnd commits one or the other at every cycle end (seconds =
+        /// ticks / 40), and neither is reset to 0 anywhere in the game's own code -- a fresh save
+        /// simply starts at 0. That is what makes this a genuine per-RUN measure, unlike
+        /// RainWorldGame.clock, which this used to read and which restarts from 0 every cycle (see
+        /// the known-bug note in this class's header).
+        ///
+        /// Those two fields only advance at cycle END, so the cycle in progress is added from
+        /// `playerSessionRecords[0].time` -- the same live tick counter AppendTimeOnCycleEnd is
+        /// about to divide by 40 and commit, incremented in Player.Update. Without it the limit
+        /// could only ever trigger in the first moments after a cycle began.
+        ///
+        /// Deliberately NOT MoreSlugcats' SpeedRunTimer, even though its HUD readout is the
+        /// toggleable in-game clock showing this same time: that tracker is MSC-only and is seeded
+        /// FROM these two fields (SlugcatSelectMenu.cs's LoadOldTimings(gameTimeAlive,
+        /// gameTimeDead) call), so these are the more robust authority for the same number.
+        ///
+        /// Returns 0 (never kill) rather than guessing if there is no story save state -- e.g. an
+        /// arena session, where GetStorySession is null.</summary>
+        private static int RunSeconds(RainWorldGame game)
+        {
+            StoryGameSession session = game.GetStorySession;
+            SaveState saveState = session?.saveState;
+            if (saveState == null)
+            {
+                return 0;
+            }
+
+            int seconds = saveState.totTime + (saveState.deathPersistentSaveData?.deathTime ?? 0);
+
+            PlayerSessionRecord[] records = session.playerSessionRecords;
+            if (records != null && records.Length > 0 && records[0] != null)
+            {
+                seconds += records[0].time / TicksPerSecond;
+            }
+
+            return seconds;
         }
     }
 
