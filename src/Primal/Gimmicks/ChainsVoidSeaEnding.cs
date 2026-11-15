@@ -23,8 +23,8 @@ namespace Primal.Gimmicks
     ///     VoidChain class, same colour pulse).
     ///  2. After LooseTicks (~10 s) every chain quickly eases into being rigid (StiffenTicks).
     ///  3. StiffHoldTicks (~1 s) later the chains start pulling her straight down, a little
-    ///     shakily (velocity jitter + camera shake), head first with her body stretched 1.5x at
-    ///     100 px/tick up to 3x at 400 (ChainsVoidSeaStretchHook) -- at 100 px/tick until the main worm
+    ///     shakily (velocity jitter + camera shake), head first with her body stretched the way
+    ///     the void worm's thread stretches other slugcats -- at 100 px/tick until the main worm
     ///     has reached her, ~50 while it hovers beside her looking, and 400 once it dives away
     ///     (see the PullSpeed* constants). She keeps her own controls and can swim around on top
     ///     of the pull. One more chain is added every ExtraChainInterval ticks (capped at
@@ -135,38 +135,16 @@ namespace Primal.Gimmicks
         private const float JitterLateral = 0.04f;
         private const float ShakeAtFullSpeed = 0.3f;
 
-        /// <summary>"Stretch slugcat when it is being moved quickly": body length multiplier is
-        /// 1 + PullSpeed / StretchSpeedDivisor -- 1.5x at 100 px/tick, 3x at 400 (seventh test).
-        ///
-        /// Two earlier attempts did nothing visible and are worth not repeating. Lagging
-        /// bodyChunks[1] behind bodyChunks[0] (the "worm thread" idea) fails because the Player's
-        /// BodyChunkConnection is constructed as (chunk1, chunk2, 17f, Normal, elasticity: 1f,
-        /// weightSymmetry: 0.5f) -- the publicized/decompiled argument order reads as if elasticity
-        /// were 0.5, but PhysicalObject.BodyChunkConnection's constructor is (.., elasticity,
-        /// weightSymmetry), so the connection fully re-closes the gap every tick. Changing
-        /// `bodyChunkConnections[0].distance` alone also fails: Player.MovementUpdate resets it to 17
-        /// every tick. What works (ChainsVoidSeaStretchHook): a Postfix on Player.Update that, after
-        /// her physics has run and BEFORE Room.Update calls graphicsModule.Update (Room's loop does
-        /// Update then graphics per object), hard-sets bodyChunks[1] to the stretched distance from
-        /// bodyChunks[0], eased toward hanging straight above her so she dives head first, and
-        /// writes the same distance into the connection so the next tick's physics starts from it.
-        /// PlayerGraphics copies drawPositions from the chunks in its own Update, so the drawn body
-        /// spans the stretched gap.</summary>
-        private const float StretchSpeedDivisor = 200f;
-        /// <summary>Per-tick ease of the body axis toward "trailing chunk straight above the lead
-        /// chunk" while stretched.</summary>
-        internal const float StretchAlignEase = 0.08f;
-
-        /// <summary>Hand-off to ChainsVoidSeaStretchHook: who is being stretched and by how much
-        /// (1 = not at all). Null / 1 outside the pull.</summary>
-        internal static Player StretchedPlayer;
-        internal static float StretchFactor = 1f;
-
-        private static void ClearStretch()
-        {
-            StretchedPlayer = null;
-            StretchFactor = 1f;
-        }
+        /// <summary>"Stretch slugcat when it is being moved quickly, like the void worm does":
+        /// vanilla's worm thread only pulls mainBodyChunk and lets the other chunk trail through
+        /// the body connection (VoidWorm.Arm.Update: mainBodyChunk.pos/vel += ...), which is what
+        /// visibly elongates the slugcat. Same here: bodyChunks[0] gets the full pull speed and
+        /// bodyChunks[1] this fraction less. PhysicalObject.Update integrates the chunks first and
+        /// then the connection (17 px rest, elasticity 0.5) halves the excess, so the gap settles at
+        /// exactly the per-tick lag. Seventh test (2026-11-15) asked for ~1.5x her length at 100
+        /// px/tick and ~3x at 400: 0.5 x 17 = 8.5 px at 100 and 2 x 17 = 34 px at 400 are both
+        /// 0.085 x speed.</summary>
+        private const float StretchLag = 0.085f;
 
         /// <summary>Sixth test (2026-11-15): "as you are being pulled by the chains, they are
         /// essentially static ... make them shake a little to make them look like they are under
@@ -439,12 +417,18 @@ namespace Primal.Gimmicks
             }
             state.PullSpeed = Mathf.Lerp(state.PullSpeed, target, PullSpeedEase);
 
-            // --- straight down, a little shaky ---
+            // --- straight down, a little shaky, head first ---
             float speedFrac = Mathf.Clamp01(state.PullSpeed / PullSpeedDive);
             for (int i = 0; i < player.bodyChunks.Length; i++)
             {
                 BodyChunk chunk = player.bodyChunks[i];
                 float speed = state.PullSpeed * (1f + Mathf.Lerp(-JitterVertical, JitterVertical, UnityEngine.Random.value));
+                if (i > 0)
+                {
+                    // The trailing chunk lags the lead one so the body connection over-stretches
+                    // (see StretchLag) -- same mechanism as vanilla's worm thread.
+                    speed -= state.PullSpeed * StretchLag;
+                }
                 chunk.vel.y = -speed;
                 // Only a jitter is added sideways; her own swimming input is otherwise untouched.
                 chunk.vel.x += state.PullSpeed * Mathf.Lerp(-JitterLateral, JitterLateral, UnityEngine.Random.value);
@@ -453,10 +437,6 @@ namespace Primal.Gimmicks
             {
                 player.room.ScreenMovement(null, Vector2.zero, ShakeAtFullSpeed * speedFrac);
             }
-
-            // Hand the body stretch to ChainsVoidSeaStretchHook (runs at the end of her own Update).
-            StretchedPlayer = player;
-            StretchFactor = 1f + state.PullSpeed / StretchSpeedDivisor;
         }
 
         /// <summary>Lets one chain go (the most recently added, so the original ten linger
@@ -483,7 +463,6 @@ namespace Primal.Gimmicks
             }
             state.Chains.Clear();
             state.Phase = Phase.Done;
-            ClearStretch();
 
             // "A louder version of the room clear sound": per-source volume is capped at 1, so
             // loudness comes from layering three copies of the gimmick's own Chain_Break stinger
@@ -502,7 +481,6 @@ namespace Primal.Gimmicks
             }
             state.Chains.Clear();
             state.Phase = Phase.Done;
-            ClearStretch();
             Plugin.Log?.LogInfo("[ChainsVoidSeaEnding] aborted: " + why);
         }
     }
@@ -525,56 +503,6 @@ namespace Primal.Gimmicks
                     _loggedError = true;
                     Plugin.Log?.LogError("[ChainsVoidSeaEnding] update failed (vanilla ending unaffected): " + e);
                 }
-            }
-        }
-    }
-
-    /// <summary>The body stretch (see ChainsVoidSeaEnding.StretchSpeedDivisor's comment for why it
-    /// has to be done here and not through velocities or the connection's distance). Postfix on
-    /// Player.Update: her physics for this tick, connection included, has just run and Room.Update
-    /// is about to call graphicsModule.Update, so whatever the chunks are set to now is what gets
-    /// drawn. Only the trailing chunk (bodyChunks[1]) is moved: the lead chunk is where the pull
-    /// put it. Gated on identity with the one player ChainsVoidSeaEnding is currently pulling.</summary>
-    [HarmonyPatch(typeof(Player), nameof(Player.Update))]
-    internal static class ChainsVoidSeaStretchHook
-    {
-        private static void Postfix(Player __instance)
-        {
-            try
-            {
-                if (__instance == null || __instance != ChainsVoidSeaEnding.StretchedPlayer || ChainsVoidSeaEnding.StretchFactor <= 1.01f)
-                {
-                    return;
-                }
-                if (__instance.bodyChunks == null || __instance.bodyChunks.Length < 2
-                    || __instance.bodyChunkConnections == null || __instance.bodyChunkConnections.Length == 0)
-                {
-                    return;
-                }
-
-                BodyChunk lead = __instance.bodyChunks[0];
-                BodyChunk trail = __instance.bodyChunks[1];
-                PhysicalObject.BodyChunkConnection connection = __instance.bodyChunkConnections[0];
-
-                float restLength = connection.distance > 0f ? connection.distance : 17f;
-                float stretched = restLength * ChainsVoidSeaEnding.StretchFactor;
-
-                // Body axis, eased toward "trailing chunk straight above the lead" so she ends up
-                // diving head first; falls back to straight up if the chunks ever coincide.
-                Vector2 axis = trail.pos - lead.pos;
-                axis = axis.sqrMagnitude > 0.0001f ? axis.normalized : Vector2.up;
-                axis = Vector2.Lerp(axis, Vector2.up, ChainsVoidSeaEnding.StretchAlignEase).normalized;
-
-                Vector2 target = lead.pos + axis * stretched;
-                Vector2 shift = target - trail.pos;
-                trail.pos = target;
-                trail.lastPos += shift; // keep this tick's interpolation delta unchanged
-                connection.distance = stretched;
-            }
-            catch (Exception e)
-            {
-                ChainsVoidSeaEnding.StretchedPlayer = null;
-                Plugin.Log?.LogError("[ChainsVoidSeaEnding] stretch failed (disabled for this run): " + e);
             }
         }
     }
