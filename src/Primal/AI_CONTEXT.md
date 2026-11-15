@@ -142,8 +142,13 @@ sideways jitter + travelling wave, scaled by pull speed, applied AFTER the stiff
 stiff line itself vibrates; `PullChain.Stress`, `Stress*` constants), anchors untouched. Also a
 near-body fade: `PullChain` now re-implements `IDrawable.DrawSprites` and scales the chain
 mesh's vertex alpha from 0.5 at her body to 1 one tile (20 px) out (`NearBody*` constants) --
-`TriangleMesh.vertices`/`verticeColors` confirmed public in the real assembly first. Seventh test
-pending.
+`TriangleMesh.vertices`/`verticeColors` confirmed public in the real assembly first.
+
+Seventh test (2026-11-15): worked. Tweaks: initial `Chain_Lock` now layered x3 (pitches 0.6 /
+0.85 / 1.1) like the final `Chain_Break`, for volume; `StretchLag` 0.06 -> 0.085 so the body is
+~1.5x at 100 px/tick and ~3x at 400 (PhysicalObject.Update integrates chunks before the
+connection halves the excess, so steady-state over-stretch == per-tick lag; 17 px rest length).
+Eighth test pending.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 

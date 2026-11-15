@@ -139,9 +139,12 @@ namespace Primal.Gimmicks
         /// vanilla's worm thread only pulls mainBodyChunk and lets the other chunk trail through
         /// the body connection (VoidWorm.Arm.Update: mainBodyChunk.pos/vel += ...), which is what
         /// visibly elongates the slugcat. Same here: bodyChunks[0] gets the full pull speed and
-        /// bodyChunks[1] this fraction less, so the 17 px connection (elasticity 0.5) settles
-        /// about that many px over-stretched -- ~24 px at 400 px/tick.</summary>
-        private const float StretchLag = 0.06f;
+        /// bodyChunks[1] this fraction less. PhysicalObject.Update integrates the chunks first and
+        /// then the connection (17 px rest, elasticity 0.5) halves the excess, so the gap settles at
+        /// exactly the per-tick lag. Seventh test (2026-11-15) asked for ~1.5x her length at 100
+        /// px/tick and ~3x at 400: 0.5 x 17 = 8.5 px at 100 and 2 x 17 = 34 px at 400 are both
+        /// 0.085 x speed.</summary>
+        private const float StretchLag = 0.085f;
 
         /// <summary>Sixth test (2026-11-15): "as you are being pulled by the chains, they are
         /// essentially static ... make them shake a little to make them look like they are under
@@ -255,8 +258,13 @@ namespace Primal.Gimmicks
                 {
                     AddChain(state, room, player, i);
                 }
-                // The Chains gimmick's own "room locked" stinger (LockNow's exact call), per request.
-                room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Lock, 0f, 1f, UnityEngine.Random.value * 0.5f + 0.8f);
+                // The Chains gimmick's own "room locked" stinger, layered three times at different
+                // pitches the same way FinalRelease layers Chain_Break -- seventh test asked for it
+                // "similar in volume to the final getting released sound effect" (per-source volume
+                // is capped at 1, so loudness has to come from layering).
+                room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Lock, 0f, 1f, 0.6f);
+                room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Lock, 0f, 1f, 0.85f);
+                room.PlaySound(MoreSlugcatsEnums.MSCSoundID.Chain_Lock, 0f, 1f, 1.1f);
                 state.Phase = Phase.Loose;
                 state.Ticks = 0;
                 Plugin.Log?.LogInfo($"[ChainsVoidSeaEnding] Artificer past the lit band (y={player.mainBodyChunk.pos.y:0}) -- {InitialChains} chains attached.");
