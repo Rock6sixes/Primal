@@ -31,6 +31,12 @@ namespace Primal.Gimmicks
     /// been -- the rain timer is this mod's own feature and shouldn't silently disappear just
     /// because an unrelated vanilla HUD option is off.
     ///
+    /// Horizontally the label is CENTRED on the campaign timer, not left-aligned with it (changed
+    /// 2026-11-16). The two strings are wildly different widths -- "-57s" against
+    /// "000h:01m:54s:611ms" -- so sharing vanilla's left edge stranded the short one well off to
+    /// the left of the line above it. See AnchorPos for why the centre is measured from the
+    /// campaign label's own `textRect` rather than from vanilla's hardcoded 95f half-width.
+    ///
     /// WHY THE ANCHORING HAPPENS IN `Draw`, NOT `Update`: `HUD.Update` walks `parts` BACKWARDS
     /// (`for (int num = parts.Count - 1; num >= 0; num--)`, see HUD.cs), and this part is added
     /// last, so it Updates BEFORE the campaign timer does -- reading SpeedRunTimer's `pos` from
@@ -86,6 +92,12 @@ namespace Primal.Gimmicks
         /// the same non-large-font case.</summary>
         private const float RowSpacingFallback = 15f;
 
+        /// <summary>Half of the ~190px the campaign timer's own `000h:00m:00s:000ms` format
+        /// occupies -- the same figure vanilla hardcodes as `pos.x -= 95f` in
+        /// `SpeedRunTimer.Update`. Only used for the frame or two before that label has any text
+        /// for `textRect` to measure; see AnchorPos for why the measured width is preferred.</summary>
+        private const float CampaignTimerHalfWidthFallback = 95f;
+
         /// <summary>How often the "visible" diagnostic line repeats, in ticks (40/second), once
         /// the state itself has stopped changing -- 10 seconds, frequent enough to watch a
         /// precycle count up through zero in the log without flooding it at 40 lines a second.
@@ -107,16 +119,29 @@ namespace Primal.Gimmicks
             {
                 scale = LabelScale,
                 color = LabelColor,
-                alignment = FLabelAlignment.Left,
+                // Centered, unlike the campaign timer's own Left -- see AnchorPos. The two labels
+                // are very different widths ("-57s" against "000h:01m:54s:611ms"), so sharing a
+                // left edge would strand this one far off to the left of the line above it.
+                alignment = FLabelAlignment.Center,
                 alpha = 0f,
             };
             container.AddChild(_timeLabel);
         }
 
-        /// <summary>One font line below wherever the campaign timer's label is actually being drawn
-        /// this frame -- see this class's header comment, HOW IT ANCHORS (and WHY THE ANCHORING
-        /// HAPPENS IN `Draw`), including the fallback for when the campaign timer isn't present at
-        /// all. `timeStacker` is the same frame-interpolation fraction HudPart.Draw is handed.</summary>
+        /// <summary>One font line below the campaign timer's label, horizontally CENTRED on it --
+        /// see this class's header comment, HOW IT ANCHORS (and WHY THE ANCHORING HAPPENS IN
+        /// `Draw`), including the fallback for when the campaign timer isn't present at all.
+        /// `timeStacker` is the same frame-interpolation fraction HudPart.Draw is handed.
+        ///
+        /// The returned x is a CENTRE, not a left edge, because this label is
+        /// `FLabelAlignment.Center` while the campaign timer is Left. Centre is measured from the
+        /// campaign label's own rendered width rather than assumed: vanilla positions that label
+        /// by subtracting a hardcoded 95f (half of the ~190px its own format happens to occupy)
+        /// from screen centre, which is only an approximation of where its text actually sits, and
+        /// is wrong outright for a translation that renders wider or narrower. `textRect` is
+        /// FLabel's own measured bounds for the current string, so this stays centred on whatever
+        /// the campaign timer is really drawing. The 95f only comes back as a fallback for the one
+        /// frame or two before that label has any text to measure.</summary>
         private Vector2 AnchorPos(float timeStacker)
         {
             float rowSpacing = _timeLabel.FontLineHeight > 0f ? _timeLabel.FontLineHeight : RowSpacingFallback;
@@ -127,17 +152,26 @@ namespace Primal.Gimmicks
                 // `pos`/`lastPos` (and so DrawPos) already have SpeedRunTimer.Update's own trailing
                 // `pos.x -= 95f` applied, so this is the label's real drawn position, not the
                 // pre-offset anchor.
-                return campaignTimer.DrawPos(timeStacker) - new Vector2(0f, rowSpacing);
+                Vector2 campaignPos = campaignTimer.DrawPos(timeStacker);
+                float campaignWidth = campaignTimer.timeLabel != null ? campaignTimer.timeLabel.textRect.width : 0f;
+                float centreX = campaignWidth > 0f
+                    ? campaignPos.x + campaignWidth * 0.5f
+                    : campaignPos.x + CampaignTimerHalfWidthFallback;
+
+                return new Vector2(centreX, campaignPos.y - rowSpacing);
             }
 
             // Same expression SpeedRunTimer.Update uses, reproduced for the campaign-timer-off
             // case. Vanilla computes that from its current `fade` and then interpolates the
             // resulting position; the formula is linear in `fade`, so feeding it the interpolated
-            // fade here is equivalent and needs no second position to interpolate against.
+            // fade here is equivalent and needs no second position to interpolate against. The
+            // x here deliberately omits vanilla's own `- 95f`: that offset exists to turn screen
+            // centre into a LEFT edge for its left-aligned label, and this label is centred, so
+            // screen centre is already the right value.
             Vector2 screenSize = hud.rainWorld.options.ScreenSize;
             float fade = Mathf.Lerp(_lastFade, _fade, timeStacker);
             return new Vector2(
-                (float)(int)(screenSize.x / 2f) + 0.2f - 95f,
+                (float)(int)(screenSize.x / 2f) + 0.2f,
                 (float)(int)(screenSize.y - (30f + 10f * fade)) + 0.2f - rowSpacing);
         }
 
@@ -216,28 +250,46 @@ namespace Primal.Gimmicks
             return true;
         }
 
-        /// <summary>Signed cycle ticks (40/second) in the campaign timer's exact format
-        /// (`000h:00m:00s:000ms`), with a leading "-" while a precycle is still running --
-        /// 2026-11-16, explicit request after seeing the first version's compact "-53s" next to the
-        /// campaign timer's full form. This calls `Custom.GetIGTFormat`, the very extension method
-        /// `SpeedRunTimer.Update` uses for its own label, so the two can't drift apart if vanilla
-        /// ever changes it.
+        /// <summary>Signed cycle ticks (40/second) as a compact seconds-first reading: "-57s",
+        /// "5s", "1m:31s", "1h:04m:30s". Segment names and the ":" separator match the campaign
+        /// timer's own style, but all-zero leading segments are dropped.
         ///
-        /// One tick is exactly 25 ms (1000/40), so the millisecond field is exact rather than
-        /// rounded, and it advances in steps of 25. Showing milliseconds also retires the previous
-        /// version's negative-ceiling rule: that existed only because whole-second truncation would
-        /// otherwise show "0s" up to 39 ticks before the precycle actually ended, and with
-        /// milliseconds on screen the value simply reads down to `000h:00m:00s:025ms` and then
-        /// hits all-zero exactly when `preTimer` does.</summary>
+        /// History worth not re-litigating: this started compact, was briefly changed to the
+        /// campaign timer's full `000h:00m:00s:000ms` via `Custom.GetIGTFormat`, and was changed
+        /// back on 2026-11-16 ("overkill to have the full timer") -- the full form was only ever
+        /// about the two lines matching, and centring the line under the campaign timer solved
+        /// that better than padding it out with fields that are zero for an entire cycle.
+        ///
+        /// Negative seconds are CEILINGed, positive ones floored. That asymmetry is required
+        /// rather than cosmetic: with whole-second truncation a plain floor would read "0s" up to
+        /// 39 ticks BEFORE the precycle actually ends, so the readout would claim the rain timer
+        /// had started while `preTimer` was still counting down. Ceiling holds it at "-1s" until
+        /// `preTimer` genuinely hits 0. (The intervening millisecond format sidestepped this; the
+        /// compact one needs it back.)</summary>
         internal static string FormatCycleTicks(int ticks)
         {
-            const double MillisecondsPerTick = 1000.0 / TimeLimitGimmick.TicksPerSecond;
-
+            int ticksPerSecond = TimeLimitGimmick.TicksPerSecond;
             bool negative = ticks < 0;
-            int magnitudeTicks = negative ? -ticks : ticks;
-            string formatted = TimeSpan.FromMilliseconds(magnitudeTicks * MillisecondsPerTick).GetIGTFormat(true);
 
-            return negative && magnitudeTicks > 0 ? "-" + formatted : formatted;
+            int magnitudeTicks = negative ? -ticks : ticks;
+            int totalSeconds = negative
+                ? (magnitudeTicks + ticksPerSecond - 1) / ticksPerSecond
+                : magnitudeTicks / ticksPerSecond;
+
+            int hours = totalSeconds / 3600;
+            int minutes = totalSeconds / 60 % 60;
+            int seconds = totalSeconds % 60;
+            string sign = negative && totalSeconds > 0 ? "-" : "";
+
+            if (hours > 0)
+            {
+                return $"{sign}{hours}h:{minutes:D2}m:{seconds:D2}s";
+            }
+            if (minutes > 0)
+            {
+                return $"{sign}{minutes}m:{seconds:D2}s";
+            }
+            return $"{sign}{seconds}s";
         }
 
         public override void Update()
