@@ -34,8 +34,14 @@ namespace Primal.Gimmicks
     /// Horizontally the label is CENTRED on the campaign timer, not left-aligned with it (changed
     /// 2026-11-16). The two strings are wildly different widths -- "-57s" against
     /// "000h:01m:54s:611ms" -- so sharing vanilla's left edge stranded the short one well off to
-    /// the left of the line above it. See AnchorPos for why the centre is measured from the
-    /// campaign label's own `textRect` rather than from vanilla's hardcoded 95f half-width.
+    /// the left of the line above it.
+    ///
+    /// That centre is a CONSTANT, and must stay one. The first attempt derived it from the
+    /// campaign label's live `textRect.width`, which looks right and is wrong: the display font
+    /// is proportional, so the campaign timer's own width changes as its digits change (a "1" is
+    /// narrower than a "0"), and this label visibly slid left and right every second as a result.
+    /// It is now measured once from a fixed all-zero string of the same shape -- see
+    /// CanonicalCampaignTimerText and CampaignTimerHalfWidth.
     ///
     /// WHY THE ANCHORING HAPPENS IN `Draw`, NOT `Update`: `HUD.Update` walks `parts` BACKWARDS
     /// (`for (int num = parts.Count - 1; num >= 0; num--)`, see HUD.cs), and this part is added
@@ -94,9 +100,24 @@ namespace Primal.Gimmicks
 
         /// <summary>Half of the ~190px the campaign timer's own `000h:00m:00s:000ms` format
         /// occupies -- the same figure vanilla hardcodes as `pos.x -= 95f` in
-        /// `SpeedRunTimer.Update`. Only used for the frame or two before that label has any text
-        /// for `textRect` to measure; see AnchorPos for why the measured width is preferred.</summary>
+        /// `SpeedRunTimer.Update`. Used only if measuring CanonicalCampaignTimerText somehow
+        /// fails; see CampaignTimerHalfWidth.</summary>
         private const float CampaignTimerHalfWidthFallback = 95f;
+
+        /// <summary>A representative campaign-timer string, measured ONCE to decide where this
+        /// label's centre goes. The digits are all zeros deliberately: the display font is
+        /// PROPORTIONAL, so a "1" is narrower than a "0", and the campaign timer's rendered width
+        /// therefore changes as the clock ticks. Measuring its LIVE text (which is what this did
+        /// until 2026-11-16) made the centre -- and so this whole label -- visibly jitter
+        /// left and right every second. An all-zero string of the right shape is a stable stand-in
+        /// for the average width, which is exactly the fixed anchor this needs.</summary>
+        private const string CanonicalCampaignTimerText = "000h:00m:00s:000ms";
+
+        /// <summary>Cached result of measuring CanonicalCampaignTimerText, and the font it was
+        /// measured in -- `Custom.GetDisplayFont()` returns a different font for some languages,
+        /// so a cached pixel width is only valid for the font it came from.</summary>
+        private static float _cachedCampaignTimerHalfWidth;
+        private static string _cachedHalfWidthFont;
 
         /// <summary>How often the "visible" diagnostic line repeats, in ticks (40/second), once
         /// the state itself has stopped changing -- 10 seconds, frequent enough to watch a
@@ -126,6 +147,11 @@ namespace Primal.Gimmicks
                 alpha = 0f,
             };
             container.AddChild(_timeLabel);
+
+            // Primed here rather than lazily on the first Draw so the very first drawn frame is
+            // already centred correctly, and so its one-time log line lands next to
+            // RainTimerHudHook's "readout added" line instead of a frame later.
+            CampaignTimerHalfWidth();
         }
 
         /// <summary>One font line below the campaign timer's label, horizontally CENTRED on it --
@@ -134,14 +160,12 @@ namespace Primal.Gimmicks
         /// `timeStacker` is the same frame-interpolation fraction HudPart.Draw is handed.
         ///
         /// The returned x is a CENTRE, not a left edge, because this label is
-        /// `FLabelAlignment.Center` while the campaign timer is Left. Centre is measured from the
-        /// campaign label's own rendered width rather than assumed: vanilla positions that label
-        /// by subtracting a hardcoded 95f (half of the ~190px its own format happens to occupy)
-        /// from screen centre, which is only an approximation of where its text actually sits, and
-        /// is wrong outright for a translation that renders wider or narrower. `textRect` is
-        /// FLabel's own measured bounds for the current string, so this stays centred on whatever
-        /// the campaign timer is really drawing. The 95f only comes back as a fallback for the one
-        /// frame or two before that label has any text to measure.</summary>
+        /// `FLabelAlignment.Center` while the campaign timer is Left. That centre is the campaign
+        /// label's fixed left edge plus a CONSTANT half-width from CampaignTimerHalfWidth() --
+        /// measured once from the real font (so it survives a different display font) but from a
+        /// fixed string (so it never changes while the game runs). Both halves of that matter:
+        /// measuring the live text instead made this label jitter sideways every second as the
+        /// clock's digits changed width.</summary>
         private Vector2 AnchorPos(float timeStacker)
         {
             float rowSpacing = _timeLabel.FontLineHeight > 0f ? _timeLabel.FontLineHeight : RowSpacingFallback;
@@ -152,13 +176,13 @@ namespace Primal.Gimmicks
                 // `pos`/`lastPos` (and so DrawPos) already have SpeedRunTimer.Update's own trailing
                 // `pos.x -= 95f` applied, so this is the label's real drawn position, not the
                 // pre-offset anchor.
+                // campaignPos.x is the label's LEFT EDGE and is itself fixed (vanilla derives it
+                // from screen size and its own fade, never from its text), so adding a constant
+                // half-width gives a centre that never moves. Measuring the live text here
+                // instead is what used to make this label jitter -- see
+                // CanonicalCampaignTimerText.
                 Vector2 campaignPos = campaignTimer.DrawPos(timeStacker);
-                float campaignWidth = campaignTimer.timeLabel != null ? campaignTimer.timeLabel.textRect.width : 0f;
-                float centreX = campaignWidth > 0f
-                    ? campaignPos.x + campaignWidth * 0.5f
-                    : campaignPos.x + CampaignTimerHalfWidthFallback;
-
-                return new Vector2(centreX, campaignPos.y - rowSpacing);
+                return new Vector2(campaignPos.x + CampaignTimerHalfWidth(), campaignPos.y - rowSpacing);
             }
 
             // Same expression SpeedRunTimer.Update uses, reproduced for the campaign-timer-off
@@ -173,6 +197,40 @@ namespace Primal.Gimmicks
             return new Vector2(
                 (float)(int)(screenSize.x / 2f) + 0.2f,
                 (float)(int)(screenSize.y - (30f + 10f * fade)) + 0.2f - rowSpacing);
+        }
+
+        /// <summary>Half the width of a representative campaign-timer string, measured once per
+        /// font and cached. Measured from the real font rather than reusing vanilla's hardcoded
+        /// 95f so it stays right if the display font differs (another language, a font mod), but
+        /// measured from a CONSTANT string rather than the live clock so the result never changes
+        /// while the game is running -- the whole point of the 2026-11-16 fix.
+        ///
+        /// The probe FLabel is never added to a container; constructing one computes `textRect`
+        /// from the font's own glyph metrics, which is all this needs. Wrapped in a try/catch
+        /// because this runs during HUD construction and a font that fails to resolve should cost
+        /// a slightly-off centre, not a broken HUD.</summary>
+        private static float CampaignTimerHalfWidth()
+        {
+            string font = Custom.GetDisplayFont();
+            if (_cachedCampaignTimerHalfWidth > 0f && _cachedHalfWidthFont == font)
+            {
+                return _cachedCampaignTimerHalfWidth;
+            }
+
+            float width = 0f;
+            try
+            {
+                width = new FLabel(font, CanonicalCampaignTimerText).textRect.width;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning($"[RainTimerHud] could not measure the campaign timer's width ({e.Message}) -- centring on vanilla's own {CampaignTimerHalfWidthFallback} half-width instead");
+            }
+
+            _cachedCampaignTimerHalfWidth = width > 0f ? width * 0.5f : CampaignTimerHalfWidthFallback;
+            _cachedHalfWidthFont = font;
+            Plugin.Log?.LogInfo($"[RainTimerHud] campaign timer half-width measured once as {_cachedCampaignTimerHalfWidth:F1} (font \"{font}\")");
+            return _cachedCampaignTimerHalfWidth;
         }
 
         private SpeedRunTimer FindCampaignTimer()
