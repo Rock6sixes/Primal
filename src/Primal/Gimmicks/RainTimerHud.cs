@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using HarmonyLib;
 using MoreSlugcats;
@@ -73,6 +74,11 @@ namespace Primal.Gimmicks
         /// deliberately a desaturated blue-white rather than a saturated blue, so it still reads
         /// as the same kind of HUD text and stays legible against a bright sky.</summary>
         private static readonly Color LabelColor = new Color(0.65f, 0.78f, 1f);
+
+        /// <summary>Multiplied into the campaign timer's own computed alpha (2026-11-16, explicit
+        /// request: "make it half transparency"), so this line stays visibly secondary to the
+        /// campaign timer while still fading in and out with it.</summary>
+        private const float HalfTransparency = 0.5f;
 
         /// <summary>Only used if `FLabel.FontLineHeight` comes back as 0 (the display font failing
         /// to report a line height at all, which shouldn't happen but would collapse the two lines
@@ -210,37 +216,28 @@ namespace Primal.Gimmicks
             return true;
         }
 
-        /// <summary>Signed cycle ticks (40/second) formatted the way the campaign timer above
-        /// formats its own time, except that all-zero leading segments are dropped -- so a short
-        /// precycle reads exactly "-5s" rather than "-000h:00m:05s", while a long cycle still
-        /// reads "1h:04m:30s". The sign and rounding rules are the whole point of this part, so
-        /// they live in one static, separately-checkable method.</summary>
+        /// <summary>Signed cycle ticks (40/second) in the campaign timer's exact format
+        /// (`000h:00m:00s:000ms`), with a leading "-" while a precycle is still running --
+        /// 2026-11-16, explicit request after seeing the first version's compact "-53s" next to the
+        /// campaign timer's full form. This calls `Custom.GetIGTFormat`, the very extension method
+        /// `SpeedRunTimer.Update` uses for its own label, so the two can't drift apart if vanilla
+        /// ever changes it.
+        ///
+        /// One tick is exactly 25 ms (1000/40), so the millisecond field is exact rather than
+        /// rounded, and it advances in steps of 25. Showing milliseconds also retires the previous
+        /// version's negative-ceiling rule: that existed only because whole-second truncation would
+        /// otherwise show "0s" up to 39 ticks before the precycle actually ended, and with
+        /// milliseconds on screen the value simply reads down to `000h:00m:00s:025ms` and then
+        /// hits all-zero exactly when `preTimer` does.</summary>
         internal static string FormatCycleTicks(int ticks)
         {
-            int ticksPerSecond = TimeLimitGimmick.TicksPerSecond;
+            const double MillisecondsPerTick = 1000.0 / TimeLimitGimmick.TicksPerSecond;
+
             bool negative = ticks < 0;
-
-            // Ceiling while negative so "0s" appears exactly when preTimer reaches 0, not up to a
-            // second early; plain floor while positive, i.e. ordinary elapsed-time counting.
             int magnitudeTicks = negative ? -ticks : ticks;
-            int totalSeconds = negative
-                ? (magnitudeTicks + ticksPerSecond - 1) / ticksPerSecond
-                : magnitudeTicks / ticksPerSecond;
+            string formatted = TimeSpan.FromMilliseconds(magnitudeTicks * MillisecondsPerTick).GetIGTFormat(true);
 
-            int hours = totalSeconds / 3600;
-            int minutes = totalSeconds / 60 % 60;
-            int seconds = totalSeconds % 60;
-            string sign = negative && totalSeconds > 0 ? "-" : "";
-
-            if (hours > 0)
-            {
-                return $"{sign}{hours}h:{minutes:D2}m:{seconds:D2}s";
-            }
-            if (minutes > 0)
-            {
-                return $"{sign}{minutes}m:{seconds:D2}s";
-            }
-            return $"{sign}{seconds}s";
+            return negative && magnitudeTicks > 0 ? "-" + formatted : formatted;
         }
 
         public override void Update()
@@ -318,11 +315,16 @@ namespace Primal.Gimmicks
             _timeLabel.x = drawPos.x;
             _timeLabel.y = drawPos.y;
 
-            // Same shape as SpeedRunTimer's own alpha, except its 0.2f floor only applies while
-            // this part is actually showing -- so it fades out completely when the gimmick or the
-            // checkbox is off, instead of leaving a faint ghost line behind forever.
+            // Same shape as SpeedRunTimer's own alpha, except (a) its 0.2f floor only applies
+            // while this part is actually showing, so it fades out completely when the gimmick or
+            // the checkbox is off instead of leaving a faint ghost line behind forever, and (b)
+            // the whole thing is halved -- 2026-11-16, explicit request: this line should sit at
+            // half transparency so it reads as secondary to the campaign timer above it. Halving
+            // the computed alpha rather than pinning a flat 0.5f keeps it tracking the campaign
+            // timer's own fade in and out; it just does so at half strength throughout.
             float fade = Mathf.Max(0f, Mathf.Lerp(_lastFade, _fade, timeStacker));
-            _timeLabel.alpha = _show ? Mathf.Max(0.2f, Mathf.Pow(fade, 1.5f)) : Mathf.Pow(fade, 1.5f);
+            float campaignTimerAlpha = _show ? Mathf.Max(0.2f, Mathf.Pow(fade, 1.5f)) : Mathf.Pow(fade, 1.5f);
+            _timeLabel.alpha = campaignTimerAlpha * HalfTransparency;
         }
 
         public override void ClearSprites()

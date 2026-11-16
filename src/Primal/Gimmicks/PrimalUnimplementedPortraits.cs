@@ -6,10 +6,15 @@ using UnityEngine;
 namespace Primal.Gimmicks
 {
     /// <summary>
-    /// Companion to PrimalCharacterNames.cs: on this mod's reserved alt slot, the six characters
-    /// labeled "Primal version not implemented" (Survivor, Monk, Hunter, Rivulet, Saint, Watcher --
-    /// see PrimalCharacterNameHook) also get their character-select portrait blacked out, so the
+    /// Companion to PrimalCharacterNames.cs: on this mod's reserved alt slot, the characters
+    /// labeled "Primal version not implemented" (Survivor, Monk, Hunter, Saint, Watcher -- see
+    /// PrimalCharacterNameHook) also get their character-select portrait blacked out, so the
     /// "not implemented" status reads visually, not just in the description text.
+    ///
+    /// **This list must stay in step with PrimalCharacterNames.cs.** A character that has a real
+    /// written description there must NOT be blacked out here, or it reads as implemented in text
+    /// and unimplemented in art. Rivulet was removed from this list on 2026-11-16 for exactly that
+    /// reason, in the same round that gave it a description (see IsUnimplementedPortraitScene).
     ///
     /// **How the portrait is actually loaded.** Per reference/GameSource/Menu/SlugcatSelectMenu.cs,
     /// the select screen builds a live `InteractiveMenuScene` (a `MenuScene` subclass) for the
@@ -103,10 +108,16 @@ namespace Primal.Gimmicks
                 return true;
             }
 
+            // Rivulet (both Slugcat_Rivulet and Slugcat_Rivulet_Cell) was removed from this list
+            // on 2026-11-16, by explicit request: Primal Rivulet is implemented now (Rain Timer,
+            // Precycle Timer, Permanent Shelter Failure, Sleep In Every Shelter, and its own
+            // written description in PrimalCharacterNames.cs), so its portrait shows in full
+            // vanilla color like Gourmand's/Spearmaster's/Artificer's rather than blacked out.
+            // Note this restores VANILLA Rivulet art -- unlike Artificer and Spearmaster, Rivulet
+            // has no custom `scenes/primal rivulet/` reskin (see PrimalArtificerScene.cs /
+            // PrimalSpearmasterScene.cs); blacking out was the only thing this mod did to it.
             if (ModManager.MSC
-                && (sceneID == MoreSlugcatsEnums.MenuSceneID.Slugcat_Rivulet
-                    || sceneID == MoreSlugcatsEnums.MenuSceneID.Slugcat_Rivulet_Cell
-                    || sceneID == MoreSlugcatsEnums.MenuSceneID.Slugcat_Saint
+                && (sceneID == MoreSlugcatsEnums.MenuSceneID.Slugcat_Saint
                     || sceneID == MoreSlugcatsEnums.MenuSceneID.Slugcat_Saint_Max))
             {
                 return true;
