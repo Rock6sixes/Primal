@@ -48,6 +48,11 @@ Built but **not yet tested in-game**:
 - Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
   second. See "Chains: creatures left unchained" below.
 - Survivor Community Challenges count requirement (2026-11-10), see its section below.
+- Primal Spearmaster portrait art (2026-11-14): confirmed loading AND seen on screen; the user
+  reported the first build was mis-framed (ran off the top, collided with the title text) and the
+  framing was reworked against the Artificer reference — see Gotcha #10. The reframed art is
+  deployed but **the corrected framing has not itself been seen on screen yet**. Still unseen at
+  any point: the two ending scenes (`End_Spear`, `AltEnd_Spearmaster`).
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -233,6 +238,84 @@ passes `1f, 0.5f`, i.e. elasticity 1 (gap fully re-closed every tick), and
 chunk-velocity lag nor a one-off distance change can produce a lasting visual stretch. Any future
 stretch attempt needs to act after her physics and before `graphicsModule.Update` (Room.Update
 runs those back to back per object), as that reverted commit did.
+
+## Primal Artificer layer order fix (2026-11-15)
+
+Reported from live play with a reference image: the yellow chains were drawn behind Artificer and
+the ground/grass ring cut across its legs. Both wrong — the chains belong in front, the ground
+behind.
+
+- **The trap: two component files sit in slots their names contradict.** `primal artificer
+  smoke - 2.png` is actually the yellow CHAINS and `primal artificer fg - 0.png` is actually the
+  GROUND. The names come from whichever vanilla slot they originally occupied, and the fix moves
+  them: the ground now takes the `Smoke - 2` slot (behind `Slugcat - 1`) and the chains take the
+  `Fg - 0` slot (in front). Same swap applied to the alt-ending scene's `- 3`/`- 0` slots. Don't
+  "tidy" the FileMap by matching file names back to slot names — that re-introduces this bug.
+- **Half the art is flattened, so remapping alone was not enough.** `flat`, `dark flat`, `end bkg`
+  and `end a` are pre-composited stacks of the five component layers, which is why the *ending*
+  scene (what the statistics/continue page shows) still had the old order baked in. Confirmed
+  exactly rather than assumed: each shipped plate matched a stack of components with 0.00% of
+  pixels differing by more than rounding. `scripts/build-artificer-plates.py` now regenerates all
+  four from the components in the corrected order and is the authority on that stack.
+- Artificer has **no `art-source/` tree** — the component layer PNGs *are* its source. That is why
+  it needs this plate-rebuild script plus `unmatte-black-backdrop.py`, where Spearmaster just
+  re-runs its own build script.
+
+## Primal Spearmaster portrait scene (2026-11-14)
+
+Second character to get custom select-screen art, built to the `PrimalArtificerScene.cs` pattern at
+the user's explicit request ("as done by example for primal artificer"). **Confirmed loading
+in-game** the same session: `LogOutput.log` shows `[PrimalSpearmasterScene] Using Primal Spearmaster
+scene art from 'scenes\primal spearmaster'`, with no unmapped-layer warnings and no
+`exceptionLog.txt`. Whether it *looks* right at every depth/parallax still wants a real eyeball pass.
+
+- `Gimmicks/PrimalSpearmasterScene.cs` (new) — a deliberate near-copy of `PrimalArtificerScene.cs`,
+  not a shared generalisation of it: that file is the only scene reskin confirmed working, and
+  mirroring kept this one's risk at zero. **If a third character gets scene art, factor the three
+  patches out into one table-driven reskin and port both characters at once** — two copies is where
+  that stops being premature. Covers all three Spearmaster scenes (`Slugcat_Spear`, `End_Spear`,
+  `AltEnd_Spearmaster`); its `FileMap`'s 15 keys were verified to be an exact bijection with the
+  layer names `MenuScene.cs`'s own `BuildSpearScene`/`BuildSpearEndScene`/`BuildSpearAltEndScene`
+  actually pass — no extras, none missed.
+- **The art pipeline is new and worth reusing.** The user supplies hand-drawn layers on one shared
+  canvas; `scripts/build-spearmaster-scene.py` turns them into the 1366x768 per-layer PNGs the game
+  wants. Sources live in `src/Primal/art-source/primal spearmaster/` (NOT deployed); generated
+  output goes to `src/Primal/scenes/primal spearmaster/` (deployed). Re-run the script after any
+  source edit; don't hand-edit the generated PNGs.
+- **Framing took two tries — see Gotcha #10 before making art for another character.** The first
+  build placed the source 1:1 and centred its whole drawn area; in-game it ran off the top of the
+  screen and collided with the name/description text. The first *correction* was also wrong, for a
+  more interesting reason: it targeted coordinates measured off a screenshot, but the game draws a
+  layer ~83px higher than its position in the PNG, so the screenshot numbers already had that
+  offset baked in and applying them re-applied it. The fix that worked frames the art purely in PNG
+  space against the known-good Artificer art (`x 401..963, y 132..670`), which lands it on exactly
+  the same on-screen band the reference occupies.
+- **Depth layers must be alpha-cut, never opaque rectangles (fixed 2026-11-14, affected BOTH
+  characters).** The menu draws its rain effect *behind* the portrait scene, so an opaque backdrop
+  layer hides the rain everywhere it covers — the user saw rain only outside the art. Vanilla's own
+  depth layers are painted shapes with real alpha (opaque fraction 0.14–0.72 across the stock
+  Artificer/Spearmaster scenes, checked directly in
+  `StreamingAssets/mods/moreslugcats/scenes/`), transparent wherever nothing is painted. Flat-mode
+  `- Flat` assets are the opposite — every stock one is a fully opaque 1366x768 composite — so those
+  keep their black field. Spearmaster simply stopped using its source's `black.PNG` for the depth
+  backdrop; Artificer has no source layers in this repo, so its black field was keyed out of the
+  finished PNGs by `scripts/unmatte-black-backdrop.py` (that script is the only record of how, and
+  explains its luminance thresholds). **When adding a character, audit every depth layer's opaque
+  fraction before shipping** — anything at 1.00 that isn't a `- Flat` asset is this bug.
+- **Layer sizing rule, now confirmed from `MenuDepthIllustration`'s own constructor** (worth knowing
+  before making art for character #3): it sets `size = (width, height/2)` and then, for `Basic`/`Rain`
+  ONLY, doubles `size.y` back and resets `scaleY` to 1. So `Basic` = a plain image drawn 1:1; every
+  other shader = a `W x 2H` stack, colour over a red depth map, drawn at `W x H`. Both reskins force
+  `Basic` on every layer and ship plain 1366x768 PNGs.
+- **Fixed a live landmine while here:** the repo's own copy of the *Artificer* art was still the
+  pre-fix 1366x1536 doubled version (exactly the "stretched the portrait 2x" bug this doc already
+  described), while the working 1366x768 art existed only in the game install — the fix had been made
+  by hand to the install and never committed back. Since `build-deploy-run.sh` now deploys `scenes/`,
+  shipping that stale art would have actively re-broken a working portrait. The installed (good)
+  copies were synced back into the repo. General lesson: **an asset fix applied straight to the
+  install is invisible to the repo** — check both when a "known gap" says art is deployed by hand.
+- `scripts/build-deploy-run.sh` now deploys `scenes/` too, closing this doc's own long-standing
+  "Known gaps" entry about scene art needing a manual copy.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
@@ -574,10 +657,9 @@ sessions, most recently 2026-11-02:
   bound (see **Gotcha #9**) — check this file directly, not just the source code, whenever a
   "changed the default and nothing happened" report comes in.
 - `scripts/build-deploy-run.sh` does build + copy-to-install + launch in one step
-  (`--no-build`/`--no-launch` for a partial run); see Build & deploy workflow below. It currently
-  only copies `modinfo.json` + `Primal.dll` — the artificer scene art under
-  `src/Primal/scenes/` is deployed by hand and isn't covered by this script (a real gap, not yet
-  fixed — see Current status).
+  (`--no-build`/`--no-launch` for a partial run); see Build & deploy workflow below. As of
+  2026-11-14 it copies `modinfo.json` + `Primal.dll` **and** the whole `src/Primal/scenes/` tree
+  (the portrait art), so scene art no longer needs a manual copy.
 - No `.NET` decompiler is installed by default; `ilspycmd` has been present as a `dotnet` global
   tool in at least one past session (`~/.dotnet/tools/ilspycmd.exe`) — check before assuming it's
   there. When no decompiler is available, a hand-rolled pure-Python ECMA-335 metadata/IL reader is
@@ -681,10 +763,15 @@ this list is for orientation, not a substitute for reading the file.
   `NoPassagesGimmick.cs`, `ThreatSlowdownGimmick.cs`, `ThreatPanicGimmick.cs`,
   `CreatureKillListGimmick.cs`, `RainTimerGimmick.cs`,
   `BlizzardTimerGimmick.cs`, `PrecycleTimerGimmick.cs` — one file per gimmick (see Current
-  architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` reskins
-  Artificer's character-select PORTRAIT scenes (new game / Robo / ascended / alt-ending select
-  screens) for the Primal slot (see `scenes/primal artificer/`) -- NOT the ending cutscene; the
-  void-sea ending slideshow (`ArtificerOutro`, `Outro_Artificer1..5`) is untouched by art.
+  architecture's list above and each file's own header comment). `PrimalArtificerScene.cs`,
+  `PrimalSpearmasterScene.cs` and `PrimalRivuletScene.cs` reskin those three characters'
+  select-screen/ending PORTRAIT art for the Primal slot (see `scenes/primal artificer/`,
+  `scenes/primal spearmaster/`, `scenes/primal rivulet/`, and the 2026-11-14 section above —
+  including the "factor these into one table-driven reskin before adding a third" note, which as
+  of 2026-11-16 is now overdue). Generated portrait art is built from `art-source/<character>/` by
+  `scripts/build-<character>-scene.py`; `scenes/` holds only generated output and is deployed, while
+  `art-source/` is the hand-drawn input and is not. None of these touch the ending CUTSCENE: the
+  void-sea ending slideshow (`ArtificerOutro`, `Outro_Artificer1..5`) is untouched by art, and
   `ChainsVoidSeaEnding.cs` is the one file that changes what happens during that ending (see the
   2026-11-14 section near the top).
   `PrimalKillTracker.cs` is the global (not per-gimmick) "which creature types has this character
@@ -911,6 +998,34 @@ own child-tracking, is a candidate. Also: synthetic/automated clicks against thi
 been unreliable in testing (hover state updates correctly, but `OnClick` itself is intermittent) —
 a real in-person test is still the reliable way to confirm any Remix UI fix.
 
+### Gotcha #10 — a portrait layer renders ~83px HIGHER than its own position in the PNG
+
+Framing new scene art by measuring a screenshot and treating those coordinates as PNG coordinates
+produces art that sits too high and gets clipped at the top edge. **The game draws a portrait layer
+about 83px higher (in 1366x768 canvas units) than where the content sits in its own PNG.**
+
+Measured, not guessed: composite a character's layer PNGs, then search for the (dx, dy) shift that
+best aligns that composite's mask against a real screenshot of it (best intersection-over-union).
+Artificer came out at `dy=-88` (IoU 0.889) and Spearmaster at `dy=-78` (IoU 0.959), consistently,
+across every scene variant. The ~10px spread between them is parallax — `MenuDepthIllustration`
+moves a layer by up to `80/depth` (~22-38px) depending on the instant the shot was taken — so treat
+the offset as ~83px ± parallax, not an exact constant. Horizontal is 1:1 (dx within a few px).
+
+**The cause is not identified.** `MenuDepthIllustration.GrafUpdate` overwrites `sprite.y` with its
+own `pos.y - CamPos.y*80/depth`, discarding the owner's position, and with `anchorY = 0` and
+`positions.txt` all `0, 0` a 1366x768 texture should land exactly on the screen — yet it measurably
+does not. Don't spend time rederiving this from the decompiled source before checking whether it
+still reproduces; it may be a Futile/atlas or screen-scaling detail outside `MenuScene` entirely.
+
+**How to avoid the whole problem:** never frame new art against screen coordinates. Frame it in PNG
+space against an existing, known-good portrait — the Artificer art occupies x 401..963, y 132..670
+in its own PNGs, and anything placed on that same box lands where Artificer lands, offset and all.
+`scripts/build-spearmaster-scene.py` does exactly this and documents the numbers in its header.
+
+**Lesson:** when matching new art to existing art, compare the two ASSETS in their own coordinate
+space, not two screenshots — a screenshot has the engine's own unexplained transforms already baked
+into it, and copying numbers out of one silently imports those transforms a second time.
+
 ### Gotcha #9 — changing a `Configurable<T>`'s default in source code never retroactively changes an already-saved value
 
 `owner.config.Bind(key, defaultValue, ...)` only ever writes `defaultValue` into
@@ -1125,11 +1240,24 @@ and hash-verified after the game was closed.
   gimmick file exists. **Open feature request.**
 - **"Spearmaster's death timer (TimeLimit), set to per-run by default, acted cycle-based instead —
   died after a minute in a shelter, and respawning didn't instantly re-kill, had to wait another
-  minute."** `TimeLimitGimmick.cs` does correctly distinguish `RainWorldGame.clock` (per-run) from
-  `World.rainCycle.timer` (per-cycle) in its own code — but the reported behavior (surviving a
-  shelter sleep, then the timer effectively restarting after respawn) suggests either `game.clock`
-  doesn't behave as documented across a sleep/respawn boundary, or something else resets the
-  tracked ConditionalWeakTable guard. **Unresolved — needs investigation**, not yet root-caused.
+  minute."** **RESOLVED 2026-11-15** — it was two independent causes, which is why it read as one
+  confusing bug:
+  1. *"After a minute"* was not a rate bug at all: the live config had
+     `Spear_TimeLimit_minutes = 1` while the source default is 60. Classic **Gotcha #9** — a saved
+     Remix value outranks the source default forever. Set back to 60 in
+     `ModConfigs\rokas.primal.txt` at the user's request. **Check the saved value before
+     suspecting the code on any "it fired too early/late" report.**
+  2. *"Per run acted cycle-based"* was a real code bug, now fixed. `RainWorldGame.clock` is a plain
+     field on a RainWorldGame that `ProcessManager` reconstructs on **every** switch into
+     `ProcessID.Game` (ProcessManager.cs:1004) — and `KarmaLadderScreen`, the base class of both
+     the sleep and death screens, continues by requesting exactly that switch
+     (KarmaLadderScreen.cs:278). So it restarted at 0 every cycle and after every death. "Per run"
+     now reads vanilla's own persistent campaign clock instead — `SaveState.totTime +
+     DeathPersistentSaveData.deathTime` (seconds, committed per cycle by
+     `StoryGameSession.AppendTimeOnCycleEnd`, never reset anywhere in the game's code) plus the
+     in-progress cycle from `playerSessionRecords[0].time`. That is the same number the continue
+     page and statistics screen show. Not yet re-tested in-game.
+  **Don't reintroduce `game.clock` for anything run-scoped** — it is per-cycle in all but name.
 - **"Saint doesn't need the inert-until-cycle-1 gimmick anymore — default to 0, but keep the
   functionality, since it works."** **Resolved.** `NoHoldGimmick.cs`'s generic "inert until cycle
   N" setting already defaults to 0 for every character including Saint (confirmed in
@@ -1156,9 +1284,10 @@ and hash-verified after the game was closed.
   on this unprompted.**
 
 **Known gaps, not bugs:**
-- `scripts/build-deploy-run.sh` doesn't deploy the Artificer scene art under `src/Primal/scenes/`
-  (only `modinfo.json` + `Primal.dll`) — that art has to be copied to the install by hand. Worth
-  fixing the script if this becomes a recurring friction point.
+- ~~`scripts/build-deploy-run.sh` doesn't deploy the scene art under `src/Primal/scenes/`.~~
+  **Fixed 2026-11-14** — the script now copies `scenes/` into the install alongside the DLL. See
+  the "Primal Spearmaster portrait scene" section above (which also records the stale-repo-art
+  landmine that gap had been quietly hiding).
 - Rivulet now has both of her originally-designed gimmicks (Rain Timer + Precycle Timer) and
   requirements (Visit Shelter + Ending) defaulted — see the new entry above. No gimmick/requirement
   has been designed yet for Survivor beyond the "all 50 community challenges" requirement intent
@@ -1188,11 +1317,13 @@ separate file:
 ```
 ...\Rain World\RainWorld_Data\StreamingAssets\mods\Primal\plugins\Primal.dll
 ```
-Either run `./scripts/build-deploy-run.sh` (build + copy `modinfo.json`+`Primal.dll` + launch, in
-one step — override `PRIMAL_SRC_DIR`/`RAINWORLD_GAME_DIR`/`RAINWORLD_MOD_DEST` env vars if those
-paths ever drift), or copy `mod/plugins/Primal.dll`(+ the `bin/Debug/Primal.pdb` for symbol-matched
-stack traces) to that path by hand. The script does not currently copy `src/Primal/scenes/` — see
-"Known gaps" above.
+Either run `./scripts/build-deploy-run.sh` (build + copy `modinfo.json`+`Primal.dll`+`scenes/` +
+launch, in one step — override `PRIMAL_SRC_DIR`/`RAINWORLD_GAME_DIR`/`RAINWORLD_MOD_DEST` env vars if
+those paths ever drift), or copy `mod/plugins/Primal.dll`(+ the `bin/Debug/Primal.pdb` for
+symbol-matched stack traces) to that path by hand.
+
+**The DLL is locked while Rain World is running** — `cp`/`Copy-Item` fails with "a file with a
+user-mapped section open". Close the game before deploying.
 
 **If diagnosing a "silently doesn't work" report, in order:**
 1. `BepInEx\LogOutput.log` — does the mod show a "loaded" line? Any `LogError`? Any `[GimmickName]`

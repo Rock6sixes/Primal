@@ -42,6 +42,14 @@ mkdir -p "$MOD_DEST/plugins"
 cp -f "mod/modinfo.json" "$MOD_DEST/modinfo.json"
 cp -f "mod/plugins/Primal.dll" "$MOD_DEST/plugins/Primal.dll"
 
+# Portrait scene art (PrimalArtificerScene / PrimalSpearmasterScene) lives at src/Primal/scenes/,
+# outside mod/, and the game loads it straight from the install. Copied over the top rather than
+# replacing the directory: a layer file that stops being referenced is inert (AssetManager only
+# ever resolves by exact name), so there is nothing to gain from deleting the destination first.
+echo "==> Deploying scenes/ to $MOD_DEST/scenes"
+mkdir -p "$MOD_DEST/scenes"
+cp -R "scenes/." "$MOD_DEST/scenes/"
+
 if [[ "$DO_LAUNCH" -eq 1 ]]; then
     echo "==> Launching Rain World ($GAME_DIR)"
     cd "$GAME_DIR"

@@ -65,13 +65,20 @@ namespace Primal.Gimmicks
         // vanilla layer name -> our file name (no extension). Keys must match vanilla exactly.
         internal static readonly Dictionary<string, string> FileMap = new Dictionary<string, string>
         {
+            // LAYER ORDER (2026-11-15 fix). Two of our files sit in a slot their vanilla-derived
+            // name does not suggest, deliberately: "smoke - 2" is actually the yellow CHAINS and
+            // "fg - 0" is actually the GROUND/grass ring. Vanilla draws these slots back to front
+            // 5,4,3,2,1,0, and the reference artwork wants the ground BEHIND the character and the
+            // chains IN FRONT of it -- so the ground takes the Smoke-2 slot (behind Slugcat-1) and
+            // the chains take the Fg-0 slot (in front). Shipping them the other way round is what
+            // made the ground cut across Artificer's legs and hid the chains behind its arms.
             { "Artificer Background - 5",        Prefix + "background - 5" },
             { "Artificer Vines - 4",             Prefix + "vines - 4" },
             { "Artificer MidBg - 3",             Prefix + "midbg - 3" },
-            { "Artificer Smoke - 2",             Prefix + "smoke - 2" },
+            { "Artificer Smoke - 2",             Prefix + "fg - 0" },             // ground, behind
             { "Artificer Slugcat - 1",           Prefix + "slugcat - 1" },
             { "Artificer Slugcat - 1 - Dark",    Prefix + "slugcat - 1 - dark" },
-            { "Artificer Fg - 0",                Prefix + "fg - 0" },
+            { "Artificer Fg - 0",                Prefix + "smoke - 2" },          // chains, in front
             { "Slugcat - Artificer - Flat",      Prefix + "flat" },
             { "Slugcat - Artificer Dark - Flat", Prefix + "dark flat" },
 
@@ -94,10 +101,10 @@ namespace Primal.Gimmicks
             // 6 layers drawn back (5) to front (0). "Primal" order: back plate, spears, chains, character, (unused), foreground.
             { "Slugcat End_B - Artificer - 5",         Prefix + "background - 5" },
             { "Slugcat End_B - Artificer - 4",         Prefix + "vines - 4" },
-            { "Slugcat End_B - Artificer - 3",         Prefix + "smoke - 2" },
+            { "Slugcat End_B - Artificer - 3",         Prefix + "fg - 0" },      // ground, behind
             { "Slugcat End_B - Artificer - 2",         Prefix + "slugcat - 1" },
             { "Slugcat End_B - Artificer - 1",         Prefix + "midbg - 3" },   // empty layer
-            { "Slugcat End_B - Artificer - 0",         Prefix + "fg - 0" },
+            { "Slugcat End_B - Artificer - 0",         Prefix + "smoke - 2" },   // chains, in front
             { "Slugcat End_B - Artificer - Flat",      Prefix + "flat" },
         };
 
