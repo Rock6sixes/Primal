@@ -80,11 +80,19 @@ namespace Primal.Gimmicks
         /// the same non-large-font case.</summary>
         private const float RowSpacingFallback = 15f;
 
+        /// <summary>How often the "visible" diagnostic line repeats, in ticks (40/second), once
+        /// the state itself has stopped changing -- 10 seconds, frequent enough to watch a
+        /// precycle count up through zero in the log without flooding it at 40 lines a second.
+        /// State CHANGES are always logged immediately regardless of this.</summary>
+        private const int LogIntervalTicks = 400;
+
         private readonly FLabel _timeLabel;
 
         private float _fade;
         private float _lastFade;
         private bool _show;
+        private string _lastLoggedState;
+        private int _ticksSinceLog;
 
         public RainTimerHudPart(global::HUD.HUD hud, FContainer container)
             : base(hud)
@@ -147,32 +155,59 @@ namespace Primal.Gimmicks
 
         /// <summary>Whether this readout applies at all right now: the Primal slot, the Rain Timer
         /// gimmick assigned to the character actually being played, and that character's own "Show
-        /// rain timer on HUD" checkbox.</summary>
-        private bool ShouldShow(out RainCycle rainCycle)
+        /// rain timer on HUD" checkbox. Every `false` path sets `hiddenReason` to something
+        /// specific, so the log says WHICH gate closed rather than just that the line is missing --
+        /// the first time this was tested in-game the answer turned out to be "the build running
+        /// didn't contain this file at all", which no amount of in-code logging could have
+        /// said, hence also the one-time "part added" line in RainTimerHudHook below.</summary>
+        private bool ShouldShow(out RainCycle rainCycle, out string hiddenReason)
         {
             rainCycle = null;
+            hiddenReason = null;
 
             if (!(hud.owner is Player player))
             {
+                hiddenReason = "HUD owner is not a Player";
                 return false;
             }
 
             World world = player.abstractCreature?.world;
             RainWorldGame game = world?.game;
-            if (game == null || !game.IsStorySession || !PrimalSlot.IsActive(game.rainWorld))
+            if (game == null)
             {
+                hiddenReason = "no RainWorldGame on the player's world yet";
+                return false;
+            }
+            if (!game.IsStorySession)
+            {
+                hiddenReason = "not a story session";
+                return false;
+            }
+            if (!PrimalSlot.IsActive(game.rainWorld))
+            {
+                hiddenReason = $"not on a Primal save slot (slot {game.rainWorld?.options?.saveSlot})";
                 return false;
             }
 
             string characterID = game.StoryCharacter?.value;
-            if (!GimmickAssignments.IsEnabled(characterID, RainTimerGimmick.ID) ||
-                !RainTimerSettings.ShowHud(characterID))
+            if (!GimmickAssignments.IsEnabled(characterID, RainTimerGimmick.ID))
             {
+                hiddenReason = $"Rain Timer gimmick not assigned to {characterID}";
+                return false;
+            }
+            if (!RainTimerSettings.ShowHud(characterID))
+            {
+                hiddenReason = $"\"Show rain timer on HUD\" is off for {characterID}";
                 return false;
             }
 
             rainCycle = world.rainCycle;
-            return rainCycle != null;
+            if (rainCycle == null)
+            {
+                hiddenReason = "world has no RainCycle yet";
+                return false;
+            }
+            return true;
         }
 
         /// <summary>Signed cycle ticks (40/second) formatted the way the campaign timer above
@@ -211,11 +246,13 @@ namespace Primal.Gimmicks
         public override void Update()
         {
             _lastFade = _fade;
-            _show = ShouldShow(out RainCycle rainCycle);
+            _show = ShouldShow(out RainCycle rainCycle, out string hiddenReason);
             if (_show)
             {
                 _timeLabel.text = FormatCycleTicks(rainCycle.timer - rainCycle.preTimer);
             }
+
+            LogState(hiddenReason, rainCycle);
 
             // Mirrors SpeedRunTimer.Update's own fade rules (including the foodMeter floor and the
             // HideGeneralHud override) so the two lines dim and shift in lockstep, with an added
@@ -233,6 +270,40 @@ namespace Primal.Gimmicks
             {
                 _fade = 0f;
             }
+        }
+
+        /// <summary>Diagnostics for "the line isn't on screen". Deliberately NOT one line per tick
+        /// (this runs 40x/second): it logs once when the visible/hidden state changes -- naming the
+        /// specific gate that closed -- and then at most once every LogIntervalTicks while visible,
+        /// with the numbers needed to tell "not drawing" apart from "drawing somewhere you can't
+        /// see it" (text, resolved screen position, alpha, and whether a campaign timer was found
+        /// to anchor to).</summary>
+        private void LogState(string hiddenReason, RainCycle rainCycle)
+        {
+            string state = _show ? "visible" : "hidden: " + hiddenReason;
+            bool stateChanged = state != _lastLoggedState;
+
+            if (!stateChanged && (!_show || ++_ticksSinceLog < LogIntervalTicks))
+            {
+                return;
+            }
+            _lastLoggedState = state;
+            _ticksSinceLog = 0;
+
+            if (!_show)
+            {
+                Plugin.Log?.LogInfo($"[RainTimerHud] not drawing -- {hiddenReason}");
+                return;
+            }
+
+            // timeStacker 1f = the position this frame actually ends at; good enough for a log.
+            Vector2 pos = AnchorPos(1f);
+            bool anchored = FindCampaignTimer() != null;
+            Plugin.Log?.LogInfo(
+                $"[RainTimerHud] \"{_timeLabel.text}\" (timer {rainCycle.timer}, preTimer {rainCycle.preTimer}) " +
+                $"at ({pos.x:F1}, {pos.y:F1}), alpha {_timeLabel.alpha:F2}, fade {_fade:F2}, " +
+                $"lineHeight {_timeLabel.FontLineHeight:F1}, " +
+                (anchored ? "anchored under the campaign timer" : "campaign timer not present -- using the fallback position"));
         }
 
         public override void Draw(float timeStacker)
@@ -290,10 +361,18 @@ namespace Primal.Gimmicks
         {
             if (__instance?.fContainers == null || __instance.fContainers.Length < 2)
             {
+                Plugin.Log?.LogWarning("[RainTimerHud] single-player HUD has no fContainers[1] -- readout not added");
                 return;
             }
 
             __instance.AddPart(new RainTimerHudPart(__instance, __instance.fContainers[1]));
+
+            // The point of logging this unconditionally, before any gimmick/slot gate: if this
+            // line is absent from BepInEx/LogOutput.log entirely, the readout is not "hidden for
+            // some reason" -- the running Primal.dll simply doesn't contain this patch, which is
+            // exactly how the first in-game test failed (a build deployed from a different
+            // worktree). That is not something the part's own visibility logging could ever say.
+            Plugin.Log?.LogInfo("[RainTimerHud] readout added to the single-player HUD");
         }
     }
 }
