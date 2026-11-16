@@ -763,12 +763,14 @@ this list is for orientation, not a substitute for reading the file.
   `NoPassagesGimmick.cs`, `ThreatSlowdownGimmick.cs`, `ThreatPanicGimmick.cs`,
   `CreatureKillListGimmick.cs`, `RainTimerGimmick.cs`,
   `BlizzardTimerGimmick.cs`, `PrecycleTimerGimmick.cs` — one file per gimmick (see Current
-  architecture's list above and each file's own header comment). `PrimalArtificerScene.cs`,
-  `PrimalSpearmasterScene.cs` and `PrimalRivuletScene.cs` reskin those three characters'
-  select-screen/ending PORTRAIT art for the Primal slot (see `scenes/primal artificer/`,
-  `scenes/primal spearmaster/`, `scenes/primal rivulet/`, and the 2026-11-14 section above —
-  including the "factor these into one table-driven reskin before adding a third" note, which as
-  of 2026-11-16 is now overdue). Generated portrait art is built from `art-source/<character>/` by
+  architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` and
+  `PrimalSpearmasterScene.cs` reskin those two characters' select-screen/ending PORTRAIT art for
+  the Primal slot (see `scenes/primal artificer/`, `scenes/primal spearmaster/`, and the
+  2026-11-14 section above — including the "factor these two into one table-driven reskin before
+  adding a third" note). **Rivulet has no custom reskin** — as of 2026-11-16 it simply shows
+  vanilla Rivulet art in full colour, because the only thing this mod ever did to that portrait
+  was black it out via `PrimalUnimplementedPortraits.cs`, and it was removed from that list when
+  it became implemented. Generated portrait art is built from `art-source/<character>/` by
   `scripts/build-<character>-scene.py`; `scenes/` holds only generated output and is deployed, while
   `art-source/` is the hand-drawn input and is not. None of these touch the ending CUTSCENE: the
   void-sea ending slideshow (`ArtificerOutro`, `Outro_Artificer1..5`) is untouched by art, and
