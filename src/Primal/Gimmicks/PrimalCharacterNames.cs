@@ -13,7 +13,9 @@ namespace Primal.Gimmicks
     /// currently has real content for -- get a written intro line plus a description that lists
     /// whichever of this mod's gimmicks are currently assigned to them (see GimmickAssignments;
     /// Sofanthiel has no gimmick of its own as of this writing, so its description will just read
-    /// "No primal traits assigned yet"). Every other character (Survivor, Monk, Hunter, Rivulet,
+    /// "No primal traits assigned yet"). **Rivulet is the exception** -- as of 2026-11-16 it has
+    /// its own fixed two-line written description with no traits line at all, by explicit request,
+    /// so it does not go through BuildDescription. Every other character (Survivor, Monk, Hunter,
     /// Saint, Watcher -- added 2026-09-15) gets the same "PRIMAL X" name treatment but a plain,
     /// static description: "Primal version not implemented". Off the alt slot, every character is
     /// shown completely unmodified -- this only ever touches how they're *labeled* on this one
@@ -128,8 +130,18 @@ namespace Primal.Gimmicks
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Rivulet)
             {
+                // 2026-11-16, explicit request: Rivulet's own written description, replacing the
+                // "Primal version not implemented" placeholder. Like Spearmaster's, this is the
+                // literal requested text and deliberately does NOT go through BuildDescription --
+                // no "Active traits" line is appended. The request wrote the break as "LB" mid-
+                // sentence ("...are required,LBas you'll face..."), i.e. a line break after the
+                // comma, which is the same Environment.NewLine treatment every other fixed
+                // description in this file uses.
                 name = "PRIMAL RIVULET";
-                description = NotImplementedDescription;
+                description =
+                    "Breathes underwater, and moves through the world with ease. These adaptations are required,"
+                    + Environment.NewLine
+                    + "as you'll face against a world of endless floods, where time has already almost entirely faded";
             }
             else if (slugcatNumber == MoreSlugcatsEnums.SlugcatStatsName.Saint)
             {
