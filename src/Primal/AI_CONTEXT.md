@@ -134,6 +134,106 @@ rectangle `VoidSpawn.cs:129`, "always viewed" special case `VoidSpawnKeeper.cs:3
 behavior assignment `VoidSpawnKeeper.cs:173,224`, region flow-destination `VoidSpawnWorldAI.cs:38`)
 -- none of which affect the actual drag/dissolve/cutscene mechanism traced above.
 
+(That investigation is what the section below was then built from.)
+
+## Chains: Primal Artificer's void-sea ending (2026-11-14)
+
+Explicit request: when Artificer has the Chains gimmick enabled and takes the void-sea
+(ascension) route, swimming down past SB_L01 attaches 10 custom void chains to her that come up
+from far below; after ~10 s they quickly stiffen, a second later they drag her down at the void
+worm's speed (more chains keep being added while pulling), and when vanilla's dissolve animation
+finishes every chain shatters with a louder version of the Chains room-clear sound. Purely
+cosmetic and entirely self-contained: no gameplay effect, no other gimmick/requirement involved,
+nothing outside this one ending on this one character touched.
+
+Implemented in `Gimmicks/ChainsVoidSeaEnding.cs` -- one Postfix on `VoidSeaScene.Update`
+(namespace `VoidSea`, not global -- the decompiled source uses a file-scoped namespace line that's
+easy to miss when reading from line 12 down), a `PullChain : VoidChain` subclass that re-implements
+`VoidChain.Update` with a stiffness blend, and a `PullChainFragment` for the break (vanilla's
+`ChainFragment` self-deletes below y = -100, i.e. instantly in the void sea). The file's header
+has the full trace of vanilla's Artificer void-sea route (worm `SwimDown` -> `fadeOutLights` ->
+`ArtificerEndUpdate` -> dissolve 960..2360 -> black fade -> `ExitToVoidSeaSlideShow`) and of
+every design decision (anchors relative to Artificer, endpoints swapped so the bright end is on
+her, halo hidden, layered sound). It reads vanilla's public timers and never alters them, so the
+ending fires exactly when vanilla would.
+
+Gotcha found while building: `Custom.DirVec` / `Custom.DistLess` / `Custom.RNV` fail to compile
+from this project with "type 'float2' is defined in an assembly that is not referenced
+(Unity.Mathematics)" -- the game assembly has overloads taking Unity.Mathematics types, and
+overload resolution needs that assembly even when the Vector2 overload is meant. Plain
+`Vector2` math was used instead; `Custom.LerpMap` has the same problem. No other file in this
+project calls those four helpers, so this is the first time it has come up.
+
+First in-game test (2026-11-14): chains attached (log line at y=-804), then the game crashed one
+screen later -- `exceptionLog.txt` in the game folder: "MethodAccessException: Method
+`MoreSlugcats.VoidChain.ConnectToWalls()' is inaccessible from `PullChain.Update`". Gotcha #1:
+`reference/GameSource` AND `lib/PUBLIC-Assembly-CSharp.dll` both show that method as public; the
+real game has it private. **Fast, reliable way to check real accessibility, now proven:** a
+PowerShell 5.1 one-off that `ReflectionOnlyLoadFrom`s the REAL
+`RainWorld_Data\Managed\Assembly-CSharp.dll` (with a `ReflectionOnlyAssemblyResolve` handler
+pointing at that Managed folder) and prints `IsPublic`/`IsPrivate` for each member by name --
+every member the new file touches was checked that way in one call; only `VoidChain.ConnectToWalls`,
+`VoidChain.Connect` and `VoidWorm.behavior` turned out private. Fixed by re-typing the two
+helpers inside `PullChain` and reflecting `behavior` via a cached `AccessTools.Field`. Note
+`exceptionLog.txt`/`consoleLog.txt` in the game's root folder are where a hard crash's managed
+stack trace actually lands -- BepInEx's `LogOutput.log` only had the mod's own last Info line.
+
+Second in-game test (2026-11-14, after the fix): **the whole sequence worked.** Revisions then
+requested and made in the same session: trigger moved from 800 px below SB_L01 to ~10 screens
+(8000 px, "past the yellow background"); `Chain_Lock` stinger when the chains appear; pull speed
+x10 (`PullSpeedMultiplier`); player input taken away at pull start (`Player.NullController`,
+handed back only on abort); instead of one break at dissolve-end, chains are released one at a
+time from dissolve START (ArtificerEndUpdate timer 720), each with a normal `Chain_Break`, evenly
+spaced so the last one goes one second before the slideshow (timer 2560 - 40) with the louder
+layered stinger.
+
+Third in-game test (2026-11-14): worked, but "void worm could not catch up" at a flat 400 px/tick
+(the ending's own trigger is the worm reaching her and looking for 600 ticks -- its Float()
+movement is only ~50 px/tick once it is within 2000 px, so a fast-moving target keeps it out of
+the 800 px Looking radius). Changes made: pull staged on the worm's phase (100 px/tick approach,
+50 while it looks, 400 once SwimDown/fadeOutLights -- the 50 is this session's own addition on
+top of the requested 100/400 so the worm can actually hold position beside her); control handed
+back (NullController removed; only vel.y is owned, vel.x eased so her input still works);
+sideways wander on the pull with the chains leaning to match (`Wander*` constants, `PullChain.Lean`);
+stiffness 0.92 -> 0.98.
+
+Fourth in-game test (2026-11-15): worked. Changes made: trigger 8000 -> 4000 px (~5 screens);
+sideways wander REVERTED (chains visibly swayed) -- chains are straight down again and
+"shaky" is now per-tick velocity jitter + `Room.ScreenMovement` camera shake scaled by speed;
+slugcat stretch while dragged, done the way vanilla's worm thread does it (only `bodyChunks[0]`
+gets the full pull, `bodyChunks[1]` lags by `StretchLag` so the 17 px body connection
+over-stretches); chains moved from the "Foreground" sprite layer to "Background" (behind the
+player's Midground sprites, above the void backdrop, same layer as the worms) -- done by
+re-listing `IDrawable` on `PullChain` and re-implementing `InitiateSprites`/`AddToContainer`,
+because `VoidChain.InitiateSprites` calls its own `AddToContainer` non-virtually.
+
+Fifth test (2026-11-15): worked; one tweak -- `StiffnessMax` 0.98 -> 0.75 ("down from 100%
+being what you have now to around 75%").
+
+Sixth test (2026-11-15): lower stiffness did NOT give the wanted effect -- "as you are being pulled
+by the chains, they are essentially static". Added an under-stress shake instead (per-tick
+sideways jitter + travelling wave, scaled by pull speed, applied AFTER the stiffness pass so the
+stiff line itself vibrates; `PullChain.Stress`, `Stress*` constants), anchors untouched. Also a
+near-body fade: `PullChain` now re-implements `IDrawable.DrawSprites` and scales the chain
+mesh's vertex alpha from 0.5 at her body to 1 one tile (20 px) out (`NearBody*` constants) --
+`TriangleMesh.vertices`/`verticeColors` confirmed public in the real assembly first.
+
+Seventh test (2026-11-15): worked. Tweaks: initial `Chain_Lock` now layered x3 (pitches 0.6 /
+0.85 / 1.1) like the final `Chain_Break`, for volume; `StretchLag` 0.06 -> 0.085 so the body is
+~1.5x at 100 px/tick and ~3x at 400 (PhysicalObject.Update integrates chunks before the
+connection halves the excess, so steady-state over-stretch == per-tick lag; 17 px rest length).
+
+Eighth test (2026-11-15): no stretch visible. A `Player.Update` Postfix that hard-set
+`bodyChunks[1]` to a stretched distance from `bodyChunks[0]` was built (commit e8374f1), then
+**reverted on request** (0b7c3b3) -- the lag-based version above is what's in the file now.
+Two facts from that round are still true and worth keeping: `PhysicalObject.BodyChunkConnection`'s
+constructor order is `(chunk1, chunk2, distance, type, elasticity, weightSymmetry)` and `Player`
+passes `1f, 0.5f`, i.e. elasticity 1 (gap fully re-closed every tick), and
+`Player.MovementUpdate` resets `bodyChunkConnections[0].distance` to 17 every tick -- so neither
+chunk-velocity lag nor a one-off distance change can produce a lasting visual stretch. Any future
+stretch attempt needs to act after her physics and before `graphicsModule.Update` (Room.Update
+runs those back to back per object), as that reverted commit did.
+
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
 Explicit request: Survivor's goal is "complete N of the 50 community challenges", N configurable,
@@ -582,7 +682,11 @@ this list is for orientation, not a substitute for reading the file.
   `CreatureKillListGimmick.cs`, `RainTimerGimmick.cs`,
   `BlizzardTimerGimmick.cs`, `PrecycleTimerGimmick.cs` — one file per gimmick (see Current
   architecture's list above and each file's own header comment). `PrimalArtificerScene.cs` reskins
-  Artificer's ending-cutscene art for the Primal slot (see `scenes/primal artificer/`).
+  Artificer's character-select PORTRAIT scenes (new game / Robo / ascended / alt-ending select
+  screens) for the Primal slot (see `scenes/primal artificer/`) -- NOT the ending cutscene; the
+  void-sea ending slideshow (`ArtificerOutro`, `Outro_Artificer1..5`) is untouched by art.
+  `ChainsVoidSeaEnding.cs` is the one file that changes what happens during that ending (see the
+  2026-11-14 section near the top).
   `PrimalKillTracker.cs` is the global (not per-gimmick) "which creature types has this character
   ever killed" tracker both `CreatureKillListGimmick` and the Unique Kills requirement read.
 - `Gimmicks/Survivor*.cs` (CheckpointRun, CreatureTracking, CreatureVariant, DreamState,
