@@ -36,9 +36,11 @@ and fade/hide the chain instead of repositioning it while true. Distinct from bo
 or the escape timer releasing a room early) — this one is purely cosmetic and only affects already-
 chained creatures.
 
-## Open items (as of 2026-11-10)
+## Open items (as of 2026-11-16)
 
 Built but **not yet tested in-game**:
+- Rain Timer HUD readout (2026-11-16): on by default, sits under the campaign timer, negative
+  during a precycle. See its own section below.
 - Rivulet shelter routing: Sleep In Every Shelter requirement + Permanent Shelter Failure gimmick
   (2026-11-05). Checklist in its own section below.
 - Precycle Timer rework (2026-11-10): head start in seconds (0-480, default 60), Random length
@@ -116,6 +118,54 @@ Two causes found by code review:
 Overseers are chainable by default (their ban checkbox defaults off).
 
 
+
+## Rain Timer HUD readout (2026-11-16)
+
+Explicit request: "add an option turned on by default that shows the rain timer in game, below the
+current campaign timer. this timer should be slightly smaller and slightly bluer. if a precycle is
+in place, show the time in negative, as in, how much time there is until the rain timer, so it
+should go -5s, -1s, 0s, 1s, 5s so on."
+
+- New file `Gimmicks/RainTimerHud.cs`: `RainTimerHudPart` (a `HUD.HudPart`) plus
+  `RainTimerHudHook`, a Postfix on `HUD.InitSinglePlayerHud(RoomCamera)` that adds it to
+  `fContainers[1]` -- the same container and the same method vanilla uses to add
+  `MoreSlugcats.SpeedRunTimer`, which IS "the current campaign timer" (an MMF-gated HudPart; read
+  from `reference/GameSource/MoreSlugcats/SpeedRunTimer.cs`, not guessed at).
+- **The displayed value is `rainCycle.timer - rainCycle.preTimer` in ticks.** That single
+  expression covers both halves exactly, not approximately: `RainCycle.Update` skips its `timer++`
+  branch entirely while `preTimer > 0`, so during a precycle `timer` is still exactly 0 (value is
+  `-preTimer`, counting up toward zero) and afterwards `preTimer` is exactly 0 (value is `timer`).
+  There is no window where both are nonzero, and both are 0 when there's no precycle at all.
+- Format drops all-zero leading segments, so the request's own example sequence is literal: `-5s`,
+  `-1s`, `0s`, `1s`, `5s`, then `1m:31s`, then `1h:00m:30s` for a long cycle. Negative seconds are
+  CEILINGed so it holds at `-1s` until the precycle genuinely ends (a plain floor would show `0s`
+  up to 39 ticks early); positive seconds floor, i.e. ordinary elapsed counting.
+  `RainTimerHudPart.FormatCycleTicks` is static and standalone specifically so this can be checked
+  without the game -- 12 cases plus a monotonicity sweep over -2400..2400 ticks were run against a
+  verbatim copy of it before commit.
+- Smaller/bluer = `FLabel.scale = 0.85f` and `new Color(0.65f, 0.78f, 1f)`. Position/fade/alpha
+  rules are copied from SpeedRunTimer so the two lines move and dim together.
+- **Gotcha worth not re-deriving: the anchoring has to happen in `Draw`, not `Update`.** `HUD.Update`
+  walks `parts` BACKWARDS, and this part is added last, so it Updates *before* the campaign timer
+  does -- reading `SpeedRunTimer.pos` from `Update` is always one tick stale and visibly lags it
+  while either line fades. `HUD.Draw` is a separate forward pass after every Update has run, so
+  `SpeedRunTimer.DrawPos(timeStacker)` there is the campaign label's real position this frame; this
+  part therefore needs no position interpolation of its own. (Found by reading HUD.cs's two loops,
+  after first writing it the wrong way round.)
+- If the campaign timer is turned OFF (MMF's own `cfgSpeedrunTimer`), there's nothing to anchor to,
+  so it recomputes vanilla's same `ScreenSize.y - (30f + 10f * fade)` formula and sits where the
+  second line would have been, rather than disappearing because of an unrelated vanilla HUD option.
+- New per-character setting `<char>_RainTimer_showHud` ("Show rain timer on HUD"), **default on**,
+  second row of the Rain Timer settings panel. Not greyed out by "Disable timer" -- with the timer
+  disabled the readout still shows real elapsed cycle time. The part is added for every character
+  and re-checks PrimalSlot + gimmick assignment + the checkbox every `Update`, so toggling it in
+  Remix mid-session works without a HUD rebuild.
+- `[HarmonyPatch]` argument types are pinned explicitly even though `InitSinglePlayerHud` has no
+  overloads, per the `PatchAll()` crash lesson in commit c05af62 (one ambiguous target takes down
+  the entire plugin, Remix config included -- PatchAll has no per-patch isolation).
+- Builds clean (0 warnings); **not yet tested in-game.** Test: as Rivulet on the Primal slot, a
+  second bluer line under the campaign timer should count `-1m:00s` up to `0s` during the precycle,
+  then climb; unchecking "Show rain timer on HUD" in Remix should fade it out immediately.
 
 ## Precycle Timer: head start in seconds, 100% chance, on for Rivulet (2026-11-10, later)
 

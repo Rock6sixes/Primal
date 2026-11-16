@@ -224,7 +224,14 @@ namespace Primal.Gimmicks
     /// entirely -- checked, rain/the blizzard effectively never arrives (see
     /// RainTimerGimmick.UnlimitedCycleLengthTicks); the numeric field and its label grey out to
     /// show they're inert while it's checked, the same "visible but disabled" convention
-    /// NoPassagesGimmick already uses elsewhere in this mod.</summary>
+    /// NoPassagesGimmick already uses elsewhere in this mod.
+    ///
+    /// A third setting, "Show rain timer on HUD" (2026-11-16, explicit request), is ON by default
+    /// and controls RainTimerHud.cs's on-screen readout -- a smaller, bluer line under vanilla's
+    /// own campaign timer. It's deliberately a per-character setting like the other two rather
+    /// than one global toggle, so it follows the same "every gimmick setting is per character"
+    /// convention the whole Remix screen is built on; see RainTimerHudPart's header comment for
+    /// what it actually draws.</summary>
     internal static class RainTimerSettings
     {
         private const int DefaultPercent = 100;
@@ -243,8 +250,12 @@ namespace Primal.Gimmicks
         private const int MinPercent = 0;
         private const int MaxPercent = 400;
 
+        /// <summary>The on-screen readout defaults to ON, per explicit request.</summary>
+        private const bool DefaultShowHud = true;
+
         private static readonly Dictionary<string, Configurable<int>> _percent = new Dictionary<string, Configurable<int>>();
         private static readonly Dictionary<string, Configurable<bool>> _disabled = new Dictionary<string, Configurable<bool>>();
+        private static readonly Dictionary<string, Configurable<bool>> _showHud = new Dictionary<string, Configurable<bool>>();
 
         // Built lazily, once per character, and reused on every later call -- see GimmickDef.cs's
         // BuildSettingsUI doc comment for why.
@@ -267,6 +278,11 @@ namespace Primal.Gimmicks
                 characterID + "_RainTimer_disabled",
                 false,
                 new ConfigurableInfo("If checked, rain (or Saint's blizzard) effectively never arrives -- the percentage above is ignored while this is checked."));
+
+            _showHud[characterID] = owner.config.Bind(
+                characterID + "_RainTimer_showHud",
+                DefaultShowHud,
+                new ConfigurableInfo("If checked, the current rain timer is shown in game, just below the campaign timer. During a precycle it counts up through negative values (-5s, -1s, 0s) to show how long is left before the rain timer itself starts."));
         }
 
         public static int GetPercent(string characterID)
@@ -279,6 +295,15 @@ namespace Primal.Gimmicks
             return _disabled.TryGetValue(characterID, out Configurable<bool> c) && c.Value;
         }
 
+        /// <summary>Whether RainTimerHud.cs's on-screen readout should be drawn for this character.
+        /// Falls back to DefaultShowHud (true) rather than false when the setting hasn't been bound
+        /// yet, so the readout matches its own default in that window instead of silently not
+        /// appearing.</summary>
+        public static bool ShowHud(string characterID)
+        {
+            return _showHud.TryGetValue(characterID, out Configurable<bool> c) ? c.Value : DefaultShowHud;
+        }
+
         public static List<UIelement> BuildUI(string characterID, float topY)
         {
             if (_uiCache.TryGetValue(characterID, out List<UIelement> cached))
@@ -287,7 +312,8 @@ namespace Primal.Gimmicks
             }
 
             if (!_percent.TryGetValue(characterID, out Configurable<int> percent) ||
-                !_disabled.TryGetValue(characterID, out Configurable<bool> disabled))
+                !_disabled.TryGetValue(characterID, out Configurable<bool> disabled) ||
+                !_showHud.TryGetValue(characterID, out Configurable<bool> showHud))
             {
                 // Not bound yet -- don't cache an incomplete/empty result, in case Bind() hasn't
                 // run for this character yet and a later call could succeed.
@@ -315,10 +341,19 @@ namespace Primal.Gimmicks
             ApplyDisabledVisual(disabled.Value);
             disabled.OnChange += () => ApplyDisabledVisual(disabled.Value);
 
+            // Second row: the same 44px row pitch and the same x=20/x=56 full-width-checkbox
+            // offsets PrecycleTimerSettings' own stacked checkbox rows use. Deliberately NOT
+            // greyed out alongside "Disable timer" -- with the timer disabled the readout still
+            // shows real elapsed cycle time, which is arguably when seeing the number matters most.
+            var showHudCheckbox = new OpCheckBox(showHud, 20f, topY - 50f);
+            var showHudLabel = new OpLabel(56f, topY - 46f, "Show rain timer on HUD", false);
+
             items.Add(label);
             items.Add(updown);
             items.Add(disableCheckbox);
             items.Add(disableLabel);
+            items.Add(showHudCheckbox);
+            items.Add(showHudLabel);
 
             _uiCache[characterID] = items;
             return items;
