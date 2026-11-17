@@ -81,6 +81,25 @@ namespace Primal.Gimmicks
             _vanillaBroken.Add(world, (bool[])world.brokenShelters.Clone());
         }
 
+        /// <summary>Like IsVanillaBroken, but for a World that may never have been snapshotted
+        /// (snapshots are only taken on the Primal slot with a save state present): with no
+        /// snapshot nothing was force-broken either, so the live array IS vanilla's. Used by
+        /// ShelterTotals for the passage-screen-style Worlds it builds (2026-11-17).</summary>
+        public static bool IsVanillaBrokenOrUnforced(World world, int shelterIndex)
+        {
+            if (world == null || shelterIndex < 0)
+            {
+                return false;
+            }
+            if (_vanillaBroken.TryGetValue(world, out bool[] broken))
+            {
+                return shelterIndex < broken.Length && broken[shelterIndex];
+            }
+            return world.brokenShelters != null
+                && shelterIndex < world.brokenShelters.Length
+                && world.brokenShelters[shelterIndex];
+        }
+
         public static bool IsVanillaBroken(World world, int shelterIndex)
         {
             return world != null

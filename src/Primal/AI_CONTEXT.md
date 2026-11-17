@@ -46,6 +46,7 @@ Built but **not yet tested in-game**:
 - Chains rescan fix (2026-11-10): untracked creatures in a tracked room get picked up within half a
   second. See "Chains: creatures left unchained" below.
 - Survivor Community Challenges count requirement (2026-11-10), see its section below.
+- Rivulet shelter counter HUD (2026-11-17), see "Rivulet shelter counter" below.
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -61,6 +62,32 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Rivulet shelter counter (2026-11-17)
+
+Explicit request: entering a shelter fades in a "SHELTERS  slept / total" counter at the top of the
+screen; the total is every shelter in every region of the character's campaign. Built in
+`Gimmicks/ShelterCounter.cs`; compiles clean, **not yet tested in-game**.
+
+- **Regions:** `SlugcatStats.SlugcatStoryRegions` -- for Rivulet (MSC on) 14: SU HI DS CC GW SH VS
+  SL SI LF UW RM SB MS. Rivulet has no optional regions (`SlugcatOptionalRegions`). Same list
+  SleepEveryShelterRequirement already uses.
+- **Total (`ShelterTotals`):** builds each region's World with vanilla's own `WorldLoader` in
+  `LoadingContext.FASTTRAVEL` with `game == null` (exactly what FastTravelScreen does), stepped one
+  `Update()` per frame from a `RainWorldGame.Update` Postfix (same non-blocking pattern OverWorld
+  uses at region gates), one region at a time. Counts `World.shelters` minus `DisabledMapRooms`
+  minus timeline-broken shelters (`ShelterSleepRecords.IsVanillaBrokenOrUnforced`, new -- reads the
+  pre-forcing snapshot, or the live array when there is none), de-duplicated by room name. Cached
+  for the whole process. Logs `[ShelterCounter] ... XX has N counted shelter(s)` per region and a
+  final `total N`. A region that fails or isn't found is skipped and named in that final line.
+- **Slept:** shelters in that set with a ShelterSleepRecords marker for the character.
+- **HUD (`ShelterCounterHud`):** added to every Primal-slot single-player story HUD
+  (`HUD.InitSinglePlayerHud` Postfix); shows only while the requirement is assigned and the player
+  is in a shelter (not mid-shortcut). ~0.75 s fade in/out, recounted on entry and once a second.
+  Shows "SHELTERS  counting..." until the background count finishes.
+- **Test:** as Primal Rivulet, the log should list all 14 regions with counts within a few seconds
+  of starting a cycle; standing in a shelter shows the counter; after a sleep, the next cycle's
+  counter is one higher.
 
 ## Survivor: Community Challenges count requirement (2026-11-10)
 
