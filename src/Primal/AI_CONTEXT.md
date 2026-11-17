@@ -346,6 +346,48 @@ counter owns a corner nothing else uses.
 Before adding a fourth, check this table and claim a row explicitly rather than picking a pixel
 offset that happens to look free in whatever state you tested in.
 
+## Shelter count cache: recompute only when mods change (2026-11-17)
+
+Request: "can we cache the whole shelter analysis thing, since it lags every cycle. run it only
+after detecting mods changed."
+
+**Correcting the premise first, because it matters for what to fix next:** it was NOT recounting
+every cycle. `ShelterTotals._jobs` is a static dictionary that nothing ever clears, so the count
+already survived for the life of the process — confirmed two ways: `BepInEx/LogOutput.log` shows
+exactly one "counting shelters in 14 story regions" block and one "total 109" per launch, and
+`_jobs` has no `Clear()` anywhere. The real cost was rebuilding all 14 regions' Worlds with
+WorldLoader on **every game launch**, which is what gets noticed as an early-session hitch. So if
+per-cycle lag is still visible after this change, **the shelter counter is not what's causing it**
+and something else needs profiling.
+
+What was added (`ShelterCountCache`, same file): the completed shelter-name set is written to
+`Application.persistentDataPath/Primal/shelter-counts.txt` and read back on the next launch, so
+after the first run no World is ever built.
+
+- **Invalidation** is a fingerprint over `ModManager.ActiveMods` — each active mod's `id`,
+  `version`, `checksum` and `loadOrder`, sorted by id, MD5'd. `checksum` is the game's own per-mod
+  content hash (ModManager.cs computes it for its own `checksumChanged` flag), so a mod edited in
+  place invalidates the cache too, not just a version bump. Load order is included because region
+  merging is order-dependent.
+- **Deliberately not narrowed to `mod.modifiesRegions`**, even though that flag exists and would
+  invalidate less often: it is self-reported by each mod's metadata, and a wrong shelter total
+  here is silent and STICKY (it would survive every later launch until some unrelated mod
+  changed). Occasionally recounting after an unrelated mod updates is the cheaper mistake.
+- **Not `Custom.RootFolderDirectory()`** — that's the game folder, under Program Files on a
+  default Windows install and not writable without elevation. Not the game's own
+  `UserData.GetPersistentDataPath()` either: `UserData` isn't in the reference assembly this
+  project compiles against (it's referenced from `OptionInterface.cs` but has no decompiled source
+  in `reference/GameSource/`).
+- **An incomplete count is never cached** (`FinishIfDone` checks `FailedRegions`), for the same
+  stickiness reason — a run that skipped a region would otherwise persist a wrong total forever.
+- Every failure path is non-fatal: missing, unreadable, truncated, older-format or stale file all
+  just mean "no cache", and the original background count runs exactly as before. A fingerprint
+  that can't be computed deliberately becomes a unique value, so it can never accidentally match
+  a stored one.
+- **Reading the log:** `shelter-count cache is current` = used the cache, no scan;
+  `mods changed since the shelter-count cache was written` = recounting on purpose;
+  `no shelter-count cache yet` = first run after this change.
+
 ## Rivulet shelter counter (2026-11-17)
 
 Explicit request: entering a shelter fades in a "slept / total" counter; the total is every shelter

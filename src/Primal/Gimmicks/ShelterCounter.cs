@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using HarmonyLib;
 using RWCustom;
 using UnityEngine;
@@ -54,6 +55,7 @@ namespace Primal.Gimmicks
             public readonly HashSet<string> Shelters = new HashSet<string>();
             public readonly List<string> FailedRegions = new List<string>();
             public bool Done;
+            public bool LoadedFromCache;
         }
 
         private static readonly Dictionary<string, Job> _jobs = new Dictionary<string, Job>();
@@ -95,6 +97,19 @@ namespace Primal.Gimmicks
                     Regions = SlugcatStats.SlugcatStoryRegions(character),
                 };
                 _jobs[characterID] = job;
+
+                // The whole point of ShelterCountCache: if the mod set hasn't changed since the
+                // last run, the answer is already known and not one World gets built.
+                if (ShelterCountCache.TryGet(characterID, out HashSet<string> cached))
+                {
+                    job.Shelters.UnionWith(cached);
+                    job.RegionIndex = job.Regions.Count;
+                    job.Done = true;
+                    job.LoadedFromCache = true;
+                    Plugin.Log?.LogInfo($"[ShelterCounter] {characterID}: {job.Shelters.Count} shelter(s) from cache -- skipping the region scan");
+                    return;
+                }
+
                 Plugin.Log?.LogInfo($"[ShelterCounter] {characterID}: counting shelters in {job.Regions.Count} story regions: {string.Join(" ", job.Regions)}");
             }
             if (job.Done)
@@ -166,6 +181,18 @@ namespace Primal.Gimmicks
             job.Done = true;
             string failed = job.FailedRegions.Count > 0 ? $" (could not count: {string.Join(" ", job.FailedRegions)})" : "";
             Plugin.Log?.LogInfo($"[ShelterCounter] {job.CharacterID}: total {job.Shelters.Count} shelter(s){failed}");
+
+            // Only persist a complete count. A run that skipped regions would otherwise cache a
+            // number that is wrong and, worse, sticky -- it would survive every later launch
+            // until some unrelated mod changed the fingerprint.
+            if (job.FailedRegions.Count == 0)
+            {
+                ShelterCountCache.Store(job.CharacterID, job.Shelters);
+            }
+            else
+            {
+                Plugin.Log?.LogWarning($"[ShelterCounter] {job.CharacterID}: not caching an incomplete count -- it will be recounted next launch");
+            }
         }
 
         private static Region FindRegion(RainWorldGame game, string regionName)
@@ -228,6 +255,223 @@ namespace Primal.Gimmicks
                 }
             }
             return slept;
+        }
+    }
+
+    /// <summary>
+    /// On-disk cache for ShelterTotals (2026-11-17, explicit request: "can we cache the whole
+    /// shelter analysis thing, since it lags every cycle. run it only after detecting mods
+    /// changed").
+    ///
+    /// **What was actually slow.** ShelterTotals already cached its result in a static for the
+    /// life of the process, so it did NOT recount every cycle -- confirmed from
+    /// BepInEx/LogOutput.log, which shows exactly one "counting shelters in 14 story regions"
+    /// block and one "total 109" per launch. What it did do is rebuild all 14 regions' Worlds
+    /// with WorldLoader on every GAME LAUNCH, which is the hitch that gets noticed early in a
+    /// session. This cache removes that: after the first run the counts come back from a file and
+    /// no World is ever built.
+    ///
+    /// **When it recomputes.** Only when the mod set changes. The fingerprint is built from
+    /// `ModManager.ActiveMods` -- each active mod's `id`, `version`, `checksum` and `loadOrder`,
+    /// sorted by id -- so installing, removing, updating, reordering or editing the CONTENTS of
+    /// any mod invalidates it. `checksum` is the game's own per-mod content hash (ModManager.cs
+    /// computes it and uses it for its own `checksumChanged` flag), so a mod edited in place is
+    /// caught too, not just a version bump. Load order is in there because region merging is
+    /// order-dependent.
+    ///
+    /// Deliberately NOT narrowed to mods with `modifiesRegions` set: that flag is self-reported
+    /// by each mod's own metadata, and a wrong count here is silent and sticky (it persists
+    /// across launches until something else changes), which is a far worse failure than
+    /// occasionally recounting after an unrelated mod updates. Fingerprinting everything costs
+    /// one extra count on launches where any mod changed at all.
+    ///
+    /// **Where.** `Application.persistentDataPath/Primal/shelter-counts.txt` -- Unity's
+    /// per-user writable location, used instead of the game folder (which is under Program Files
+    /// on a default Windows install and not writable without elevation) and instead of the
+    /// game's own `UserData.GetPersistentDataPath()`, which isn't in the reference assembly this
+    /// project compiles against.
+    ///
+    /// Every failure path here is non-fatal: a missing, unreadable, truncated or stale file just
+    /// means "no cache", and the normal background count runs exactly as it did before.
+    /// </summary>
+    internal static class ShelterCountCache
+    {
+        private const string FileFormatVersion = "v1";
+
+        private static string _fingerprint;
+        private static Dictionary<string, HashSet<string>> _loaded;
+        private static string _loadedFingerprint;
+
+        private static string CacheFilePath =>
+            Path.Combine(Path.Combine(Application.persistentDataPath, "Primal"), "shelter-counts.txt");
+
+        /// <summary>Identifies the current mod set. Computed once per process -- the active mod
+        /// list can't change without a restart.</summary>
+        private static string Fingerprint()
+        {
+            if (_fingerprint != null)
+            {
+                return _fingerprint;
+            }
+
+            var parts = new List<string>();
+            try
+            {
+                List<ModManager.Mod> mods = ModManager.ActiveMods;
+                if (mods != null)
+                {
+                    foreach (ModManager.Mod mod in mods)
+                    {
+                        if (mod != null)
+                        {
+                            parts.Add($"{mod.id}:{mod.version}:{mod.checksum}:{mod.loadOrder}");
+                        }
+                    }
+                }
+                parts.Sort(StringComparer.Ordinal);
+            }
+            catch (Exception ex)
+            {
+                // A fingerprint we can't compute must never silently match a stored one, or a
+                // stale count would stick forever. A unique value forces a recount instead.
+                Plugin.Log?.LogWarning($"[ShelterCounter] could not fingerprint the mod list ({ex.Message}) -- not using the cache this run");
+                _fingerprint = "unavailable-" + Guid.NewGuid().ToString("N");
+                return _fingerprint;
+            }
+
+            _fingerprint = Hash(string.Join("\n", parts.ToArray()));
+            return _fingerprint;
+        }
+
+        private static string Hash(string value)
+        {
+            using (var md5 = System.Security.Cryptography.MD5.Create())
+            {
+                byte[] bytes = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes(value));
+                var sb = new System.Text.StringBuilder(bytes.Length * 2);
+                foreach (byte b in bytes)
+                {
+                    sb.Append(b.ToString("x2"));
+                }
+                return sb.ToString();
+            }
+        }
+
+        /// <summary>Reads the file once per process. Returns false for a missing file, an
+        /// unreadable one, or one written under a different mod set.</summary>
+        private static bool EnsureLoaded()
+        {
+            string fingerprint = Fingerprint();
+            if (_loaded != null)
+            {
+                return _loadedFingerprint == fingerprint;
+            }
+
+            _loaded = new Dictionary<string, HashSet<string>>();
+            _loadedFingerprint = null;
+
+            try
+            {
+                string path = CacheFilePath;
+                if (!File.Exists(path))
+                {
+                    Plugin.Log?.LogInfo("[ShelterCounter] no shelter-count cache yet -- counting this launch, then saving it");
+                    return false;
+                }
+
+                string[] lines = File.ReadAllLines(path);
+                if (lines.Length < 2 || lines[0] != FileFormatVersion)
+                {
+                    Plugin.Log?.LogInfo("[ShelterCounter] shelter-count cache is in an older format -- recounting");
+                    return false;
+                }
+                if (lines[1] != fingerprint)
+                {
+                    Plugin.Log?.LogInfo("[ShelterCounter] mods changed since the shelter-count cache was written -- recounting");
+                    return false;
+                }
+
+                for (int i = 2; i < lines.Length; i++)
+                {
+                    int split = lines[i].IndexOf('=');
+                    if (split <= 0)
+                    {
+                        continue;
+                    }
+                    string characterID = lines[i].Substring(0, split);
+                    var shelters = new HashSet<string>();
+                    foreach (string name in lines[i].Substring(split + 1).Split(','))
+                    {
+                        if (name.Length > 0)
+                        {
+                            shelters.Add(name);
+                        }
+                    }
+                    _loaded[characterID] = shelters;
+                }
+
+                _loadedFingerprint = fingerprint;
+                Plugin.Log?.LogInfo($"[ShelterCounter] shelter-count cache is current ({_loaded.Count} character(s) cached, mods unchanged)");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Plugin.Log?.LogWarning($"[ShelterCounter] could not read the shelter-count cache ({ex.Message}) -- recounting");
+                return false;
+            }
+        }
+
+        /// <summary>A cached count for this character under the current mod set, if there is one.</summary>
+        public static bool TryGet(string characterID, out HashSet<string> shelters)
+        {
+            shelters = null;
+            if (characterID == null || !EnsureLoaded())
+            {
+                return false;
+            }
+            return _loaded.TryGetValue(characterID, out shelters);
+        }
+
+        /// <summary>Stores one character's counted shelters, keeping any other characters already
+        /// cached under the same mod set (a save file can have several Primal characters, and
+        /// recounting one shouldn't throw the others away).</summary>
+        public static void Store(string characterID, HashSet<string> shelters)
+        {
+            if (characterID == null || shelters == null)
+            {
+                return;
+            }
+
+            try
+            {
+                string fingerprint = Fingerprint();
+                if (_loaded == null || _loadedFingerprint != fingerprint)
+                {
+                    // Either nothing was loaded, or what was loaded belongs to a different mod
+                    // set -- in both cases this character's count starts the new file.
+                    _loaded = new Dictionary<string, HashSet<string>>();
+                    _loadedFingerprint = fingerprint;
+                }
+                _loaded[characterID] = shelters;
+
+                var lines = new List<string> { FileFormatVersion, fingerprint };
+                foreach (KeyValuePair<string, HashSet<string>> entry in _loaded)
+                {
+                    var names = new List<string>(entry.Value);
+                    names.Sort(StringComparer.Ordinal);
+                    lines.Add(entry.Key + "=" + string.Join(",", names.ToArray()));
+                }
+
+                string path = CacheFilePath;
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllLines(path, lines.ToArray());
+                Plugin.Log?.LogInfo($"[ShelterCounter] saved {characterID}'s {shelters.Count} shelter(s) to {path} -- it won't be recounted until the mod set changes");
+            }
+            catch (Exception ex)
+            {
+                // Purely an optimisation; failing to persist costs a recount next launch.
+                Plugin.Log?.LogWarning($"[ShelterCounter] could not save the shelter-count cache ({ex.Message})");
+            }
         }
     }
 
