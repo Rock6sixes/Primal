@@ -336,10 +336,11 @@ exactly `H-40`, the shelter counter's own y. The two strings printed on top of e
 **That was already true of `ShelterCounter.cs` on its own, before the rain timer existed** -- the
 merge didn't cause it, it just added a third label to the pile and made it obvious.
 
-Fixed by moving the shelter counter two text rows down (`RowsBelowCampaignTimer = 2`, measured
-from the font's own line height, not a magic pixel count), so the strip now reads top to bottom:
-campaign timer, rain timer, shelter counter, with no overlap in any fade state. If the rain timer
-readout is ever removed, one row would be enough.
+First fix was to stack the shelter counter two text rows lower, keeping all three in the centre
+column. **Superseded later the same day**: the user asked for the counter in the top-right corner
+instead, which takes it out of the shared column entirely and is the better answer -- the
+top-centre strip is now just the campaign timer and the rain timer one row below it, and the
+counter owns a corner nothing else uses.
 
 **Lesson for the next HUD element:** this top-centre strip is shared and nothing arbitrates it.
 Before adding a fourth, check this table and claim a row explicitly rather than picking a pixel
@@ -347,9 +348,15 @@ offset that happens to look free in whatever state you tested in.
 
 ## Rivulet shelter counter (2026-11-17)
 
-Explicit request: entering a shelter fades in a "SHELTERS  slept / total" counter at the top of the
-screen; the total is every shelter in every region of the character's campaign. Built in
-`Gimmicks/ShelterCounter.cs`; compiles clean, **not yet tested in-game**.
+Explicit request: entering a shelter fades in a "slept / total" counter; the total is every shelter
+in every region of the character's campaign. Built in `Gimmicks/ShelterCounter.cs`.
+
+**Confirmed working in-game 2026-11-17** (screenshot: "SHELTERS  1 / 109" while standing in a
+shelter). Two changes immediately after that screenshot, both by explicit request: the "SHELTERS"
+caption was dropped (it's now just "1 / 109", and the counting placeholder is a bare "..."), and
+the label moved from top-centre to the **top right** corner, right-aligned at a fixed inset. That
+move also retires the two-row stacking workaround below -- see the HUD row collision section
+above.
 
 - **Regions:** `SlugcatStats.SlugcatStoryRegions` -- for Rivulet (MSC on) 14: SU HI DS CC GW SH VS
   SL SI LF UW RM SB MS. Rivulet has no optional regions (`SlugcatOptionalRegions`). Same list
@@ -366,7 +373,8 @@ screen; the total is every shelter in every region of the character's campaign. 
 - **HUD (`ShelterCounterHud`):** added to every Primal-slot single-player story HUD
   (`HUD.InitSinglePlayerHud` Postfix); shows only while the requirement is assigned and the player
   is in a shelter (not mid-shortcut). ~0.75 s fade in/out, recounted on entry and once a second.
-  Shows "SHELTERS  counting..." until the background count finishes.
+  Right-aligned at the top-right corner (`TopInset` 40 / `RightInset` 30, matching the campaign
+  timer's own 40px top inset). Shows "..." until the background count finishes.
 - **Test:** as Primal Rivulet, the log should list all 14 regions with counts within a few seconds
   of starting a cycle; standing in a shelter shows the counter; after a sleep, the next cycle's
   counter is one higher.

@@ -8,9 +8,14 @@ namespace Primal.Gimmicks
 {
     /// <summary>
     /// Shelter counter for SleepEveryShelterRequirement (added 2026-11-17, explicit request): when
-    /// the player is in a shelter, a "SHELTERS  slept / total" counter fades in at the top of the
+    /// the player is in a shelter, a bare "slept / total" counter fades in at the TOP RIGHT of the
     /// screen, and fades back out on leaving. Shown only on the Primal slot, for a character that
     /// has Sleep In Every Shelter assigned (Rivulet by default).
+    ///
+    /// It read "SHELTERS  slept / total" centred at the top until later the same day, when both
+    /// the caption and the centre position were dropped by explicit request -- see BuildText and
+    /// TopInset/RightInset, which also record the campaign-timer collision the centre position
+    /// caused.
     ///
     /// **The total** (ShelterTotals) is every shelter in every one of this character's story regions
     /// (`SlugcatStats.SlugcatStoryRegions` -- 14 for Rivulet: SU HI DS CC GW SH VS SL SI LF UW RM SB
@@ -226,30 +231,30 @@ namespace Primal.Gimmicks
         }
     }
 
-    /// <summary>The fading "SHELTERS  slept / total" label. See ShelterTotals for the numbers.</summary>
+    /// <summary>The fading "slept / total" label in the top-right corner. See ShelterTotals for
+    /// the numbers.</summary>
     internal sealed class ShelterCounterHud : HUD.HudPart
     {
         private const float FadeSpeed = 1f / 30f;   // ~0.75 s fade at 40 ticks/s
         private const int RecountIntervalTicks = 40;
 
-        /// <summary>How many text rows below this label's original y it now sits (2026-11-17).
+        /// <summary>Insets from the top-RIGHT corner of the screen (2026-11-17, explicit request:
+        /// "I want the counter to be to the top right of the screen").
         ///
-        /// The original fixed `screenSize.y - 40f` collided head-on with vanilla's own campaign
-        /// timer (`MoreSlugcats.SpeedRunTimer`), which sits at
-        /// `ScreenSize.y - (30f + 10f * fade)` and is ALSO centred on screen centre. Inside a
+        /// This label used to be centred at a fixed `screenSize.y - 40f`, which put it head-on
+        /// into vanilla's own campaign timer (`MoreSlugcats.SpeedRunTimer`, at
+        /// `ScreenSize.y - (30f + 10f * fade)` and also centred on screen centre). Inside a
         /// shelter -- the only place this label ever shows -- `hud.showKarmaFoodRain` is true, so
-        /// that timer is always at full fade, i.e. exactly `y - 40f`: the two strings printed on
-        /// top of each other. That was true of this file on its own, before RainTimerHud existed.
+        /// that timer always sits at full fade, i.e. exactly `y - 40f`, and the two strings
+        /// printed on top of each other. A first fix stacked this two text rows lower; moving it
+        /// out of the centre column entirely supersedes that, because the whole top-centre strip
+        /// (campaign timer, then RainTimerHud's readout one row below it) is centre-aligned and
+        /// this corner is nobody else's.
         ///
-        /// RainTimerHud.cs then takes the row one line below the campaign timer, so this label
-        /// moves TWO rows down to clear both in every fade state (campaign timer occupies
-        /// H-30..H-40, the rain timer H-45..H-55, this H-70). If the rain timer readout is ever
-        /// removed, one row would be enough.</summary>
-        private const int RowsBelowCampaignTimer = 2;
-
-        /// <summary>Used only if the display font reports no line height; matches
-        /// HUD.DialogBox's own `lineHeight` constant, same as RainTimerHud's fallback.</summary>
-        private const float RowSpacingFallback = 15f;
+        /// TopInset matches the campaign timer's own 40px so the two sit on the same line, which
+        /// reads as deliberate rather than nearly-aligned.</summary>
+        private const float TopInset = 40f;
+        private const float RightInset = 30f;
 
         private readonly FLabel _label;
         private float _alpha;
@@ -263,6 +268,9 @@ namespace Primal.Gimmicks
             {
                 alpha = 0f,
                 color = Menu.Menu.MenuRGB(Menu.Menu.MenuColors.White),
+                // Right-aligned so the label hangs off a fixed inset from the screen's right
+                // edge; see TopInset/RightInset and Draw.
+                alignment = FLabelAlignment.Right,
             };
             hud.fContainers[1].AddChild(_label);
         }
@@ -295,22 +303,29 @@ namespace Primal.Gimmicks
             _alpha = Mathf.Clamp01(_alpha + (inShelter ? FadeSpeed : -FadeSpeed));
         }
 
+        /// <summary>Just the numbers -- the "SHELTERS" caption was dropped 2026-11-17 by explicit
+        /// request. The counting placeholder loses the caption with it and becomes a bare "...",
+        /// which still shows the label is alive and working rather than stuck at a wrong count;
+        /// it's only on screen for the first second or two of a cycle while the background count
+        /// finishes.</summary>
         private static string BuildText(RainWorldGame game, string characterID)
         {
             if (!ShelterTotals.TryGetShelters(characterID, out HashSet<string> shelters))
             {
-                return "SHELTERS  counting...";
+                return "...";
             }
             int slept = ShelterTotals.CountSlept(PrimalSaveMarkers.SaveDataFor(game), characterID, shelters);
-            return $"SHELTERS  {slept} / {shelters.Count}";
+            return $"{slept} / {shelters.Count}";
         }
 
         public override void Draw(float timeStacker)
         {
             base.Draw(timeStacker);
-            float rowSpacing = _label.FontLineHeight > 0f ? _label.FontLineHeight : RowSpacingFallback;
-            _label.x = hud.rainWorld.screenSize.x / 2f + 0.01f;
-            _label.y = hud.rainWorld.screenSize.y - 40f - RowsBelowCampaignTimer * rowSpacing
+            // Right-aligned, so x is the label's RIGHT edge -- the text then grows leftwards as
+            // the counts get wider ("1 / 109" vs "109 / 109") and the corner inset stays put.
+            _label.x = hud.rainWorld.screenSize.x - RightInset
+                - hud.rainWorld.options.SafeScreenOffset.x + 0.01f;
+            _label.y = hud.rainWorld.screenSize.y - TopInset
                 - hud.rainWorld.options.SafeScreenOffset.y + 0.01f;
             _label.alpha = Mathf.Lerp(_lastAlpha, _alpha, timeStacker);
         }
