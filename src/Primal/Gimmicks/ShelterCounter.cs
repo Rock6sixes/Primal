@@ -232,6 +232,25 @@ namespace Primal.Gimmicks
         private const float FadeSpeed = 1f / 30f;   // ~0.75 s fade at 40 ticks/s
         private const int RecountIntervalTicks = 40;
 
+        /// <summary>How many text rows below this label's original y it now sits (2026-11-17).
+        ///
+        /// The original fixed `screenSize.y - 40f` collided head-on with vanilla's own campaign
+        /// timer (`MoreSlugcats.SpeedRunTimer`), which sits at
+        /// `ScreenSize.y - (30f + 10f * fade)` and is ALSO centred on screen centre. Inside a
+        /// shelter -- the only place this label ever shows -- `hud.showKarmaFoodRain` is true, so
+        /// that timer is always at full fade, i.e. exactly `y - 40f`: the two strings printed on
+        /// top of each other. That was true of this file on its own, before RainTimerHud existed.
+        ///
+        /// RainTimerHud.cs then takes the row one line below the campaign timer, so this label
+        /// moves TWO rows down to clear both in every fade state (campaign timer occupies
+        /// H-30..H-40, the rain timer H-45..H-55, this H-70). If the rain timer readout is ever
+        /// removed, one row would be enough.</summary>
+        private const int RowsBelowCampaignTimer = 2;
+
+        /// <summary>Used only if the display font reports no line height; matches
+        /// HUD.DialogBox's own `lineHeight` constant, same as RainTimerHud's fallback.</summary>
+        private const float RowSpacingFallback = 15f;
+
         private readonly FLabel _label;
         private float _alpha;
         private float _lastAlpha;
@@ -289,8 +308,10 @@ namespace Primal.Gimmicks
         public override void Draw(float timeStacker)
         {
             base.Draw(timeStacker);
+            float rowSpacing = _label.FontLineHeight > 0f ? _label.FontLineHeight : RowSpacingFallback;
             _label.x = hud.rainWorld.screenSize.x / 2f + 0.01f;
-            _label.y = hud.rainWorld.screenSize.y - 40f - hud.rainWorld.options.SafeScreenOffset.y + 0.01f;
+            _label.y = hud.rainWorld.screenSize.y - 40f - RowsBelowCampaignTimer * rowSpacing
+                - hud.rainWorld.options.SafeScreenOffset.y + 0.01f;
             _label.alpha = Mathf.Lerp(_lastAlpha, _alpha, timeStacker);
         }
 

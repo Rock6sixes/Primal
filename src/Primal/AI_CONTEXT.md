@@ -318,6 +318,33 @@ scene art from 'scenes\primal spearmaster'`, with no unmapped-layer warnings and
 - `scripts/build-deploy-run.sh` now deploys `scenes/` too, closing this doc's own long-standing
   "Known gaps" entry about scene art needing a manual copy.
 
+## HUD row collision: campaign timer / rain timer / shelter counter (2026-11-17)
+
+Found while merging `main` (shelter counter) into the rain-timer branch. **Three centred labels
+were competing for the same strip at the top of the screen**, and two of them landed on exactly
+the same pixel row:
+
+| Label | y | centred on |
+| --- | --- | --- |
+| Campaign timer (vanilla `MoreSlugcats.SpeedRunTimer`) | `H - (30 + 10*fade)` → `H-30`..`H-40` | screen centre |
+| Rain timer (`RainTimerHud.cs`) | one line below the campaign timer → `H-45`..`H-55` | the campaign timer |
+| Shelter counter (`ShelterCounter.cs`), originally | `H-40`, fixed | screen centre |
+
+The shelter counter only ever shows inside a shelter, and inside a shelter
+`hud.showKarmaFoodRain` is true, so the campaign timer is always at FULL fade there -- i.e.
+exactly `H-40`, the shelter counter's own y. The two strings printed on top of each other.
+**That was already true of `ShelterCounter.cs` on its own, before the rain timer existed** -- the
+merge didn't cause it, it just added a third label to the pile and made it obvious.
+
+Fixed by moving the shelter counter two text rows down (`RowsBelowCampaignTimer = 2`, measured
+from the font's own line height, not a magic pixel count), so the strip now reads top to bottom:
+campaign timer, rain timer, shelter counter, with no overlap in any fade state. If the rain timer
+readout is ever removed, one row would be enough.
+
+**Lesson for the next HUD element:** this top-centre strip is shared and nothing arbitrates it.
+Before adding a fourth, check this table and claim a row explicitly rather than picking a pixel
+offset that happens to look free in whatever state you tested in.
+
 ## Rivulet shelter counter (2026-11-17)
 
 Explicit request: entering a shelter fades in a "SHELTERS  slept / total" counter at the top of the
