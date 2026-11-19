@@ -210,6 +210,92 @@ namespace Primal.Gimmicks
         }
     }
 
+    /// <summary>
+    /// Fix (2026-11-19) for "after dying or sleeping, the precycle doesn't happen -- only after
+    /// exiting and reloading", reported from another player's PC.
+    ///
+    /// Cause: when the death/sleep screen (SleepAndDeathScreen) or the karma screen
+    /// (KarmaLadderScreen) hands over to the next cycle, CommunicateWithUpcomingProcess skips the
+    /// shelter-opening wait by setting the new cycle's `rainCycle.timer = 340`. Vanilla only does
+    /// that when no precycle is coming: `!PrecycleModule || cfgDisablePrecycles || preTimer == 0`.
+    /// With More Slugcats' Remix "Disable shelter failures" (cfgDisablePrecycles) checked, vanilla
+    /// assumes there's no precycle and jumps the timer anyway -- but PrecycleTimerGimmick has
+    /// deliberately forced one (it already ignores cfgDisablePrecycles in the RainCycle
+    /// constructor, see the Postfix above). The jump is gated on death (always), or on sleep
+    /// with Remix "Faster shelter opening" (MMF.cfgFasterShelterOpen), validation, or a
+    /// malnourished sleep. With Rain Timer at 0% (cycleLength 40 ticks, Rivulet's default),
+    /// timer 340 is already past `cycleLength`, and RainCycle.Update's
+    /// `if (!deathRainHasHit && timer >= cycleLength) RainHit()` doesn't wait for the precycle --
+    /// so death rain hits on the first frame and the precycle looks like it never happened.
+    /// Loading from the main menu never passes through these screens, which is why a reload "fixed"
+    /// it.
+    ///
+    /// Fix: Prefix records the new cycle's timer, Postfix puts it back if this gimmick is on for
+    /// that game's character and the cycle has a precycle (preTimer > 0). So with the Precycle
+    /// Timer assigned, "Disable shelter failures" is ignored and "Faster shelter opening" never
+    /// eats the precycle. Anything else (gimmick off, no precycle this cycle) is left to vanilla.
+    /// </summary>
+    internal static class PrecycleScreenTimerFix
+    {
+        internal static int? Capture(MainLoopProcess nextProcess)
+        {
+            return (nextProcess as RainWorldGame)?.world?.rainCycle?.timer;
+        }
+
+        internal static void Restore(MainLoopProcess nextProcess, int? timerBefore)
+        {
+            if (!timerBefore.HasValue || !(nextProcess is RainWorldGame game))
+            {
+                return;
+            }
+            RainCycle rainCycle = game.world?.rainCycle;
+            if (rainCycle == null || rainCycle.timer == timerBefore.Value || rainCycle.preTimer <= 0)
+            {
+                return;
+            }
+            if (!game.IsStorySession || !PrimalSlot.IsActive(game.rainWorld))
+            {
+                return;
+            }
+            string characterID = game.StoryCharacter?.value;
+            if (!GimmickAssignments.IsEnabled(characterID, PrecycleTimerGimmick.ID))
+            {
+                return;
+            }
+
+            Plugin.Log?.LogInfo($"[PrecycleTimer] {characterID}: screen jumped the cycle timer to {rainCycle.timer} during a precycle (Remix \"Disable shelter failures\"/\"Faster shelter opening\") -- restored to {timerBefore.Value}");
+            rainCycle.timer = timerBefore.Value;
+        }
+    }
+
+    [HarmonyPatch(typeof(Menu.SleepAndDeathScreen), nameof(Menu.SleepAndDeathScreen.CommunicateWithUpcomingProcess))]
+    internal static class PrecycleSleepScreenTimerHook
+    {
+        private static void Prefix(MainLoopProcess nextProcess, out int? __state)
+        {
+            __state = PrecycleScreenTimerFix.Capture(nextProcess);
+        }
+
+        private static void Postfix(MainLoopProcess nextProcess, int? __state)
+        {
+            PrecycleScreenTimerFix.Restore(nextProcess, __state);
+        }
+    }
+
+    [HarmonyPatch(typeof(Menu.KarmaLadderScreen), nameof(Menu.KarmaLadderScreen.CommunicateWithUpcomingProcess))]
+    internal static class PrecycleKarmaScreenTimerHook
+    {
+        private static void Prefix(MainLoopProcess nextProcess, out int? __state)
+        {
+            __state = PrecycleScreenTimerFix.Capture(nextProcess);
+        }
+
+        private static void Postfix(MainLoopProcess nextProcess, int? __state)
+        {
+            PrecycleScreenTimerFix.Restore(nextProcess, __state);
+        }
+    }
+
     /// <summary>(2026-11-10: DurationPercent is now HeadStartSeconds + RandomDuration -- see the
     /// note in PrecycleTimerGimmick's header. The old "Shelter failure chance"/"Permanent shelter
     /// failure" pair that used to live here was superseded 2026-11-05 by

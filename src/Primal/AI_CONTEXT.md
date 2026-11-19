@@ -47,6 +47,8 @@ Built but **not yet tested in-game**:
   second. See "Chains: creatures left unchained" below.
 - Survivor Community Challenges count requirement (2026-11-10), see its section below.
 - Rivulet shelter counter HUD (2026-11-17), see "Rivulet shelter counter" below.
+- Precycle vs Remix "Disable shelter failures"/"Faster shelter opening" fix (2026-11-19), see
+  "Precycle lost after death/sleep" below.
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -62,6 +64,26 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Precycle lost after death/sleep (2026-11-19)
+
+Reported from another player's PC: as Rivulet, after dying or sleeping the precycle didn't happen;
+exiting and reloading brought it back. Cause, from vanilla source:
+`SleepAndDeathScreen`/`KarmaLadderScreen.CommunicateWithUpcomingProcess` set the next cycle's
+`rainCycle.timer = 340` (skip the shelter-opening wait) when `(death || validation ||
+MMF.cfgFasterShelterOpen || malnourished)` and `(!PrecycleModule || MSC cfgDisablePrecycles ||
+preTimer == 0)`. With Remix "Disable shelter failures" (cfgDisablePrecycles) on, vanilla assumes no
+precycle, but PrecycleTimerGimmick forces one. With Rain Timer 0% (cycleLength 40), timer 340 is
+already past rain time, and `RainCycle.Update` starts death rain on `timer >= cycleLength` without
+waiting for the precycle. Main-menu loads skip those screens, hence "reload fixes it".
+
+Fix: `PrecycleScreenTimerFix` + `PrecycleSleepScreenTimerHook` / `PrecycleKarmaScreenTimerHook`
+(in `PrecycleTimerGimmick.cs`): Prefix records the new cycle's timer, Postfix restores it when the
+Precycle Timer is on for that character and `preTimer > 0`. Logs `[PrecycleTimer] ... screen
+jumped the cycle timer ... restored`. The RainCycle Postfix already ignored cfgDisablePrecycles.
+Only other vanilla reader of these options (SleepAndDeathScreen line ~772) just speeds up the
+screen itself. Builds clean; **not yet tested in-game** -- test with "Disable shelter failures"
+and "Faster shelter opening" both on: die, then sleep, and confirm a precycle each time.
 
 ## Rivulet shelter counter (2026-11-17)
 
