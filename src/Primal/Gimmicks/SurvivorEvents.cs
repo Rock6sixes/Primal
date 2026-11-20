@@ -53,6 +53,14 @@ namespace Primal.Gimmicks
         /// PrimalSaveMarkers).</summary>
         public static event Action<RainWorldGame, Player, string> OnSuccessfulHibernation;
 
+        /// <summary>True only while OnSuccessfulHibernation is being raised for a starving
+        /// ("malnourished") sleep -- RainWorldGame.Win's own `malnourished` argument. Vanilla
+        /// doesn't save the world state to disk for such a sleep (PlayerProgression
+        /// .SaveWorldStateAndProgression: "STARVED - NOT SAVING STATE TO DISK"), only the
+        /// death-persistent data, so dying or quitting before the next real sleep rolls the game
+        /// back to the shelter before. Added 2026-11-20 (ShelterSleepRecords).</summary>
+        public static bool HibernationIsMalnourished { get; internal set; }
+
         /// <summary>Fires once per assigned-slot player whose cycle just ended in death -- a
         /// Postfix on RainWorldGame.GameOver, matching PrimalKillDiscardHook's own
         /// confirmed-safe timing (nothing this needs to read is affected by GameOver's own body,
@@ -240,7 +248,23 @@ namespace Primal.Gimmicks
     [HarmonyPatch(typeof(RainWorldGame), nameof(RainWorldGame.Win))]
     internal static class SurvivorWinHook
     {
-        private static void Prefix(RainWorldGame __instance)
+        private static void Prefix(RainWorldGame __instance, bool malnourished)
+        {
+            // 2026-11-20: exposed for the duration of this Win so OnSuccessfulHibernation
+            // subscribers can tell a starving sleep (vanilla doesn't write it to disk, and rolls it
+            // back if you die or quit before the next real sleep) from a real one.
+            SurvivorEvents.HibernationIsMalnourished = malnourished;
+            try
+            {
+                RaiseAll(__instance);
+            }
+            finally
+            {
+                SurvivorEvents.HibernationIsMalnourished = false;
+            }
+        }
+
+        private static void RaiseAll(RainWorldGame __instance)
         {
             if (!SurvivorEvents.HasSuccessfulHibernationSubscribers
                 || __instance?.Players == null

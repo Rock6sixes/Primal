@@ -49,6 +49,7 @@ Built but **not yet tested in-game**:
 - Rivulet shelter counter HUD (2026-11-17), see "Rivulet shelter counter" below.
 - Precycle vs Remix "Disable shelter failures"/"Faster shelter opening" fix (2026-11-19), see
   "Precycle lost after death/sleep" below.
+- Starving-sleep rollback for shelter markers (2026-11-20), see "Starving sleep then death" below.
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -64,6 +65,34 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Starving sleep then death (2026-11-20)
+
+Reported: starving in a shelter breaks it (fine), but dying afterwards sends you back to the
+previous shelter while the starved-in one stays marked as slept in / broken. Vanilla: a
+malnourished `Win` saves only death-persistent data to disk ("STARVED - NOT SAVING STATE TO DISK",
+`PlayerProgression.SaveWorldStateAndProgression`) and continues from the in-memory
+`starvedSaveState`; dying or quitting before the next real sleep reloads the last real save. Our
+markers live in death-persistent data, so they survived that rollback.
+
+Fix (`PermanentShelterFailureGimmick.cs` -> `ShelterSleepRecords`):
+- `SurvivorWinHook` now exposes Win's `malnourished` as `SurvivorEvents.HibernationIsMalnourished`
+  while OnSuccessfulHibernation is raised.
+- A sleep marker written on a starving sleep also gets a pending entry
+  (`PrimalShelterSleptPending<dpB>char<dpB><marker>`). SleepEveryShelterRequirement does the same
+  for a region-complete marker and the requirement-completed marker earned on a starving sleep
+  (`RequirementCompletion.CompletionMarker`, new).
+- Next real sleep: pending entries dropped, markers kept (`ConfirmPending`).
+- Any gameplay World loading from a save state with `malnourished == false` while pending entries
+  exist means the game rolled back past the starving sleep: `RevertPendingIfRolledBack` (called from
+  `PermanentShelterFailureGimmick.Apply`, before the forcing loop, for every Primal story World)
+  removes the markers and their pending entries. Logs `game rolled back past a starving sleep --
+  undid ...`.
+- New `PrimalSaveMarkers.Remove` / `GetWithPrefix` (markers were write-once until now).
+- Builds clean; **not yet tested in-game**. Test: starve in shelter B, die -> back in A, B usable and
+  counter one lower; starve in B, then sleep fed in C -> B stays used.
+- Not covered: other trackers' progress made during a rolled-back starving cycle (same
+  death-persistent storage) -- pre-existing, separate issue.
 
 ## Precycle lost after death/sleep (2026-11-19)
 

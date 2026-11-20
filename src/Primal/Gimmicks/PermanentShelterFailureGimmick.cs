@@ -64,11 +64,89 @@ namespace Primal.Gimmicks
                 return null;
             }
 
-            if (PrimalSaveMarkers.Add(saveData, SleptMarker(characterID, room.name)))
+            bool starving = SurvivorEvents.HibernationIsMalnourished;
+            string sleptMarker = SleptMarker(characterID, room.name);
+            if (PrimalSaveMarkers.Add(saveData, sleptMarker))
             {
-                Plugin.Log?.LogInfo($"[ShelterSleepRecords] {characterID}: slept in {room.name}");
+                Plugin.Log?.LogInfo($"[ShelterSleepRecords] {characterID}: slept in {room.name}{(starving ? " (starving -- provisional until the next real sleep)" : "")}");
+                if (starving)
+                {
+                    AddPending(saveData, characterID, sleptMarker);
+                }
+            }
+            if (!starving)
+            {
+                ConfirmPending(saveData, characterID);
             }
             return room.name;
+        }
+
+        // ---- Starving-sleep rollback (added 2026-11-20) ----------------------------------------
+        //
+        // Reported: starve in a shelter (it breaks, fine), then die -- the game puts you back in the
+        // shelter BEFORE, but the starved-in shelter stays marked as slept in (and broken).
+        //
+        // Why: vanilla doesn't save a starving sleep's world state to disk
+        // (PlayerProgression.SaveWorldStateAndProgression(malnourished: true) -- "STARVED - NOT
+        // SAVING STATE TO DISK"); it keeps that state in memory (`starvedSaveState`) and continues
+        // from it. Die or quit before the next real sleep, and the game loads the last real save
+        // from disk -- the shelter before. But it DOES save the death-persistent data, which is where
+        // every marker here lives, so the sleep marker survived the rollback.
+        //
+        // Fix: anything recorded on a starving sleep is also listed as "pending" (one
+        // `PrimalShelterSleptPending<dpB>char<dpB><marker>` entry per marker). The next real sleep
+        // confirms them (drops the pending entries, keeps the markers). If instead a World is ever
+        // loaded from a save state that is NOT malnourished while pending entries exist, the game
+        // must have rolled back past the starving sleep, so RevertPendingIfRolledBack removes the
+        // markers too -- the shelter is free again and no longer counts as slept in. (A save state
+        // continuing from a starving sleep always has `malnourished == true`; one loaded from disk
+        // always has `false`, since only non-starving sleeps write to disk.) With Remix "Vanilla
+        // exploits" on, vanilla may keep the starved state after a death instead -- then the save
+        // stays malnourished and nothing is reverted, which matches what the game itself did.
+        //
+        // Used for: the slept-in marker (here), plus SleepEveryShelterRequirement's region-complete
+        // and requirement-completed markers when earned on a starving sleep.
+
+        private const string PendingKey = "PrimalShelterSleptPending";
+
+        /// <summary>Marks `marker` (already written) as provisional until the next real sleep.</summary>
+        public static void AddPending(DeathPersistentSaveData saveData, string characterID, string marker)
+        {
+            PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(PendingKey, characterID, marker));
+        }
+
+        private static void ConfirmPending(DeathPersistentSaveData saveData, string characterID)
+        {
+            List<string> pending = PrimalSaveMarkers.GetWithPrefix(saveData, PrimalSaveMarkers.Prefix(PendingKey, characterID));
+            foreach (string entry in pending)
+            {
+                PrimalSaveMarkers.Remove(saveData, entry);
+            }
+            if (pending.Count > 0)
+            {
+                Plugin.Log?.LogInfo($"[ShelterSleepRecords] {characterID}: real sleep -- {pending.Count} provisional marker(s) from starving sleeps confirmed");
+            }
+        }
+
+        /// <summary>Called when a gameplay World loads (PermanentShelterFailureGimmick.Apply, which
+        /// runs for every Primal story World whether or not the gimmick itself is on). See the
+        /// comment block above.</summary>
+        public static void RevertPendingIfRolledBack(SaveState saveState, string characterID)
+        {
+            DeathPersistentSaveData saveData = saveState?.deathPersistentSaveData;
+            if (saveData == null || characterID == null || saveState.malnourished)
+            {
+                return;
+            }
+            string prefix = PrimalSaveMarkers.Prefix(PendingKey, characterID);
+            List<string> pending = PrimalSaveMarkers.GetWithPrefix(saveData, prefix);
+            foreach (string entry in pending)
+            {
+                string marker = entry.Substring(prefix.Length);
+                PrimalSaveMarkers.Remove(saveData, marker);
+                PrimalSaveMarkers.Remove(saveData, entry);
+                Plugin.Log?.LogInfo($"[ShelterSleepRecords] {characterID}: game rolled back past a starving sleep -- undid {marker.Replace(PrimalSaveMarkers.Delimiter, "|")}");
+            }
         }
 
         public static void SnapshotVanillaBroken(World world)
@@ -194,6 +272,14 @@ namespace Primal.Gimmicks
             }
 
             ShelterSleepRecords.SnapshotVanillaBroken(world);
+
+            // Gameplay worlds only (not the passage screen's): undo anything recorded on a starving
+            // sleep that the game has since rolled back. Before the forcing loop below, so a freed
+            // shelter isn't re-broken this load.
+            if (world.game != null)
+            {
+                ShelterSleepRecords.RevertPendingIfRolledBack(saveState, characterID);
+            }
 
             if (!GimmickGate.IsEnabledForCharacter(rainWorld, characterID, ID))
             {

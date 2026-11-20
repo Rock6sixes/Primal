@@ -374,6 +374,13 @@ namespace Primal.Gimmicks
         }
 
         /// <summary>Has this character ever satisfied this requirement, on this save file?</summary>
+        /// <summary>The marker that records this requirement as completed -- exposed (2026-11-20) so
+        /// ShelterSleepRecords can make a completion earned on a starving sleep provisional.</summary>
+        public static string CompletionMarker(string characterID, string requirementID)
+        {
+            return PrimalSaveMarkers.Marker(CompletedKey, characterID, requirementID);
+        }
+
         public static bool IsCompleted(DeathPersistentSaveData saveData, string characterID, string requirementID)
         {
             return PrimalSaveMarkers.Has(saveData, PrimalSaveMarkers.Marker(CompletedKey, characterID, requirementID));

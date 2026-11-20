@@ -4255,9 +4255,18 @@ namespace Primal.Gimmicks
                     return;
                 }
 
-                if (PrimalSaveMarkers.Add(saveData, PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, world.name)))
+                // 2026-11-20: on a starving sleep, anything newly earned here is provisional (see
+                // ShelterSleepRecords' starving-sleep rollback comment) -- undone if the game rolls
+                // back past this sleep, confirmed by the next real one.
+                bool starving = SurvivorEvents.HibernationIsMalnourished;
+                string regionMarker = PrimalSaveMarkers.Marker(RegionCompleteMarkerKey, characterID, world.name);
+                if (PrimalSaveMarkers.Add(saveData, regionMarker))
                 {
                     Plugin.Log?.LogInfo($"[SleepEveryShelter] {characterID}: every shelter in {world.name} slept in");
+                    if (starving)
+                    {
+                        ShelterSleepRecords.AddPending(saveData, characterID, regionMarker);
+                    }
                 }
 
                 if (!AllStoryRegionsComplete(saveData, player.playerState?.slugcatCharacter, characterID))
@@ -4265,7 +4274,12 @@ namespace Primal.Gimmicks
                     return;
                 }
 
+                bool newlyCompleted = !RequirementCompletion.IsCompleted(saveData, characterID, RequirementID);
                 ReportCompletion(player, characterID, isLive: true);
+                if (starving && newlyCompleted && RequirementCompletion.IsCompleted(saveData, characterID, RequirementID))
+                {
+                    ShelterSleepRecords.AddPending(saveData, characterID, RequirementCompletion.CompletionMarker(characterID, RequirementID));
+                }
             };
         }
 

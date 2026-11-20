@@ -139,6 +139,50 @@ namespace Primal.Gimmicks
             return count;
         }
 
+        /// <summary>Every marker currently starting with this prefix (a copy, safe to modify the save
+        /// while iterating it). Cold path. Added 2026-11-20 for ShelterSleepRecords' pending
+        /// (starving-sleep) markers.</summary>
+        public static List<string> GetWithPrefix(DeathPersistentSaveData saveData, string prefix)
+        {
+            var result = new List<string>();
+            List<string> entries = saveData?.unrecognizedSaveStrings;
+            if (entries == null || prefix == null)
+            {
+                return result;
+            }
+            foreach (string entry in entries)
+            {
+                if (entry != null && entry.StartsWith(prefix))
+                {
+                    result.Add(entry);
+                }
+            }
+            return result;
+        }
+
+        /// <summary>Removes every copy of this exact marker. Returns true if anything was removed.
+        /// Added 2026-11-20 -- until then markers were write-once; used only to undo markers that
+        /// vanilla's own starvation rollback says never really happened (ShelterSleepRecords).</summary>
+        public static bool Remove(DeathPersistentSaveData saveData, string marker)
+        {
+            List<string> entries = saveData?.unrecognizedSaveStrings;
+            if (entries == null || marker == null)
+            {
+                return false;
+            }
+            int removed = entries.RemoveAll(e => e == marker);
+            if (removed == 0)
+            {
+                return false;
+            }
+            if (_caches.TryGetValue(saveData, out MarkerCache cache) && cache.Set != null)
+            {
+                cache.Set.Remove(marker);
+                cache.SourceCount = entries.Count;
+            }
+            return true;
+        }
+
         private static HashSet<string> GetSet(DeathPersistentSaveData saveData)
         {
             List<string> entries = saveData?.unrecognizedSaveStrings;
