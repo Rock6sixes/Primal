@@ -50,6 +50,7 @@ Built but **not yet tested in-game**:
 - Precycle vs Remix "Disable shelter failures"/"Faster shelter opening" fix (2026-11-19), see
   "Precycle lost after death/sleep" below.
 - Starving-sleep rollback for shelter markers (2026-11-20), see "Starving sleep then death" below.
+- Creatures hiding in dens during Rivulet's precycle (2026-11-21), see "Precycle creatures vanish" below.
 - Decided 2026-11-10 (user): Saint's No Hold skips the first cycle by default
   (`NoHoldSettings.DefaultInertUntilCycleFor` -> 1 for Saint, 0 for everyone else); Chains escape
   timer off by default (`DefaultEscapeTimerSeconds = 0`, was 90). Saved Remix values still win.
@@ -65,6 +66,24 @@ character names.
 
 Housekeeping: the claude.ai project's copy of this file (`claude/AI_CONTEXT.md`) is an old
 snapshot; this repo copy is authoritative.
+
+## Precycle creatures vanish (2026-11-21)
+
+Reported: as Rivulet, all creatures disappear except the precycle ones. Cause: `RainCycle.TimeUntilRain`
+= `cycleLength - timer`; the timer is frozen at 0 during the precycle, so with Rain Timer 0%
+(cycleLength 40) the game reports rain 1 s away for the whole precycle. Creature AI reads it everywhere
+(`AbstractCreature.WantToStayInDenUntilEndOfCycle` < 60 s in story -> home to den for the rest of the
+cycle; scavenger/deer/miros/drill crab/loach abstract AIs < 800 ticks; overseers and cicadas < 4800;
+spiders, leeches, insects), so every daytime creature went into its den. Precycle-only creatures follow
+their own preCycle rules.
+
+Fix: `RainTimerPrecycleCreatureHook` (end of `RainTimerGimmick.cs`), Postfix on the `TimeUntilRain`
+getter: while `preTimer > 0` on the Primal slot for a character with Rain Timer assigned, report at
+least `preTimer + 4840`, above every AI threshold, so creatures behave as in a vanilla precycle (a whole
+cycle still ahead). After the precycle the real ~1 s applies and death rain catches anything still out.
+Unaffected: death rain (triggers on `timer >= cycleLength`), story rain visuals/lighting
+(`RainApproaching` uses `preTimer` during a precycle). Hot getter: `preTimer > 0` checked first, gimmick
+check cached per RainCycle. Builds clean; **not yet tested in-game**.
 
 ## Starving sleep then death (2026-11-20)
 

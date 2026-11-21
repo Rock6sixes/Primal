@@ -324,4 +324,79 @@ namespace Primal.Gimmicks
             return items;
         }
     }
+
+    /// <summary>
+    /// Fix (2026-11-21) for "as Rivulet, all creatures get deleted except the precycle ones".
+    ///
+    /// Cause: vanilla's `RainCycle.TimeUntilRain` is `cycleLength - timer`, and the cycle timer is
+    /// frozen at 0 for the whole precycle (RainCycle.Update only advances `timer` once `preTimer`
+    /// is 0). With Rain Timer at 0% (cycleLength 40 ticks, Rivulet's default) plus a forced
+    /// precycle, the game therefore reports rain as 1 second away for the entire precycle.
+    /// Creature AI reads that number everywhere: `AbstractCreature.WantToStayInDenUntilEndOfCycle`
+    /// sends every non-night creature home to its den for the rest of the cycle below 60 s (story);
+    /// scavengers, deer, Miros birds, drill crabs and loaches flee below 20 s (800 ticks);
+    /// overseers and cicada swarms react below 2 min (4800); spiders, leeches and insects burrow.
+    /// So everything vanished into dens. Precycle-only creatures run on their own preCycle rules.
+    /// In a vanilla precycle a whole cycle still lies ahead, so creatures behave normally.
+    ///
+    /// Fix: Postfix on the `TimeUntilRain` getter. While a precycle is running (`preTimer > 0`) on
+    /// the Primal slot for a character with Rain Timer assigned, report at least
+    /// `preTimer + PrecycleCreatureBuffer` -- always above every AI threshold above (max 4800), so
+    /// creatures act like it's the middle of a normal day during the precycle, just as in vanilla.
+    /// Once the precycle ends the real value (~1 s at 0%) applies again and death rain catches
+    /// whatever is still out. Vanilla's own story-mode rain visuals/lighting
+    /// (`RainApproaching` / `ShaderLight` / `RainDarkPalette`) already use `preTimer` during a
+    /// precycle, and death rain itself triggers on `timer >= cycleLength`, not on this getter,
+    /// so neither is affected.
+    ///
+    /// The getter is hot (read by many creatures every frame), so the cheap `preTimer > 0` test
+    /// comes first and the gimmick check is cached per RainCycle instance.
+    /// </summary>
+    [HarmonyPatch(typeof(RainCycle), nameof(RainCycle.TimeUntilRain), MethodType.Getter)]
+    internal static class RainTimerPrecycleCreatureHook
+    {
+        /// <summary>Two minutes -- above every vanilla AI "rain is coming" threshold (4800).</summary>
+        private const int PrecycleCreatureBuffer = 4800 + 40;
+
+        private static RainCycle _cachedCycle;
+        private static bool _cachedActive;
+
+        private static void Postfix(RainCycle __instance, ref int __result)
+        {
+            if (__instance.preTimer <= 0)
+            {
+                return;
+            }
+            if (!ReferenceEquals(__instance, _cachedCycle))
+            {
+                _cachedCycle = __instance;
+                _cachedActive = IsActive(__instance);
+            }
+            if (!_cachedActive)
+            {
+                return;
+            }
+            int floor = __instance.preTimer + PrecycleCreatureBuffer;
+            if (__result < floor)
+            {
+                __result = floor;
+            }
+        }
+
+        private static bool IsActive(RainCycle rainCycle)
+        {
+            try
+            {
+                RainWorldGame game = rainCycle.world?.game;
+                return game != null
+                    && game.IsStorySession
+                    && PrimalSlot.IsActive(game.rainWorld)
+                    && GimmickAssignments.IsEnabled(game.StoryCharacter?.value, RainTimerGimmick.ID);
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+    }
 }
